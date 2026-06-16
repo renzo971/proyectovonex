@@ -1,24 +1,3 @@
-<!--
-SYNC IMPACT REPORT:
-- Version change: [CONSTITUTION_VERSION] (First concrete initialization) -> 1.0.0
-- List of modified principles:
-  * [PRINCIPLE_1_NAME] -> Art. 1 · Small tasks, one at a time (tareas pequeñas, una a la vez)
-  * [PRINCIPLE_2_NAME] -> Art. 2 · Pattern Preservation & Legacy Compatibility (preservación de patrones y compatibilidad)
-  * [PRINCIPLE_3_NAME] -> Art. 3 · Quality Standards (estándares de calidad)
-  * [PRINCIPLE_4_NAME] -> Art. 4 · Architecture Principles (principios de arquitectura)
-  * [PRINCIPLE_5_NAME] -> Art. 7 · Boundaries (límites - las tres listas)
-- Added sections:
-  * Art. 5 · Language Standards (estándares de lenguaje)
-  * Art. 6 · Portabilidad Multi-Agente (Multi-Agent Portability)
-  * Git Workflow & Team Collaboration
-  * Setup & Testing Execution
-- Removed sections: None
-- Templates requiring updates:
-  * ✅ .specify/templates/plan-template.md (already aligned)
-  * ✅ .specify/templates/spec-template.md (already aligned)
-  * ✅ .specify/templates/tasks-template.md (already aligned)
-- Follow-up TODOs: None (All placeholders successfully resolved)
--->
 # Proyecto Vonex Constitution
 
 ## Core Principles
