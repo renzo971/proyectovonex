@@ -1,12 +1,12 @@
 <!--
 SYNC IMPACT REPORT:
-- Version change: 1.0.0 -> 1.1.0
+- Version change: 1.1.0 -> 2.0.0 (Major Greenfield Pivot)
 - List of modified principles:
-  * Art. 2 · Preservación de Patrones y Compatibilidad Heredada: Removida regla de Swal.fire.
-  * Art. 3 · Estándares de Calidad: Modificada precisión del cruce incluyendo coincidencia difusa para cabos sueltos.
-  * Art. 7 · Límites (Las Tres Listas): Agregada regla de ignorar fechas duplicadas en ALWAYS DO y regla de procesar cabos sueltos guiados en NEVER DO. Removida la de Swal.fire.
-- Added sections:
-  * Flujo del Proceso de Cruce
+  * Art. 2 · Preservación de Patrones y Arquitectura Moderna: Migrado a Laravel 13, PHP 8.4+ y React moderno.
+  * Art. 3 · Estándares de Calidad: Cambiado backend testing a Pest PHP con tipado estricto.
+  * Art. 4 · Principios de Arquitectura: Laravel 13 API y React SPA.
+  * Art. 7 · Límites: Adaptadas reglas para prohibir SQL directo en frontend y lógica en controladores de Laravel 13.
+- Added sections: None
 - Removed sections: None
 - Templates requiring updates:
   * ✅ .specify/templates/plan-template.md (already aligned)
@@ -14,7 +14,7 @@ SYNC IMPACT REPORT:
   * ✅ .specify/templates/tasks-template.md (already aligned)
 - Follow-up TODOs: None
 -->
-# Constitución del Proyecto Vonex
+# Constitución del Proyecto Vonex (Moderno)
 
 ## Principios Fundamentales
 
@@ -22,11 +22,11 @@ SYNC IMPACT REPORT:
 - **Reglas**: Trabajar siempre en pasos de bebé (baby steps), uno a la vez. Nunca avanzar más de un paso a la vez. Asegurar que cada paso esté completamente verificado antes de continuar.
 - **Justificación**: Mantiene los cambios manejables, reduce la complejidad de depuración y asegura la corrección del código.
 
-### Art. 2 · Preservación de Patrones y Compatibilidad Heredada
+### Art. 2 · Preservación de Patrones y Arquitectura Moderna
 - **Reglas**:
-  - **Backend**: Seguir el patrón de clases de Acción (`app/Actions/`) con un único método público `execute()` que retorne un arreglo estructurado con `success` (booleano), `data` (modelo o colección) y `error` (mensaje/arreglo de error). Mantener controladores delgados, relaciones de Eloquent limpias y tipado estricto (`declare(strict_types=1);`). Compatibilidad estricta con PHP 7.1+.
-  - **Frontend**: Usar Vue.js 2.x (Options API) dentro de vistas Blade, diseño de cuadrícula (grid) de Bootstrap 4 y clases CSS personalizadas para el maquetado.
-- **Justificación**: Garantiza la legibilidad, alineación arquitectónica y consistencia con el código heredado, evitando introducir dependencias no aprobadas.
+  - **Backend**: Seguir el patrón de clases de Acción (`app/Actions/`) con un único método público `execute()` estrictamente tipado. Utilizar las características modernas de PHP 8.4+ (readonly properties, constructor property promotion, match expressions). Controladores delgados que actúen como API REST.
+  - **Frontend**: Desarrollar la interfaz en React moderno (Functional Components y Hooks) estructurada en componentes reutilizables, consumiendo los endpoints JSON de Laravel de forma asíncrona.
+- **Justificación**: Garantiza un código limpio, desacoplado, escalable y alineado con los estándares actuales del desarrollo web moderno.
 
 ### Art. 3 · Estándares de Calidad
 - **Reglas**:
@@ -36,8 +36,8 @@ SYNC IMPACT REPORT:
     - Los registros que no coincidan de forma exacta (cabos sueltos) deben evaluarse buscando coincidencias o concurrencias similares (match difuso/fuzzy matching) para que el usuario pueda validarlos interactivamente antes de ser guardados.
   - **Prioridad Histórica Inmutable**: La resolución de estados duplicados debe regirse exclusivamente por la jerarquía definida: 1. MATRICULADO, 2. PAGADO, 3. FINALIZADO, 4. SUSPENDIDO, 5. RETIRADO, 6. TRASLADADO, 7. STAND BY, 8. ANULADO.
   - **Estándares de Codificación**: Los símbolos técnicos (clases, variables, métodos, comentarios de código) deben escribirse en inglés. Los términos de dominio (tablas, columnas de BD, reglas de negocio) e interfaz de usuario visibles deben estar en español.
-  - **Reglas de Linting y Formateador**: Cumplimiento estricto del formateador de código del proyecto sin excepciones.
-- **Justificación**: Garantiza precisión analítica absoluta en reportes sin perder la capacidad de capturar coincidencias por ligeras diferencias mediante validación asistida por el usuario.
+  - **Pruebas Automatizadas**: Pruebas con Pest PHP con tipado estricto y aserciones modernas.
+- **Justificación**: Asegura precisión analítica, código legible y consistencia lingüística.
 
 ### Art. 4 · Principios de Arquitectura
 - **Reglas**:
@@ -46,9 +46,8 @@ SYNC IMPACT REPORT:
   - **Gestión de Errores Silenciosos**: Si se produce un timeout o error de conexión, el sistema debe pausar el lote y alertar. Los datos parcialmente procesados deben marcarse para revisión.
   - **Auditoría y trazabilidad**: Registrar cada lote, cada `Fecha de Examen`, el resultado del cruce y cualquier fallo para poder reconstruir el origen de las decisiones analíticas tomadas.
   - **Seguridad de credenciales**: Claves o secretos no se almacenan en el repositorio. Usar variables de entorno (`.env`).
-  - **Pruebas automatizadas**: Cobertura de pruebas unitarias e integradas para la lógica de cruce y los endpoints. Las pruebas manuales con `curl` o el navegador MCP complementan, pero no reemplazan la validación.
-  - **Integridad de Symlinks**: Los artefactos reutilizables en `ai-specs` deben estar referenciados mediante symlinks para que otros agentes (como `.claude` o `.cursor`) accedan consistentemente.
-- **Justificación**: Claridad en la separación de responsabilidades, seguridad, robustez ante fallos de infraestructura y portabilidad del motor analítico.
+  - **Integridad de Symlinks**: Los artefactos reutilizables en `ai-specs` deben estar referenciados mediante symlinks para acceso consistente de múltiples agentes.
+- **Justificación**: Claridad en la separación de responsabilidades, seguridad, robustez y portabilidad de los agentes.
 
 ### Art. 5 · Estándares de Lenguaje
 - **Reglas**: Toda codificación técnica (variables, clases, funciones y commits) se escribe en inglés. Todo elemento visible al usuario y conceptos de negocio de base de datos se escriben en español.
@@ -64,7 +63,7 @@ SYNC IMPACT REPORT:
   - Validar la conexión y autenticación con la base de datos de la academia antes de iniciar el procesamiento de cualquier lote.
   - Ignorar las fechas y registros ya cargados al procesar un nuevo archivo CSV para evitar duplicidades.
   - Realizar desarrollos en pasos cortos con entregas incrementales y frecuentes.
-  - Retornar respuestas JSON desde controladores de API.
+  - Retornar respuestas JSON desde controladores de API (Laravel API).
   - Probar manualmente endpoints mediante `curl` o navegador MCP antes de finalizar una iteración.
   - Mantener la documentación técnica actualizada.
 - **PREGUNTAR PRIMERO (ASK FIRST)**:
@@ -75,22 +74,22 @@ SYNC IMPACT REPORT:
 - **NUNCA HACER (NEVER DO)**:
   - Volver a la manipulación manual de datos o delegar el filtrado de fechas a la intervención humana.
   - Sobrescribir datos de días de examen anteriores al procesar un nuevo lote.
-  - Guardar directamente coincidencias no exactas sin permitir al usuario revisarlas mediante la funcionalidad de validación de registros similares.
-  - Escribir consultas SQL directas en vistas Blade.
-  - Escribir lógica de negocio directamente en controladores.
+  - Guardar directamente coincidencias no exactas sin permitir al usuario revisarlas mediante la interfaz interactiva de React.
+  - Escribir consultas SQL directas en el frontend.
+  - Escribir lógica de negocio directamente en controladores de Laravel.
 - **Justificación**: Reglas de control estrictas para salvaguardar la calidad del código, evitar reprocesamientos y prevenir riesgos de seguridad.
 
 ## Flujo del Proceso de Cruce
-1. **Conexión y Extracción**: El sistema se conecta a la base de datos `academia` para extraer los datos de los alumnos matriculados vigentes.
-2. **Carga de Archivo**: El usuario sube el archivo CSV de ingresantes a San Marcos.
+1. **Conexión y Extracción**: El sistema se conecta a la base de datos `academia` en PostgreSQL para extraer los datos de los alumnos matriculados vigentes.
+2. **Carga de Archivo**: El usuario sube el archivo CSV de ingresantes a San Marcos desde la interfaz de React.
 3. **Cruce Inicial (Coincidencia Exacta)**: Se realiza el cruce utilizando coincidencia de `2 apellidos exactos + 1 nombre exacto`. Los registros válidos se guardan automáticamente en la DB.
-4. **Tratamiento de Cabos Sueltos (Match Intensivo/Difuso)**: Para los alumnos que no tuvieron match exacto pero muestran similitud, el sistema realiza una búsqueda intensiva y ofrece una interfaz al usuario para seleccionar e integrarlos manualmente de manera asistida.
+4. **Tratamiento de Cabos Sueltos (Match Intensivo/Difuso)**: Para los alumnos que no tuvieron match exacto pero muestran similitud, el sistema realiza una búsqueda intensiva y ofrece una interfaz interactiva de React al usuario para seleccionar e integrarlos manualmente de manera asistida.
 5. **Control de Cargas Futuras**: Al procesar una nueva carga, el sistema ignora las fechas de examen que ya fueron cargadas y procesadas previamente.
 
 ## Flujo de Trabajo Git y Colaboración
 - **Rama `main` / `master`**: Producción estable. Solo se sube código verificado mediante pull requests.
 - **Rama `develop`**: Entorno de desarrollo e integración.
-- **Ramas de Características (`feature/`)**: Cada nueva funcionalidad o API se desarrolla en una rama dedicada (ej. `feature/alumno-matricula-api`).
+- **Ramas de Características (`feature/`)**: Cada nueva funcionalidad o API se desarrolla en una rama dedicada.
 - **Validaciones**: Antes de fusionar con `develop`, todo código debe pasar por revisiones de QA.
 - **Integrantes y Funciones**:
   - **Diego Fernando**: Soporte (Quality Assurance - QA) / Co-Lead de Constitución
@@ -100,14 +99,14 @@ SYNC IMPACT REPORT:
 
 ## Configuración y Ejecución de Pruebas
 - **Configuración del Entorno**:
-  - Backend: PHP (>= 8.x local, compatibilidad PHP 7.1+ en producción), Composer, PostgreSQL (Base de datos: `academia`), Servidor Laravel.
-  - Wayfinder: `php artisan wayfinder:generate` debe ejecutarse al modificar rutas del backend.
+  - Backend: PHP ^8.4, Composer, PostgreSQL (Base de datos: `academia`), Servidor Laravel 13 (API).
+  - Frontend: Node.js (>= 18), npm, React con Vite.
 - **Ejecución de Pruebas**:
-  - Backend: `php artisan test` (Pest/PHPUnit).
+  - Backend: `php artisan test` (Pest).
 
-## Gobernanza de la Constitución
+## Governance de la Constitución
 - **Ratificación**: Esta constitución está ratificada por el equipo de desarrollo principal y es de cumplimiento obligatorio para programadores y agentes de IA.
 - **Enmiendas**: Cualquier modificación requiere acuerdo del equipo, documentación de la enmienda, incremento de versión y propagación en plantillas.
 - **Revisión de Cumplimiento**: Se verificará la adherencia en cada Pull Request y revisión de código.
 
-**Versión**: 1.1.0 | **Ratificado**: 2026-06-16 | **Última Enmienda**: 2026-06-16
+**Versión**: 2.0.0 | **Ratificado**: 2026-06-16 | **Última Enmienda**: 2026-06-16
