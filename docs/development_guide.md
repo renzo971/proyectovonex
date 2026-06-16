@@ -1,153 +1,103 @@
 # Development Guide
 
-This guide provides step-by-step instructions for setting up the development environment and running tests for the LTI ATS system.
+This guide provides step-by-step instructions for setting up the local development environment and running tests for the **VX Intranet** system.
+
+---
 
 ## 🚀 Setup Instructions
 
 ### Prerequisites
-
 Ensure you have the following installed:
-- **Node.js** (v16 or higher)
-- **npm** (v8 or higher)
-- **Docker** and **Docker Compose**
-- **Git**
+- **PHP** (v8.3 or higher, v8.4 recommended)
+- **Composer** (v2.x)
+- **Node.js** (v18 or higher)
+- **npm** (v10 or higher)
+- **PostgreSQL** database engine
 
-### 1. Clone the Repository
+---
 
+### 1. Local Environment Configuration
+
+Copy the example configuration file to create your local `.env`:
 ```bash
-git clone git@github.com:LIDR-academy/AI4Devs-LTI-extended.git
-cd AI4Devs-LTI-extended
+cp .env.example .env
 ```
 
-### 2. Environment Configuration
-
-Create environment files for both backend and frontend:
-
-**Backend Environment** (`backend/.env`):
+Open `.env` and configure your database parameters:
 ```env
-# Database Configuration
-DB_HOST=localhost
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
 DB_PORT=5432
-DB_USER=LTIdbUser
-DB_PASSWORD=D1ymf8wyQEGthFR1E9xhCq
-DB_NAME=LTIdb
-
-# Application Configuration
-PORT=3000
-NODE_ENV=development
-
-# Prisma Database URL
-DATABASE_URL="postgresql://LTIdbUser:D1ymf8wyQEGthFR1E9xhCq@localhost:5432/LTIdb"
+DB_DATABASE=intranet_local
+DB_USERNAME=postgres
+DB_PASSWORD=your_password
 ```
 
-**Frontend Environment** (`frontend/.env`):
-```env
-REACT_APP_API_URL=http://localhost:3000
-```
+---
 
-### 3. Database Setup (PostgreSQL with Docker)
+### 2. Backend Setup (Laravel)
 
-Start the PostgreSQL database using Docker Compose:
-
+Install PHP dependencies, generate the app encryption key, and run database migrations:
 ```bash
-# Start PostgreSQL container
-docker-compose up -d
-
-# Verify the database is running
-docker-compose ps
-```
-
-The PostgreSQL database will be available at:
-- **Host**: `localhost`
-- **Port**: `5432`
-- **Database**: `LTIdb`
-- **Username**: `LTIdbUser`
-- **Password**: `D1ymf8wyQEGthFR1E9xhCq`
-
-### 4. Backend Setup
-
-```bash
-# Navigate to backend directory
-cd backend
-
 # Install dependencies
-npm install
+composer install
 
-# Generate Prisma client
-npm run prisma:generate
+# Generate application key
+php artisan key:generate
 
 # Run database migrations
-npx prisma migrate deploy
-
-# (Optional) Seed the database with sample data
-npx prisma db seed
-
-# Start the development server
-npm run dev
+php artisan migrate
 ```
 
-The backend API will be available at `http://localhost:3000`
+---
 
-### 5. Frontend Setup
+### 3. Frontend Setup (React & Vite)
 
+Install Javascript dependencies and set up the assets environment:
 ```bash
-# Navigate to frontend directory (from project root)
-cd frontend
-
-# Install dependencies
+# Install node packages
 npm install
-
-# Start the development server
-npm start
 ```
 
-The frontend application will be available at `http://localhost:3001`
+---
 
-### 6. Cypress Testing Suite Setup
+### 4. Running the Application Locally
 
+You need two processes running simultaneously to view changes in real-time:
+
+1. **Vite Development Server** (compiles JS/CSS assets on the fly):
+   ```bash
+   npm run dev
+   ```
+
+2. **Laravel Server** (serves the PHP backend):
+   ```bash
+   php artisan serve
+   ```
+
+Now open your browser and navigate to `http://localhost:8000`.
+
+---
+
+### 5. Keeping Frontend Routes Typed (Laravel Wayfinder)
+
+Whenever you add, modify, or delete a route or controller action on the backend, you must regenerate the frontend route definition helpers by running:
 ```bash
-# From the frontend directory
-cd frontend
-
-# Install Cypress (if not already installed)
-npm install
-
-# Open Cypress Test Runner (Interactive)
-npm run cypress:open
-
-# Or run tests headlessly
-npm run cypress:run
+php artisan wayfinder:generate
 ```
 
-## 🧪 Testing
+---
 
-### Backend Testing
+## 🧪 Running Tests
 
+### Backend Tests (Pest/PHPUnit)
+To run backend automated test suites:
 ```bash
-cd backend
-
-# Run all tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Run tests with coverage
-npm run test:coverage
+php artisan test
 ```
 
-### Frontend Testing
-
+### Frontend Tests (Vitest)
+To run unit and component tests on the frontend:
 ```bash
-cd frontend
-
-# Run unit tests
-npm test
-
-# Run E2E tests with Cypress
-npm run cypress:run
-
-# Open Cypress Test Runner
-npm run cypress:open
+npm run test
 ```
-
