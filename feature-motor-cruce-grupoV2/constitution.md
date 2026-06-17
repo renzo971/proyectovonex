@@ -24,12 +24,11 @@ SYNC IMPACT REPORT:
 - **Reglas**: Trabajar siempre en pasos de bebé (baby steps), uno a la vez. Nunca avanzar más de un paso a la vez. Asegurar que cada paso esté completamente verificado antes de continuar.
 - **Justificación**: Mantiene los cambios manejables, reduce la complejidad de depuración y asegura la corrección del código.
 
-### Art. 2 · Preservación de Patrones y Compatibilidad Heredada
-
+### Art. 2 · Preservación de Patrones y Compatibilidad
 - **Reglas**:
-  - **Backend**: Seguir el patrón de clases de Acción (`app/Actions/`) con un único método público `execute()` que retorne un arreglo estructurado con `success` (booleano), `data` (modelo o colección) y `error` (mensaje/arreglo de error). Mantener controladores delgados, relaciones de Eloquent limpias y tipado estricto (`declare(strict_types=1);`). Compatibilidad estricta con PHP 7.1+.
-  - **Frontend**: Usar Vue.js 2.x (Options API) dentro de vistas Blade, diseño de cuadrícula (grid) de Bootstrap 4 y clases CSS personalizadas para el maquetado.
-- **Justificación**: Garantiza la legibilidad, alineación arquitectónica y consistencia con el código heredado, evitando introducir dependencias no aprobadas.
+  - **Backend**: Seguir el patrón de clases de Acción (`app/Actions/`) con un único método público `execute()` que retorne un arreglo estructurado con `success` (booleano), `data` (modelo o colección) y `error` (mensaje/arreglo de error). Mantener controladores delgados, relaciones de Eloquent limpias y tipado estricto (`declare(strict_types=1);`). Compatibilidad estricta con PHP 8.4+.
+  - **Frontend**: React (Vite) en arquitectura SPA con componentes funcionales y Hooks reactivos, consumiendo la API REST de Laravel.
+- **Justificación**: Garantiza la legibilidad, mantenibilidad y alineación arquitectónica con el stack moderno del proyecto.
 
 ### Art. 3 · Estándares de Calidad
 
@@ -111,7 +110,7 @@ SYNC IMPACT REPORT:
 ## Configuración y Ejecución de Pruebas
 
 - **Configuración del Entorno**:
-  - Backend: PHP (>= 8.x local, compatibilidad PHP 7.1+ en producción), Composer, PostgreSQL (Base de datos: `academia`), Servidor Laravel.
+  - Backend: PHP (>= 8.4 local y en producción), Composer, PostgreSQL (Base de datos: `academia`), Servidor Laravel.
   - Wayfinder: `php artisan wayfinder:generate` debe ejecutarse al modificar rutas del backend.
 - **Ejecución de Pruebas**:
   - Backend: `php artisan test` (Pest/PHPUnit).
