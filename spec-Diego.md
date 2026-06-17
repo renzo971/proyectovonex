@@ -17,6 +17,7 @@ Como administrador, quiero subir el CSV de ingresantes para que el sistema norma
 **AC-1.1 (Carga e Ignorado de Duplicados)**: Al subir un nuevo CSV, el sistema lee la fecha de examen. Si esa fecha de examen ya fue procesada anteriormente, el sistema ignora esos registros para evitar duplicidades en la base de datos.
 **AC-1.2 (Normalización Forzada)**: El motor limpia todos los nombres del CSV (MAYÚSCULAS, elimina tildes, reemplazo estricto de "Ñ" por "N").
 **AC-1.3 (Separación de Cadenas)**: Separa lógicamente apellidos paterno, materno y nombres, reconociendo apellidos compuestos.
+**AC-1.4 (Filtrado por Observación)**: Al procesar el CSV, el sistema filtra y conserva únicamente a los ingresantes cuyo campo `OBSERVACION` contenga exactamente `ALCANZO vACANTE`. Los demás registros se descartan del procesamiento.
 
 ### US-2: Consulta Directa a Base de Datos Academia (PostgreSQL)
 Como sistema, quiero consultar directamente la base de datos academia en PostgreSQL para validar a los alumnos matriculados vigentes.

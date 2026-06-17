@@ -44,7 +44,7 @@ backend/ (Laravel 13)
 │   ├── Actions/
 │   │   └── Cruce/
 │   │       ├── NormalizarTextoAction.php (NUEVO - Quita tildes, convierte a mayúsculas, Ñ->N, separa apellidos/nombres)
-│   │       ├── ProcesarCargaCsvAction.php (NUEVO - Lee CSV, extrae fecha de examen, crea lote, filtra fechas ya existentes)
+│   │       ├── ProcesarCargaCsvAction.php (NUEVO - Lee CSV, extrae fecha de examen, crea lote, filtra fechas ya existentes y filtra por campo OBSERVACION)
 │   │       ├── RealizarCruceExactoAction.php (NUEVO - Cruza lote por 2 apellidos + 1 nombre contra alumnos matriculados)
 │   │       ├── CalcularSimilitudesCabosAction.php (NUEVO - Ejecuta análisis exhaustivo de similitud de letras/Levenshtein)
 │   │       ├── GuardarCruceConfirmadoAction.php (NUEVO - Registra coincidencias confirmadas manualmente por el usuario)
@@ -78,7 +78,7 @@ Crear las tablas de migración y modelos para:
 
 ### Paso 2: Importación y Normalización (Acciones)
 - `NormalizarTextoAction`: Implementa la limpieza de tildes, mayúsculas y la conversión estricta de "Ñ" a "N". Separa apellidos paterno/materno y nombres.
-- `ProcesarCargaCsvAction`: Lee el archivo. Detecta la fecha del examen. Si la fecha ya existe en `lotes_cruce`, aborta o ignora para evitar duplicidad. Inserta los registros en `ingresantes_cruce` con estado `pendiente`.
+- `ProcesarCargaCsvAction`: Lee el archivo. Detecta la fecha del examen. Si la fecha ya existe en `lotes_cruce`, aborta o ignora para evitar duplicidad. Filtra los registros manteniendo únicamente los que en el campo `OBSERVACION` contengan exactamente `ALCANZO vACANTE`. Inserta los registros filtrados en `ingresantes_cruce` con estado `pendiente`.
 
 ### Paso 3: Cruce Automático (Paso 1)
 - `RealizarCruceExactoAction`: Busca en la tabla de alumnos de la base `academia` registros vigentes donde coincidan exactamente los dos apellidos y al menos un nombre.
