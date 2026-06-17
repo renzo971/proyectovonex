@@ -11,7 +11,7 @@
 
 ---
 
-## 📈 Matriz de Cobertura (Coverage Matrix - §2.7)
+## 📈 Matriz de Cobertura (Coverage Matrix)
 
 Esta matriz mapea cada criterio de aceptación y caso de borde definido en `spec.md` con su respectiva sección en `plan.md` y su caso de prueba en `test-cases.md`.
 
@@ -32,7 +32,7 @@ Esta matriz mapea cada criterio de aceptación y caso de borde definido en `spec
 
 ---
 
-## 🚦 Veredicto del Gate de Claridad (§2.8 & §6)
+## 🚦 Veredicto del Gate de Claridad
 
 El grupo revisor ha sometido la especificación (`spec.md`) a evaluación en las siguientes 4 categorías:
 
