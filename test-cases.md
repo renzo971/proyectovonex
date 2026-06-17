@@ -49,7 +49,9 @@ Este documento define las pruebas del flujo automatizado que cruza el CSV crudo 
 
 ### TC-8  Filtro en cascada (de más restrictivo a más flexible)
 **Datos:** CSV con registros que comparten nombres y apellidos compuestos.
+
 **Pasos:** Ejecutar el filtro por área, apellidos, nombres y puntaje en orden.
+
 **Esperado:** El sistema identifica correctamente los estudiantes
 con vacante sin fusionar ni descartar registros por coincidencias parciales.
 
