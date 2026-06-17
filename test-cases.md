@@ -46,3 +46,31 @@ Este documento define las pruebas del flujo automatizado que cruza el CSV crudo 
 - En la Hoja 1, las columnas A hasta M contienen data estricta de San Marcos.
 - A partir de la columna N, aparece la Sede, Ciclo y Estado histórico de Vonex.
 - En la Hoja 2, el Dashboard se carga correctamente mostrando las gráficas pre-construidas. Al seleccionar una fecha específica en el segmentador, los gráficos se actualizan filtrando la información al instante.
+
+### TC-8  Filtro en cascada (de más restrictivo a más flexible)
+**Datos:** CSV con registros que comparten nombres y apellidos compuestos.
+**Pasos:** Ejecutar el filtro por área, apellidos, nombres y puntaje en orden.
+**Esperado:** El sistema identifica correctamente los estudiantes
+con vacante sin fusionar ni descartar registros por coincidencias parciales.
+
+### TC-9: Procesamiento automático de ingresantes
+con vacante por lotes
+
+**Datos:** Listado general con 8000 ingresantes
+que alcanzaron vacante en formato JSON.
+**Herramienta:** Tabla dinámica en Excel o
+Google Sheets como procesador principal
+para clasificar y filtrar por lotes.
+**Pasos:**
+1. Cargar el JSON en Google Sheets
+2. Aplicar filtro automático por área y carrera
+3. Ordenar por puntaje de mayor a menor
+4. Confirmar registros completos automáticamente
+5. Exportar resultado final por lote
+**Esperado:** El sistema procesa los 8000
+ingresantes usando Google Sheets como
+herramienta principal sin sobrecargar
+al usuario ni depender del tamaño del equipo,
+entregando resultados completos por lote
+en menor tiempo.
+
