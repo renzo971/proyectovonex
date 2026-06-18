@@ -1,6 +1,6 @@
 # Especificación Funcional: Motor de Cruce Automático de Ingresantes UNMSM
 
-**PO**: Samuel Cisneros
+**PO**: Diego Fernando
 **Equipo**: Grupo V2 (Vonex)
 **Versión**: 2.2.0
 
