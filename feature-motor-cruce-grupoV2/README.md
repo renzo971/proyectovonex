@@ -34,6 +34,8 @@ Esta matriz mapea cada criterio de aceptación y caso de borde definido en `spec
 
 ## 🚦 Veredicto del Gate de Claridad (§2.8 & §6)
 
+Grupo revisor: Grupo V1
+
 El grupo revisor ha sometido la especificación (`spec.md`) a evaluación en las siguientes 4 categorías:
 
 1. **Completitud [✓]:** Cada historia de usuario (US) posee criterios de aceptación claros y medibles. Se definieron formalmente casos borde (CB-1 a CB-3) y requisitos no funcionales (NFRs) relativos a tiempo de procesamiento, límites de memoria y velocidad de la API.
