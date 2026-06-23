@@ -1,6 +1,6 @@
 # Plan de Implementación: Motor de Cruce de Ingresantes UNMSM
 
-**Rama**: `feature/motor-cruce-ingresantes` | **Fecha**: 2026-06-16 | **Especificación**: [spec.md](file:///c:/Users/rsantos_vonex/develop/proyectovonex/feature-motor-cruce-grupoV2/spec.md)
+**Rama**: `feature/motor-cruce-ingresantes` | **Fecha**: 2026-06-16 | **Versión**: 2.2.0 | **Especificación**: [spec.md](spec.md)
 
 ## Resumen ejecutivo (≤150 palabras)
 Este plan define la implementación técnica del motor de cruce de ingresantes UNMSM en Laravel 13 y React. El objetivo es procesar cargas de CSV filtrando los estudiantes con vacante, normalizar nombres y realizar un cruce analítico en base de datos. La decisión técnica principal es el cruce en dos fases: un match automático exacto y un listado de cabos sueltos procesados mediante similitud de Levenshtein expuesto en un frontend reactivo para confirmación manual. No hay dudas abiertas críticas por el momento.
