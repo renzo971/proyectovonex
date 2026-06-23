@@ -1,6 +1,6 @@
 # Casos de Prueba: Motor de Cruce Automático de Ingresantes UNMSM
 
-**Dueño (QA)**: Yerson Vargas
+**Dueño (QA)**: Diego Fernando
 **Equipo**: Grupo V2 (Vonex)
 **Versión**: 2.2.0
 
@@ -64,3 +64,36 @@ Este documento define los casos de prueba del flujo de trabajo analítico que cr
 **Datos:** CSV de ingresantes que contiene registros con diferentes valores en el campo `OBSERVACION` (ej. "ALCANZO VACANTE", "NO INGRESÓ", "RETIRO DE VACANTE").
 **Pasos:** Subir y procesar el CSV en el sistema.
 **Esperado:** El sistema filtra e importa en el lote únicamente aquellos registros cuyo campo `OBSERVACION` contenga exactamente `ALCANZO VACANTE`. Los demás registros son omitidos del proceso.
+
+### TC-9 (de AC-3.2, caso feliz): Cálculo y ranking de candidatos de coincidencia difusa (fuzzy)
+
+**Datos:**
+- Ingresante en CSV (cabos sueltos): `GONZALES DE LA FLOR PEDRO` (sin coincidencia exacta).
+- BD `academia`: `GONZALEZ DE LA FLOR PEDRO` (similitud 92%), `GONZALES FLOR PEDRO` (similitud 88%), `GONZALEZ FLOR PEDRO` (similitud 84%), `GONZALES PEDRO` (similitud 55%), `FLOR PEDRO` (similitud 40%), y `RODRIGUEZ PEDRO` (similitud 10%).
+**Pasos:** Ejecutar el motor de coincidencia difusa para el ingresante.
+**Esperado:** El ingresante queda marcado en estado `pendiente`. Se genera una lista ordenada de hasta 5 candidatos potenciales que superan el 30% de similitud, ordenados de mayor a menor porcentaje:
+  1. `GONZALEZ DE LA FLOR PEDRO` (92%)
+  2. `GONZALES FLOR PEDRO` (88%)
+  3. `GONZALEZ FLOR PEDRO` (84%)
+  4. `GONZALES PEDRO` (55%)
+  5. `FLOR PEDRO` (40%)
+  El candidato `RODRIGUEZ PEDRO` (10%) queda excluido por no superar el umbral mínimo del 30%.
+
+### TC-10 (de AC-4.1 y AC-4.2, caso feliz): Validación asistida e interfaz interactiva (React)
+
+**Datos:** Ingresante `GONZALES DE LA FLOR PEDRO` en estado `pendiente` con sus 5 candidatos sugeridos (generados en TC-9).
+**Pasos:** Cargar la UI en React. En la fila del ingresante, abrir el componente `<select>` de sugerencias, seleccionar el candidato `GONZALEZ DE LA FLOR PEDRO` y hacer clic en el botón "Confirmar Match".
+**Esperado:** El frontend invoca al endpoint del backend enviando los IDs correspondientes. La API ejecuta `GuardarCruceConfirmadoAction`, persiste la asociación, actualiza el estado del ingresante a `confirmado_manual` y remueve al ingresante de la lista de pendientes en la UI React.
+
+### TC-11 (de CB-1, caso de error): Manejo de campos vacíos en CSV de ingresantes
+
+**Datos:** Registro del CSV con el campo `NOMBRES` vacío y campo `FECHA_EXAMEN` como `14/03/2026`.
+**Pasos:** Cargar el CSV en el sistema.
+**Esperado:** El sistema registra un error en el archivo de log del lote especificando la línea del CSV afectada y la columna vacía, descarta ese registro en específico, y continúa procesando el resto del lote con normalidad.
+
+### TC-12 (de CB-2, caso de error): Validación de estructura de columnas en CSV
+
+**Datos:** Archivo CSV que no posee la columna `OBSERVACION` (contiene columnas `NOMBRES` y `FECHA_EXAMEN` únicamente).
+**Pasos:** Subir el archivo CSV al sistema.
+**Esperado:** El sistema detiene el proceso de inmediato en la subida, rechaza el archivo sin crear lotes ni registros en la base de datos, y muestra al usuario el mensaje de error: "Estructura de CSV inválida. Falta columna requerida: OBSERVACION".
+
