@@ -1,6 +1,6 @@
 # Especificación Funcional: Motor de Cruce Automático de Ingresantes UNMSM
 
-**PO**: Diego Fernando
+**PO**: Samuel Cisneros
 **Equipo**: Grupo V2 (Vonex)
 **Versión**: 2.2.0
 
@@ -64,10 +64,16 @@ Como usuario de negocio, quiero descargar un archivo Excel con la información u
 - **CB-2 (Columnas Mapeadas Incorrectamente):** Si el CSV subido no cuenta con las columnas requeridas (`NOMBRES`, `OBSERVACION`, `FECHA_EXAMEN`), el sistema debe rechazar la carga de inmediato notificando al usuario.
 - **CB-3 (Sin Candidatos Sugeridos):** Si el motor de coincidencia difusa no encuentra ningún alumno con similitud superior al 30%, el selector de React debe mostrar la opción "Sin coincidencias encontradas - Marcar como No Ingresado".
 
-## 5. Assumptions
+## 5. Assumptions (Supuestos y Consecuencias)
 
-- **Asumimos que:** El formato de codificación del CSV es siempre UTF-8 o ISO-8859-1 (el backend convertirá a UTF-8 para evitar problemas de caracteres especiales).
-- **Asumimos que:** La base de datos `academia` tiene índices creados sobre los campos de apellidos y nombres para garantizar tiempos de respuesta óptimos durante el cruce.
+- **Asumimos que:** El formato de codificación del CSV es siempre UTF-8 o ISO-8859-1.
+  - *Consecuencia si resulta falso:* Si se sube un CSV con otra codificación (ej. UTF-16), la carga fallará con un error descriptivo de codificación, evitando que se guarden caracteres corruptos o corruptos en la base de datos.
+- **Asumimos que:** La base de datos `academia` tiene índices creados sobre los campos de apellidos y nombres.
+  - *Consecuencia si resulta falso:* Las consultas de cruce exacto y la búsqueda difusa de cabos sueltos sufrirán una degradación de rendimiento significativa, excediendo los límites definidos en NFR-1 y NFR-2.
+- **Asumimos que:** Un umbral de similitud superior al 30% es el valor óptimo para filtrar candidatos relevantes de coincidencia difusa (CB-3).
+  - *Consecuencia si resulta falso:* Si el umbral real óptimo es mayor, se listarán candidatos muy lejanos (ruido en la UI); si es menor, se omitirán candidatos con variaciones ortográficas severas que sí corresponden al ingresante.
+- **Asumimos que:** Limitar a un máximo de 5 candidatos potenciales en el listado difuso (AC-3.2) es suficiente para cubrir errores de digitación de los alumnos.
+  - *Consecuencia si resulta falso:* Si hay más de 5 homónimos o candidatos con la misma similitud, el sistema podría excluir al candidato correcto de la lista de selección, obligando al usuario a realizar una búsqueda manual extendida.
 
 ## 6. [NEEDS_CLARIFICATION] (máx 3)
 
