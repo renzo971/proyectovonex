@@ -1,6 +1,6 @@
 <!--
 SYNC IMPACT REPORT:
-- Version change: 1.0.0 -> 1.1.0
+- Version change: 1.1.0 -> 2.2.0
 - List of modified principles:
   * Art. 2 · Preservación de Patrones y Compatibilidad Heredada: Removida regla de Swal.fire.
   * Art. 3 · Estándares de Calidad: Modificada precisión del cruce incluyendo coincidencia difusa para cabos sueltos.
@@ -102,10 +102,10 @@ SYNC IMPACT REPORT:
 - **Ramas de Características (`feature/`)**: Cada nueva funcionalidad o API se desarrolla en una rama dedicada (ej. `feature/alumno-matricula-api`).
 - **Validaciones**: Antes de fusionar con `develop`, todo código debe pasar por revisiones de QA.
 - **Integrantes y Funciones**:
-  - **Diego Fernando**: Soporte (Quality Assurance - QA) / Co-Lead de Constitución
-  - **Renzo Fabián**: Fullstack (Tech Lead / Lead Developer)
-  - **Samuel Cisneros**: Analista (Product Owner / Product Manager)
-  - **Yerson Vargas**: Soporte (QA / Apoyo Técnico)
+  - **Samuel Cisneros**: Product Owner (PO) / Product Manager
+  - **Renzo Fabián**: Tech Lead / Lead Developer
+  - **Diego Fernando**: QA Tester / Co-Lead de Constitución
+  - **Yerson Vargas**: QA / Apoyo Técnico
 
 ## Configuración y Ejecución de Pruebas
 
@@ -121,4 +121,4 @@ SYNC IMPACT REPORT:
 - **Enmiendas**: Cualquier modificación requiere acuerdo del equipo, documentación de la enmienda, incremento de versión y propagación en plantillas.
 - **Revisión de Cumplimiento**: Se verificará la adherencia en cada Pull Request y revisión de código.
 
-**Versión**: 1.1.0 | **Ratificado**: 2026-06-16 | **Última Enmienda**: 2026-06-16
+**Versión**: 2.2.0 | **Ratificado**: 2026-06-16 | **Última Enmienda**: 2026-06-16
