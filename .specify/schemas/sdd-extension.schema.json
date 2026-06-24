@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SDD Extension Manifest",
+  "description": "Manifest for an Enterprise SDD extension or preset",
+  "type": "object",
+  "required": ["name", "version"],
+  "properties": {
+    "name": { "type": "string", "pattern": "^sdd-extension-.+" },
+    "version": { "type": "string" },
+    "sddVersionRequired": { "type": "string" },
+    "type": { "type": "string" },
+    "domainCategory": { "type": "string" },
+    "namespacePrefix": { "type": "string" },
+    "description": { "type": "string" },
+    "author": { "type": "string" },
+    "hooks": {
+      "type": "object",
+      "properties": {
+        "after-gate-pass": { "type": "string" },
+        "before-gate-validate": { "type": "string" },
+        "after-new-feature": { "type": "string" },
+        "before-new-feature": { "type": "string" },
+        "after-init": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "commands": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "templates": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "agentPatches": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["string", "object"]
+      }
+    },
+    "instructions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "prompts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "setupTemplate": { "type": "string" },
+    "compatibilityMatrix": {
+      "type": "object",
+      "properties": {
+        "requiredModules": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "blockedModules": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requiredPresets": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "blockedPresets": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,12 @@
+{
+  "name": "sdd-preset-event-driven",
+  "version": "1.0.0",
+  "description": "Async event-driven preset — Messaging Champion prominent, API Champion optional",
+  "modules": [],
+  "ceremonyDefault": "standard",
+  "gateOverrides": {},
+  "agentOverrides": {
+    "messaging-champion": { "prominence": "high" },
+    "api-champion": { "prominence": "optional" }
+  }
+}

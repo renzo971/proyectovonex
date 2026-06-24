@@ -1,0 +1,47 @@
+{
+  "name": "core-be",
+  "version": "1.0.0",
+  "displayName": "Core-BE (Java 21 / Quarkus / DDD / Kafka)",
+  "description": "Domain-driven microservice patterns for Acme Securities Convergence platform",
+  "source": "ai-framework",
+  "architecture": ["microservices", "ddd", "cqrs", "event-driven"],
+  "techStack": {
+    "language": "Java 21",
+    "framework": "Quarkus",
+    "messaging": "Kafka + Confluent Schema Registry",
+    "database": "PostgreSQL",
+    "build": "Maven",
+    "testing": "Cucumber + REST Assured + Testcontainers"
+  },
+  "provides": {
+    "instructions": 24,
+    "guidances": 1,
+    "setupTemplates": 2,
+    "prompts": 1,
+    "constitutionArticles": 3,
+    "agentPatches": 4,
+    "copilotInstructionsSupplement": true
+  },
+  "requires": {
+    "sddVersion": ">=3.0",
+    "applyToSupport": true
+  },
+  "placeholders": {
+    "{project-name}": "Your project name (e.g., order-api)",
+    "{gitlab-project-id}": "Numeric GitLab project ID",
+    "{tenant-domain}": "Multi-tenancy domain prefix"
+  },
+  "agentContributions": {
+    "tool-overlays": [
+      {
+        "target-agent": "requirement-analyst",
+        "add-tools": [
+          "githubRepo",
+          "mcp-atlassian/confluence_get_page",
+          "mcp-atlassian/jira_get_issue"
+        ]
+      }
+    ],
+    "agents": []
+  }
+}

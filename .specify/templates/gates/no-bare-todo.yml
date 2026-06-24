@@ -1,0 +1,12 @@
+name: no-bare-todo
+description: Flag bare TODO comments that lack a ticket reference
+filePatterns:
+  - "src/**/*.ts"
+  - "src/**/*.tsx"
+  - "src/**/*.js"
+  - "src/**/*.jsx"
+  - "src/**/*.java"
+  - "src/**/*.py"
+condition: "//\\s*TODO(?!\\()[^\\n]*"
+severity: WARN
+message: "TODO without ticket reference — use // TODO(TICKET-123): description"

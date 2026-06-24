@@ -1,0 +1,37 @@
+skill: hotspot-review
+description: Verify hotspot-review output contract — buckets, summary, methodology
+pass_threshold: 1.0
+
+fixtures:
+  - name: output-shape-canonical
+    description: Canonical Hotspot Report must contain Summary, Methodology, and three classification buckets
+    transcript: fixtures/canonical-output.md
+    assertions:
+      - type: contains_section
+        value: Summary
+      - type: contains_section
+        value: Methodology
+      - type: contains_section
+        value: Critical
+        rationale: Critical bucket header is mandatory even when empty
+      - type: contains_section
+        value: Elevated
+      - type: contains_section
+        value: Normal
+      - type: contains_field
+        value: Files Scored
+      - type: contains_field
+        value: Diff Range
+
+  - name: forbids-silent-classification-downgrade
+    description: Output must not declare blanket safety nor omit churn methodology
+    transcript: fixtures/canonical-output.md
+    assertions:
+      - type: forbids_text
+        value: "no risk detected"
+        rationale: A blanket pass without enumerated findings violates the relative-rank rule
+      - type: matches_regex
+        value: "Churn source"
+        rationale: Methodology must record the churn source even when complexity is unavailable
+      - type: min_lines
+        value: 15

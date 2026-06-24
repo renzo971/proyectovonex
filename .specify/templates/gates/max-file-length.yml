@@ -1,0 +1,15 @@
+name: max-file-length
+description: Flag source files that exceed line-count thresholds
+filePatterns:
+  - "src/**/*.ts"
+  - "src/**/*.tsx"
+  - "src/**/*.js"
+  - "src/**/*.jsx"
+  - "src/**/*.java"
+  - "src/**/*.py"
+condition: "__builtin:line_count"
+severity: WARN
+message: "File exceeds recommended length — consider splitting into smaller modules"
+# Built-in check thresholds (override in .sdd/config):
+#   warn_threshold: 500
+#   fail_threshold: 1000

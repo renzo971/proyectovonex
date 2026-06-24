@@ -1,0 +1,14 @@
+{
+  "testDirectories": ["tests", "test", "src/test", "__tests__"],
+  "complexity_thresholds": {
+    "max_lines_per_file": 500,
+    "max_lines_per_function": 50,
+    "max_cyclomatic_complexity": 10,
+    "max_dependencies_per_module": 15
+  },
+  "complexity_exclusions": [
+    "**/migrations/**",
+    "**/generated/**",
+    "**/*.min.js"
+  ]
+}

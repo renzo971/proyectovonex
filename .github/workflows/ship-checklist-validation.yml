@@ -1,0 +1,157 @@
+name: Ship Checklist Validation
+
+# Validate ship checklist before merge to main
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.specify/specs/**/ship-checklist.md'
+    types: [opened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      feature_id:
+        description: 'Feature ID to validate'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate-checklist:
+    name: Validate Ship Checklist
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect feature
+        id: detect
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "feature=${{ inputs.feature_id }}" >> $GITHUB_OUTPUT
+          else
+            # Find the modified ship-checklist
+            FEATURE=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | \
+              grep 'ship-checklist.md' | \
+              sed 's|\.specify/specs/\([^/]*\)/.*|\1|' | \
+              head -1)
+            
+            echo "feature=$FEATURE" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate checklist completion
+        id: validate
+        run: |
+          FEATURE="${{ steps.detect.outputs.feature }}"
+          
+          if [[ -z "$FEATURE" ]]; then
+            echo "No feature detected"
+            exit 0
+          fi
+          
+          CHECKLIST=".specify/specs/$FEATURE/ship-checklist.md"
+          
+          if [[ ! -f "$CHECKLIST" ]]; then
+            echo "❌ Ship checklist not found: $CHECKLIST"
+            exit 1
+          fi
+          
+          echo "# Ship Checklist Validation: $FEATURE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Count checkboxes
+          TOTAL=$(grep -cE '^\s*-\s*\[.\]' "$CHECKLIST" || true)
+          TOTAL=${TOTAL:-0}
+          COMPLETED=$(grep -cE '^\s*-\s*\[[xX]\]' "$CHECKLIST" || true)
+          COMPLETED=${COMPLETED:-0}
+          INCOMPLETE=$((TOTAL - COMPLETED))
+          
+          echo "## Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total items:** $TOTAL" >> $GITHUB_STEP_SUMMARY
+          echo "- **Completed:** $COMPLETED" >> $GITHUB_STEP_SUMMARY
+          echo "- **Incomplete:** $INCOMPLETE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # List incomplete items
+          if [[ $INCOMPLETE -gt 0 ]]; then
+            echo "## ❌ Incomplete Items" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            grep -E '^\s*-\s*\[\s\]' "$CHECKLIST" | head -20 >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Check for required sign-offs
+          echo "## Sign-offs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          SIGNOFF_SECTION=$(sed -n '/## Sign-offs/,/^##/p' "$CHECKLIST" | head -20)
+          
+          if echo "$SIGNOFF_SECTION" | grep -qE '^\s*-\s*\[\s\]'; then
+            echo "❌ Missing sign-offs:" >> $GITHUB_STEP_SUMMARY
+            echo "$SIGNOFF_SECTION" | grep -E '^\s*-\s*\[\s\]' >> $GITHUB_STEP_SUMMARY
+            SIGNOFFS_COMPLETE=false
+          else
+            echo "✅ All sign-offs complete" >> $GITHUB_STEP_SUMMARY
+            SIGNOFFS_COMPLETE=true
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          
+          # Final verdict
+          if [[ $INCOMPLETE -eq 0 ]] && [[ "$SIGNOFFS_COMPLETE" == "true" ]]; then
+            echo "## ✅ Ship Checklist COMPLETE" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🚀 Ready to merge!" >> $GITHUB_STEP_SUMMARY
+            echo "status=pass" >> $GITHUB_OUTPUT
+          else
+            echo "## ❌ Ship Checklist INCOMPLETE" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please complete all items before merging." >> $GITHUB_STEP_SUMMARY
+            echo "status=fail" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Add PR label
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const status = '${{ steps.validate.outputs.status }}';
+            const labels = status === 'pass' 
+              ? ['ready-to-ship'] 
+              : ['needs-checklist-completion'];
+            
+            // Remove opposite label if exists
+            const removeLabel = status === 'pass' 
+              ? 'needs-checklist-completion' 
+              : 'ready-to-ship';
+            
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                name: removeLabel
+              });
+            } catch (e) {
+              // Label might not exist, ignore
+            }
+            
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: labels
+            });
+
+      - name: Block merge if incomplete
+        if: steps.validate.outputs.status == 'fail'
+        run: |
+          echo "Ship checklist is incomplete. Cannot merge."
+          exit 1

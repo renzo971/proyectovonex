@@ -1,0 +1,23 @@
+skill: sdd-spec-review
+description: Verify sdd-spec-review output contract — findings + verdict
+pass_threshold: 1.0
+
+fixtures:
+  - name: output-shape-canonical
+    description: Spec review report must enumerate findings with severity and produce a verdict
+    transcript: fixtures/canonical-output.md
+    assertions:
+      - type: contains_section
+        value: Summary
+      - type: contains_section
+        value: Findings
+      - type: contains_field
+        value: Verdict
+      - type: matches_regex
+        value: "PASS|FAIL|BLOCK"
+        rationale: Verdict must use the canonical vocabulary
+      - type: forbids_text
+        value: "looks good"
+        rationale: Reviews must enumerate findings, never offer blanket reassurance
+      - type: min_lines
+        value: 12

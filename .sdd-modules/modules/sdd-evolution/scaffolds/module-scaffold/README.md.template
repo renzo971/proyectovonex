@@ -1,0 +1,43 @@
+# {MODULE_NAME}
+
+> {MODULE_DESCRIPTION}
+
+## Overview
+
+{MODULE_OVERVIEW}
+
+## Installation
+
+```bash
+sdd module install {MODULE_NAME}
+```
+
+## Components
+
+### Agents
+
+| Agent | Purpose |
+|-------|---------|
+| {AGENT_NAME} | {AGENT_PURPOSE} |
+
+### Instructions
+
+| Instruction | Scope |
+|-------------|-------|
+| {INSTRUCTION_NAME} | {INSTRUCTION_SCOPE} |
+
+### Prompts
+
+| Prompt | Description |
+|--------|-------------|
+| {PROMPT_NAME} | {PROMPT_DESCRIPTION} |
+
+## Usage
+
+{USAGE_INSTRUCTIONS}
+
+## Removal
+
+```bash
+sdd module remove {MODULE_NAME}
+```

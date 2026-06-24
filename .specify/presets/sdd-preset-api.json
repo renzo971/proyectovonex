@@ -1,0 +1,12 @@
+{
+  "name": "sdd-preset-api",
+  "version": "1.0.0",
+  "description": "REST API-focused preset — API Champion prominent, Messaging Champion optional",
+  "modules": [],
+  "ceremonyDefault": "standard",
+  "gateOverrides": {},
+  "agentOverrides": {
+    "api-champion": { "prominence": "high" },
+    "messaging-champion": { "prominence": "optional" }
+  }
+}

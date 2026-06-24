@@ -1,0 +1,30 @@
+{
+  "name": "sdd-extension-frontend-enterprise-search",
+  "version": "1.0.0",
+  "description": "Reusable enterprise search pattern for advanced multi-section search forms and paginated result rendering. Requires frontend-stratos-core.",
+  "type": "tailored-frontend",
+  "domainCategory": "search",
+  "namespacePrefix": "fe",
+  "sddVersionRequired": "4.0+",
+  "hooks": {
+    "after-new-feature": "hooks/after-new-feature.sh"
+  },
+  "commands": {},
+  "templates": {},
+  "agentPatches": {},
+  "instructions": [
+    "instructions/fe-advanced-search-form.instructions.md",
+    "instructions/fe-advanced-search-results.instructions.md",
+    "instructions/fe-item-status-badge.instructions.md"
+  ],
+  "prompts": [
+    "prompts/fe/fe-scaffold-search-feature.prompt.md"
+  ],
+  "setupTemplate": "",
+  "compatibilityMatrix": {
+    "requiredModules": ["std-fe"],
+    "blockedModules": [],
+    "requiredPresets": [],
+    "blockedPresets": []
+  }
+}

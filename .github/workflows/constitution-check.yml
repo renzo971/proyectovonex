@@ -1,0 +1,105 @@
+name: Constitution Check
+
+# Ensure constitution exists and is referenced
+on:
+  pull_request:
+    paths:
+      - '.specify/specs/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '.specify/memory/constitution.md'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-constitution:
+    name: Verify Constitution
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check constitution exists
+        id: check
+        run: |
+          CONSTITUTION=".specify/memory/constitution.md"
+          
+          echo "# Constitution Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ -f "$CONSTITUTION" ]]; then
+            echo "✅ Constitution exists" >> $GITHUB_STEP_SUMMARY
+            
+            # Check for required sections
+            SECTIONS=(
+              "Article I"
+              "Article II"
+              "Article III"
+              "Article IV"
+              "Article V"
+              "Article VI"
+            )
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## Required Sections" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            MISSING=0
+            for section in "${SECTIONS[@]}"; do
+              if grep -q "$section" "$CONSTITUTION"; then
+                echo "✅ $section" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ $section MISSING" >> $GITHUB_STEP_SUMMARY
+                ((MISSING++))
+              fi
+            done
+            
+            # Check for placeholder content
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## Content Quality" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if grep -q '\[PROJECT_NAME\]\|\[PLACEHOLDER\]\|TBD' "$CONSTITUTION"; then
+              echo "⚠️ Constitution contains placeholder content" >> $GITHUB_STEP_SUMMARY
+              echo "status=warn" >> $GITHUB_OUTPUT
+            elif [[ $MISSING -gt 0 ]]; then
+              echo "❌ Constitution is missing required sections" >> $GITHUB_STEP_SUMMARY
+              echo "status=fail" >> $GITHUB_OUTPUT
+            else
+              echo "✅ Constitution appears complete" >> $GITHUB_STEP_SUMMARY
+              echo "status=pass" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "❌ Constitution NOT FOUND" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Create a constitution using the Constitution Agent before adding features." >> $GITHUB_STEP_SUMMARY
+            echo "status=fail" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.check.outputs.status == 'fail'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## ⚠️ Constitution Required\n\nA project constitution is required before adding feature specifications.\n\nPlease run the Constitution Agent to establish project principles:\n\n\`\`\`\n@constitution\n\`\`\`\n\nOr manually create \`.specify/memory/constitution.md\` using the template.`
+            });
+
+      - name: Warn but don't fail
+        if: steps.check.outputs.status == 'warn'
+        run: |
+          echo "Constitution has placeholder content - please complete it."
+          # Don't fail, just warn
+
+      - name: Fail if no constitution
+        if: steps.check.outputs.status == 'fail'
+        run: |
+          echo "Constitution is required for specification work."
+          exit 1

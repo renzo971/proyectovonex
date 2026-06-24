@@ -1,0 +1,27 @@
+# {EXTENSION_NAME}
+
+> {EXTENSION_DESCRIPTION}
+
+## Installation
+
+```bash
+sdd extension install {EXTENSION_NAME}
+```
+
+## Components
+
+### Agent
+
+| Agent | Purpose |
+|-------|---------|
+| {AGENT_NAME} | {AGENT_PURPOSE} |
+
+## Usage
+
+{USAGE_INSTRUCTIONS}
+
+## Removal
+
+```bash
+sdd extension remove {EXTENSION_NAME}
+```

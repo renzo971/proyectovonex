@@ -1,0 +1,57 @@
+name: Lint Atomic Writes (Wave 26 §B.5)
+
+# Forbid raw write_text / write_bytes / json.dump on artifact paths inside the
+# CLI source tree. Every write that targets `.specify/**` or `.sdd-modules/**`
+# must go through `sdd.io.atomic_write_text|atomic_write_json|atomic_write_yaml`
+# (Wave 26 §B.1). The `_audit/atomic-write-allowlist.txt` file enumerates the
+# legitimate exceptions (e.g. legacy installer hooks); every other hit fails the
+# job so reviewers can either migrate the call or extend the allow-list with a
+# rationale.
+
+on:
+  pull_request:
+    paths:
+      - 'enterprise-sdd/.specify/cli/sdd/**/*.py'
+      - 'enterprise-sdd/_audit/atomic-write-allowlist.txt'
+      - '.github/workflows/lint-atomic-writes.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'enterprise-sdd/.specify/cli/sdd/**/*.py'
+      - 'enterprise-sdd/_audit/atomic-write-allowlist.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  lint-atomic-writes:
+    name: Forbid raw artifact writes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Scan for raw artifact writes
+        run: |
+          set -euo pipefail
+          ALLOWLIST="enterprise-sdd/_audit/atomic-write-allowlist.txt"
+          # Patterns that indicate non-atomic writes; restrict to the CLI tree.
+          PATTERN='\.write_text\(|\.write_bytes\(|json\.dump\(open\('
+          HITS=$(grep -RInE "$PATTERN" enterprise-sdd/.specify/cli/sdd \
+            --include='*.py' || true)
+          if [[ -z "$HITS" ]]; then
+            echo "OK: no raw write_text/write_bytes/json.dump(open( call sites."
+            exit 0
+          fi
+          if [[ -f "$ALLOWLIST" ]]; then
+            FILTERED=$(echo "$HITS" | grep -vFf "$ALLOWLIST" || true)
+          else
+            FILTERED="$HITS"
+          fi
+          if [[ -n "$FILTERED" ]]; then
+            echo "::error::Raw artifact write call sites detected. Use sdd.io.atomic_write_*."
+            echo "$FILTERED"
+            exit 1
+          fi
+          echo "OK: only allow-listed call sites remain."

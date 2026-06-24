@@ -1,0 +1,34 @@
+{
+  "name": "sdd-extension-frontend-stratos-core",
+  "version": "1.0.0",
+  "description": "Shared UI baseline for Stratos design-system decisions, MFE decomposition, and component ambiguity handling. Base pack required by all other frontend extensions.",
+  "type": "tailored-frontend",
+  "domainCategory": "stratos",
+  "namespacePrefix": "fe",
+  "sddVersionRequired": "4.0+",
+  "hooks": {
+    "after-new-feature": "hooks/after-new-feature.sh"
+  },
+  "commands": {},
+  "templates": {
+    "react-vite-vitest-setup": "templates/react-vite-vitest-setup.md"
+  },
+  "agentPatches": {},
+  "instructions": [
+    "instructions/fe-stratos-design-tokens.instructions.md",
+    "instructions/fe-component-ambiguity-resolution.instructions.md",
+    "instructions/fe-frontend-architecture-mfe.instructions.md",
+    "instructions/fe-frontend-state-decision-tree.instructions.md"
+  ],
+  "prompts": [
+    "prompts/fe/fe-scaffold-component.prompt.md",
+    "prompts/fe/fe-design-review.prompt.md"
+  ],
+  "setupTemplate": "templates/react-vite-vitest-setup.md",
+  "compatibilityMatrix": {
+    "requiredModules": ["std-fe"],
+    "blockedModules": [],
+    "requiredPresets": [],
+    "blockedPresets": []
+  }
+}

@@ -1,0 +1,165 @@
+name: Consistency Check
+
+# Run consistency analysis on specification changes
+on:
+  pull_request:
+    paths:
+      - '.specify/specs/**/spec.md'
+      - '.specify/specs/**/plan.md'
+      - '.specify/specs/**/test-cases.md'
+      - '.specify/specs/**/tasks.md'
+  push:
+    branches:
+      - main
+    paths:
+      - '.specify/specs/**'
+  workflow_dispatch:
+    inputs:
+      feature_id:
+        description: 'Feature ID to analyze (e.g., 001-user-auth)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  analyze:
+    name: Analyze Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect features to analyze
+        id: detect
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "features=${{ inputs.feature_id }}" >> $GITHUB_OUTPUT
+          else
+            # Get modified feature directories
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            else
+              BASE_SHA="${{ github.event.before }}"
+            fi
+            
+            FEATURES=$(git diff --name-only $BASE_SHA ${{ github.sha }} | \
+              grep -E '^\.specify/specs/[^/]+/' | \
+              sed 's|\.specify/specs/\([^/]*\)/.*|\1|' | \
+              sort -u | \
+              tr '\n' ' ')
+            
+            echo "features=$FEATURES" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run consistency analysis
+        id: analyze
+        run: |
+          FEATURES="${{ steps.detect.outputs.features }}"
+          
+          if [[ -z "$FEATURES" ]]; then
+            echo "No features to analyze"
+            echo "status=skip" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "# Consistency Analysis Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          OVERALL_STATUS="pass"
+          
+          for FEATURE in $FEATURES; do
+            echo "Analyzing $FEATURE..."
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## Feature: $FEATURE" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            FEATURE_DIR=".specify/specs/$FEATURE"
+            
+            if [[ ! -d "$FEATURE_DIR" ]]; then
+              echo "⚠️ Feature directory not found: $FEATURE_DIR" >> $GITHUB_STEP_SUMMARY
+              continue
+            fi
+            
+            SPEC_FILE="$FEATURE_DIR/spec.md"
+            PLAN_FILE="$FEATURE_DIR/plan.md"
+            TEST_FILE="$FEATURE_DIR/test-cases.md"
+            TASKS_FILE="$FEATURE_DIR/tasks.md"
+            
+            # Extract user stories
+            if [[ -f "$SPEC_FILE" ]]; then
+              USER_STORIES=$(grep -oE 'US-[0-9]+' "$SPEC_FILE" | sort -u)
+              US_COUNT=$(echo "$USER_STORIES" | grep -c 'US-' || true)
+              US_COUNT=${US_COUNT:-0}
+              
+              echo "### User Stories: $US_COUNT" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "| Story | In Plan | Has Tests | Has Tasks | Status |" >> $GITHUB_STEP_SUMMARY
+              echo "|-------|---------|-----------|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+              
+              while IFS= read -r us; do
+                [[ -z "$us" ]] && continue
+                
+                IN_PLAN="❌"
+                HAS_TESTS="❌"
+                HAS_TASKS="❌"
+                
+                [[ -f "$PLAN_FILE" ]] && grep -q "$us" "$PLAN_FILE" && IN_PLAN="✅"
+                [[ -f "$TEST_FILE" ]] && grep -q "$us" "$TEST_FILE" && HAS_TESTS="✅"
+                [[ -f "$TASKS_FILE" ]] && grep -q "$us" "$TASKS_FILE" && HAS_TASKS="✅"
+                
+                if [[ "$IN_PLAN" == "✅" ]] && [[ "$HAS_TESTS" == "✅" ]]; then
+                  STATUS="✅"
+                elif [[ "$HAS_TESTS" == "❌" ]]; then
+                  STATUS="❌"
+                  OVERALL_STATUS="fail"
+                else
+                  STATUS="⚠️"
+                fi
+                
+                echo "| $us | $IN_PLAN | $HAS_TESTS | $HAS_TASKS | $STATUS |" >> $GITHUB_STEP_SUMMARY
+                
+              done <<< "$USER_STORIES"
+            else
+              echo "⚠️ No spec.md found" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "$OVERALL_STATUS" == "pass" ]]; then
+            echo "## ✅ Consistency Check PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "status=pass" >> $GITHUB_OUTPUT
+          else
+            echo "## ❌ Consistency Check FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "Some user stories lack required coverage." >> $GITHUB_STEP_SUMMARY
+            echo "status=fail" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.analyze.outputs.status != 'skip'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const status = '${{ steps.analyze.outputs.status }}';
+            const icon = status === 'pass' ? '✅' : '❌';
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## ${icon} Consistency Analysis\n\nSee the [workflow summary](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.`
+            });
+
+      - name: Fail if inconsistent
+        if: steps.analyze.outputs.status == 'fail'
+        run: |
+          echo "Consistency check failed. Please address missing coverage."
+          exit 1

@@ -1,0 +1,69 @@
+# Skill Evaluation Manifest — `.sdd-eval.yaml`
+#
+# This is the canonical schema for behavioral evaluation manifests that live
+# alongside curated SDD skills (one file per skill, named `.sdd-eval.yaml` and
+# placed inside the skill directory: `.github/skills/<skill-id>/.sdd-eval.yaml`).
+#
+# When `sdd skill validate <skill-id> --eval` runs, it locates this manifest,
+# executes each fixture against the active model adapter (or against a stored
+# transcript when `transcript:` is supplied for offline runs), and applies the
+# declared assertions.
+#
+# Schema (all keys at top level unless noted):
+#   skill            — REQUIRED — must match the skill directory name
+#   description      — OPTIONAL — one-line summary printed in eval reports
+#   pass_threshold   — OPTIONAL — default 1.0 (100% of fixtures must pass)
+#   fixtures         — REQUIRED — list of named fixtures
+#     - name         — REQUIRED — kebab-case fixture id, unique per file
+#       description  — OPTIONAL — one-line scenario summary
+#       input        — OPTIONAL — inline string OR path: relative-path-to-fixture-input
+#       transcript   — OPTIONAL — path to a stored skill output (Markdown)
+#                                 used for offline assertion runs; if absent
+#                                 the active model adapter is invoked
+#       assertions   — REQUIRED — list of assertions applied to skill output
+#         - type     — REQUIRED — one of:
+#                         contains_section   — heading must exist (Markdown #/##)
+#                         contains_field     — `**Field:**` line must exist
+#                         contains_text      — substring must appear
+#                         forbids_text       — substring MUST NOT appear
+#                         min_lines          — output line count >= value
+#                         matches_regex      — regex pattern (POSIX) must match
+#           value    — REQUIRED — section name, field label, substring, integer, or regex
+#           rationale — OPTIONAL — one-line explanation surfaced in failure reports
+#
+# Example fixture demonstrating PASS and forbidden-pattern assertions:
+
+skill: example-skill
+description: Reference manifest demonstrating every supported assertion type
+pass_threshold: 1.0
+
+fixtures:
+  - name: happy-path-output-shape
+    description: Skill output must contain the canonical Output Contract sections
+    input: |
+      Sample feature workspace with a small diff and clean history.
+    assertions:
+      - type: contains_section
+        value: Summary
+        rationale: Every skill report begins with a Summary block
+      - type: contains_section
+        value: Findings
+        rationale: Findings must be discoverable for downstream review
+      - type: contains_field
+        value: Verdict
+        rationale: A machine-readable verdict line is required by gate hooks
+
+  - name: forbids-anti-patterns
+    description: Skill output must not silently downgrade severity
+    input: |
+      Diff that includes a known critical hotspot.
+    assertions:
+      - type: forbids_text
+        value: "all clear"
+        rationale: Skills must never declare a blanket pass without enumerating findings
+      - type: matches_regex
+        value: "Critical|Elevated|Normal"
+        rationale: Hotspot classification buckets must always appear
+      - type: min_lines
+        value: 10
+        rationale: A useful skill report is at least ten lines long

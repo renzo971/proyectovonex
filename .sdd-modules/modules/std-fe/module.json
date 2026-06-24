@@ -1,0 +1,27 @@
+{
+  "name": "std-fe",
+  "version": "1.0.0",
+  "displayName": "Std-FE (React / Vite / Stratos)",
+  "description": "Tailored frontend microfrontend guidance extracted from the FE framework sources in this monorepo",
+  "source": "_tailored-framework-FE/_framework-FE",
+  "architecture": ["frontend", "microfrontend", "react", "vite"],
+  "techStack": {
+    "language": "TypeScript 5.x",
+    "framework": "React 19 + Vite",
+    "ui": "Stratos",
+    "testing": "Vitest + Playwright + Cucumber"
+  },
+  "provides": {
+    "instructions": 5,
+    "guidances": 0,
+    "setupTemplates": 1,
+    "prompts": 0,
+    "constitutionArticles": 0,
+    "agentPatches": 1,
+    "copilotInstructionsSupplement": true
+  },
+  "requires": {
+    "sddVersion": ">=3.0",
+    "applyToSupport": true
+  }
+}

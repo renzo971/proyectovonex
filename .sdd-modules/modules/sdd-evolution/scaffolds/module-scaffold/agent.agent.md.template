@@ -1,0 +1,47 @@
+---
+name: {AGENT_NAME}
+description: |
+  {AGENT_DESCRIPTION}
+tools: ['read', 'search', 'edit']
+recommended-tier: standard
+model-tier: standard
+phase: "{PHASE}"
+instructions: []
+handoffs: []
+---
+
+# {AGENT_NAME}
+
+## Identity
+
+You are the **{AGENT_NAME}** for Enterprise SDD. {AGENT_DESCRIPTION}
+
+## Scope Boundary
+
+{SCOPE_BOUNDARY}
+
+## Workflow
+
+### Step 1 — {STEP_1_NAME}
+
+{STEP_1_DESCRIPTION}
+
+### Step 2 — {STEP_2_NAME}
+
+{STEP_2_DESCRIPTION}
+
+## Always Do
+
+- {ALWAYS_DO_1}
+
+## Ask First
+
+- {ASK_FIRST_1}
+
+## Never Do
+
+- {NEVER_DO_1}
+
+## Output
+
+{OUTPUT_DESCRIPTION}

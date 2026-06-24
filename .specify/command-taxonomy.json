@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "generated": "2026-04-14",
+  "domains": [
+    {
+      "name": "core-workflow",
+      "commands": ["init", "new", "gate", "status", "analyze", "trace", "report", "resume", "bridge"]
+    },
+    {
+      "name": "enablement",
+      "commands": ["module", "preset", "adapters", "spell", "sync", "route", "ship"]
+    },
+    {
+      "name": "extensions",
+      "commands": ["extension", "memory", "skill", "autonomy"]
+    },
+    {
+      "name": "pre-pipeline",
+      "commands": ["spike", "ingest"]
+    },
+    {
+      "name": "learning",
+      "commands": ["context", "retrospect"]
+    },
+    {
+      "name": "maintenance",
+      "commands": ["doctor", "accept-drift", "diff-drift"]
+    }
+  ],
+  "phaseMapping": {
+    "H": ["memory"],
+    "I": ["skill"],
+    "J": ["autonomy"],
+    "K": ["extension"],
+    "N": ["context", "retrospect"]
+  },
+  "commandPhaseMap": [
+    { "id": "challenge", "phase": "2-design", "prompt": "challenge.prompt.md" },
+    { "id": "plan-implementation", "phase": "4-implementation", "prompt": "plan-implementation.prompt.md" },
+    { "id": "assert-quality", "phase": "5-quality", "prompt": "assert-quality.prompt.md" },
+    { "id": "review-functional", "phase": "5-quality", "prompt": "review-functional.prompt.md" },
+    { "id": "review-code", "phase": "5-quality", "prompt": "review-code.prompt.md" },
+    { "id": "test-journey", "phase": "3-preparation", "prompt": "test-journey.prompt.md" },
+    { "id": "debug-5-whys", "phase": "4-implementation", "prompt": "debug-5-whys.prompt.md" },
+    { "id": "reproduce-bug", "phase": "4-implementation", "prompt": "reproduce-bug.prompt.md" }
+  ],
+  "curatedPrompts": [
+    "challenge.prompt.md",
+    "plan-implementation.prompt.md",
+    "assert-quality.prompt.md",
+    "review-functional.prompt.md",
+    "review-code.prompt.md",
+    "test-journey.prompt.md",
+    "debug-5-whys.prompt.md",
+    "reproduce-bug.prompt.md"
+  ],
+  "skillPhaseMap": [
+    { "id": "sdd-auto-implement", "phase": "4-implementation" },
+    { "id": "sdd-challenge", "phase": "2-design" },
+    { "id": "sdd-spec-review", "phase": "5-quality" },
+    { "id": "pattern-analyze", "phase": "maintenance" },
+    { "id": "sdd-ambiguity-score", "phase": "1-specification" },
+    { "id": "ingest-docs", "phase": "pre-pipeline" }
+  ]
+}

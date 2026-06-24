@@ -1,0 +1,34 @@
+{
+  "name": "sdd-extension-tailored-dummy-fe",
+  "version": "1.0.0",
+  "description": "Synthetic FE tailored extension for Wave 11 validation",
+  "type": "tailored-frontend",
+  "domainCategory": "stratos",
+  "namespacePrefix": "fe",
+  "hooks": {
+    "after-gate-pass": "hooks/after-gate-pass.sh",
+    "after-new-feature": "hooks/after-new-feature.sh"
+  },
+  "commands": {},
+  "templates": {
+    "frontend-smoke": "templates/frontend-smoke.md"
+  },
+  "agentPatches": {
+    "frontend-reviewer": {
+      "modelTier": "standard"
+    }
+  },
+  "instructions": [
+    "instructions/fe-quality.instructions.md"
+  ],
+  "prompts": [
+    "prompts/fe/scaffold.prompt.md"
+  ],
+  "setupTemplate": "templates/setup-template.md",
+  "compatibilityMatrix": {
+    "requiredModules": [],
+    "blockedModules": [],
+    "requiredPresets": [],
+    "blockedPresets": []
+  }
+}

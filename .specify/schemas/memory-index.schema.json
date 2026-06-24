@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://enterprise-sdd.local/schemas/memory-index.schema.json",
+  "title": "SDD derived memory index (Wave 27 §26 #1)",
+  "description": "Derived, disposable index over canonical `.specify/memory/*.md` decision/lesson entries. Markdown stays canonical (Constraint #9); this index is regenerable via `sdd memory index` / `sdd doctor` and is NOT committed. It powers dedup-aware selection in `sdd bridge` and collision surfacing in `sdd memory list --duplicates`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "source", "entries"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Index schema version. Increments are breaking changes; additive fields stay on v1."
+    },
+    "generated_at": {
+      "type": "string",
+      "description": "ISO 8601 UTC timestamp of the last rebuild from markdown."
+    },
+    "source": {
+      "type": "string",
+      "const": "derived",
+      "description": "Always `derived` — the markdown files remain the single source of truth."
+    },
+    "entries": {
+      "type": "array",
+      "description": "One normalized entry per decision/lesson discovered in the canonical markdown.",
+      "items": { "$ref": "#/definitions/entry" }
+    }
+  },
+  "definitions": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source_file",
+        "source_anchor",
+        "kind",
+        "title",
+        "fingerprint",
+        "last_referenced_at",
+        "reference_count",
+        "duplicate_of"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier derived from source_file + source_anchor."
+        },
+        "source_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Canonical markdown file name under .specify/memory/ (e.g. `decisions.md`)."
+        },
+        "source_anchor": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Heading slug of the entry inside its source file."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["decision", "lesson"],
+          "description": "Entry category, inferred from the source file."
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable heading text of the entry."
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Lowercase hex sha256 of the normalized entry body (reuses the §23 #3 hashing convention)."
+        },
+        "last_referenced_at": {
+          "type": "string",
+          "description": "ISO 8601 UTC timestamp carried from the source file frontmatter (reuses §23 #4)."
+        },
+        "reference_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Reference count carried from the source file frontmatter (reuses §23 #4)."
+        },
+        "duplicate_of": {
+          "type": ["string", "null"],
+          "description": "Id of the authoritative entry when this entry's fingerprint collides; null when this entry is authoritative or unique."
+        }
+      }
+    }
+  }
+}

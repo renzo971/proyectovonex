@@ -1,0 +1,771 @@
+---
+applyTo: 'e2e-tests/**/*.{ts,feature}'
+---
+
+# E2E Testing Instructions
+
+These instructions define the end-to-end testing standards and best practices for frontend microfrontend projects. All developers must follow these guidelines when writing e2e tests using Playwright and Cucumber to ensure test quality, maintainability, and consistency across the codebase.
+
+## 1. Testing Framework & Architecture
+
+### Technology Stack
+
+- **Test Framework:** Playwright (for browser automation)
+- **BDD Framework:** Cucumber (for behavior-driven development)
+- **Assertion Library:** Playwright's expect (from @playwright/test)
+- **Language:** TypeScript
+
+### Project Structure
+
+```
+e2e-tests/
+├── features/                    # Gherkin feature files
+│   └── *.feature               # BDD scenarios
+├── step-definitions/           # Step implementations
+│   └── *.steps.ts              # Step definition files
+├── pages/                      # Page Object Models
+│   └── *Page.ts                # Page classes
+├── fixtures/                   # Test data and fixtures
+├── support/                    # Shared utilities
+│   ├── world.ts                # Custom World context
+│   └── config.ts               # Test configuration
+├── reports/                    # Test execution reports
+└── cucumber.config.cjs         # Cucumber configuration
+```
+
+## 2. Page Object Model (POM) Standards
+
+### File Naming & Structure
+
+- **Naming:** Use PascalCase with `Page` suffix: `SpecialAuthorizationsPage.ts`, `LoginPage.ts`
+- **Location:** Place all Page Objects in `e2e-tests/pages/` directory
+- **One Page Per File:** Each Page Object should represent a single page or major component
+
+### Page Object Class Structure
+
+```typescript
+import { Page } from '@playwright/test';
+
+/**
+ * Page Object for [Feature Name] page
+ * Centralizes selectors and actions for better maintainability
+ */
+export class FeaturePage {
+  constructor(private page: Page) {}
+
+  // Selectors - made public to allow direct access in step definitions
+  selectors = {
+    // Group related selectors logically
+    navigation: {
+      menuItem: '[data-testid="menu-item"]',
+      breadcrumb: '.breadcrumb',
+    },
+
+    form: {
+      inputField: 'input[name="fieldName"]',
+      submitButton: 'button[type="submit"]',
+    },
+
+    table: {
+      container: '[data-testid="data-table"]',
+      row: 'tbody tr',
+      deleteButton: '[title="Delete"]',
+    },
+
+    // Nested objects for complex UI elements (modals, popups, etc.)
+    confirmationDialog: {
+      container: '[role="dialog"]',
+      title: 'h4:has-text("Confirmation")',
+      closeButton: '[title="Close"]',
+      cancelButton: 'button:has-text("Cancel")',
+      confirmButton: 'button:has-text("Confirm")',
+    },
+  };
+
+  // Navigation methods
+  async navigateToFeature(): Promise<void> {
+    await this.page.click(this.selectors.navigation.menuItem);
+    await this.page.waitForLoadState('networkidle');
+  }
+
+  // Action methods - encapsulate user interactions
+  async fillForm(data: FormData): Promise<void> {
+    await this.page.fill(this.selectors.form.inputField, data.value);
+  }
+
+  async submitForm(): Promise<void> {
+    await this.page.click(this.selectors.form.submitButton);
+  }
+
+  // Verification methods - return data for assertions
+  async isDialogVisible(): Promise<boolean> {
+    return await this.page.isVisible(this.selectors.confirmationDialog.container);
+  }
+
+  async getDialogTitle(): Promise<string> {
+    return (await this.page.textContent(this.selectors.confirmationDialog.title)) || '';
+  }
+}
+```
+
+### Selector Best Practices
+
+**STRONGLY RECOMMENDED: ALWAYS TRY TO USE `data-qa` FIRST** - This project uses **Stratos UI Library**, which automatically generates `data-qa` attributes from the `qa` prop. This is the ideal and most stable selector for testing.
+
+**Priority Order for Selectors:**
+
+1. **`data-qa` attributes** (most stable) - **STRONGLY RECOMMENDED - TRY THIS FIRST**
+   - Stratos UI components generate these automatically from `qa` prop
+   - Format: `qa="domain.component.element-type"`
+   - Example: `<Button qa="passport.special-authorizations.add-btn" />`
+2. `data-testid` attributes (standard alternative)
+3. `aria-*` attributes (accessible and semantic)
+4. `title` attributes (descriptive and user-facing)
+5. `role` attributes (semantic HTML)
+6. Text content (use sparingly, localization-friendly)
+7. CSS classes (least stable, use only when no better option exists)
+
+**Real World Approach:**
+
+- ✅ **Ideal:** Request developers to add `data-testid` to elements
+- ✅ **Pragmatic:** Use what's available - `aria-*`, `title`, `role`, text
+- ✅ **Last Resort:** Use stable CSS selectors or structure when nothing else works
+- ⚠️ **Document:** Add TODO comments when using suboptimal selectors for future improvement
+
+#### The `data-qa` Standard (Stratos UI)
+
+**`data-qa`** is the testing standard for this project using **Stratos UI Library**:
+
+- ✅ Automatically generated by Stratos components from `qa` prop
+- ✅ Follows hierarchical dot notation pattern
+- ✅ Stable and won't change with styling or structure
+- ✅ Clear intent - explicitly for testing
+- ✅ Compatible with Playwright selectors
+
+**Naming Convention for `qa` prop (3-level hierarchy):**
+
+- Use kebab-case with dots: `domain.component.element-type`
+- **Level 1 (domain):** Feature area (e.g., `passport`, `settlement`, `instruction`)
+- **Level 2 (component):** Specific component or section (e.g., `special-authorizations`, `form`, `table`)
+- **Level 3 (element-type):** Element type with suffix (e.g., `add-btn`, `tab`, `select`, `modal`)
+- Be consistent: same pattern across the project
+
+**Common Element Type Suffixes:**
+
+- `-btn` for buttons
+- `-tab` for tabs
+- `-select` for dropdowns
+- `-input` for text inputs
+- `-radio` for radio buttons
+- `-modal` for modals/dialogs
+- `-table` for tables
+
+#### The `data-testid` Standard (Alternative)
+
+**`data-testid`** is the industry standard alternative:
+
+- ✅ Officially supported by Playwright (`page.getByTestId()`)
+- ✅ Used by React Testing Library
+- ✅ Use when not using Stratos UI components
+
+**Naming Convention for `data-testid`:**
+
+- Use kebab-case: `delete-passport-btn`, `confirmation-dialog`
+- Be descriptive: include element type when helpful
+- Be consistent: same pattern across the project
+
+**React/Stratos UI Examples:**
+
+```tsx
+// ✅ Recommended - Stratos UI with qa prop (3-level hierarchy)
+<Button qa="passport.special-authorizations.add-btn">Add Special Authorization</Button>
+<Tab qa="passport.special-authorizations.tab" label="Special Authorizations" />
+<Select qa="passport.special-authorizations.form-csd-select" label="CSD" />
+<Modal qa="passport.special-authorizations.form-modal" title="Add Special Authorization" />
+<RadioButtonGroup qa="passport.special-authorizations.form-apply-passport-to-radio" />
+```
+
+**Generated HTML (by Stratos UI):**
+
+```html
+<!-- ✅ Automatically generated by Stratos -->
+<button data-qa="passport.special-authorizations.add-btn">Add Special Authorization</button>
+<div data-qa="passport.special-authorizations.tab" role="tab">Special Authorizations</div>
+<select data-qa="passport.special-authorizations.form-csd-select">
+  ...
+</select>
+<div data-qa="passport.special-authorizations.form-modal" role="dialog">...</div>
+
+<!-- ❌ Don't use these -->
+<button data-selector="deleteButton">Delete</button>
+<button data-id="deleteBtn">Delete</button>
+<button data-test="delete-btn">Delete</button>
+```
+
+**Good Examples:**
+
+```typescript
+selectors = {
+  // ✅ IDEAL: Using data-qa from Stratos UI (ALWAYS TRY THIS FIRST)
+  specialAuthorizationsTab: '[data-qa="passport.special-authorizations.tab"]',
+  addButton: '[data-qa="passport.special-authorizations.add-btn"]',
+  formModal: '[data-qa="passport.special-authorizations.form-modal"]',
+  csdSelect: '[data-qa="passport.special-authorizations.form-csd-select"]',
+  submitButton: '[data-qa="passport.special-authorizations.form-submit-btn"]',
+
+  // ✅ ALTERNATIVE: Using data-testid (when not using Stratos)
+  deleteButton: '[data-testid="delete-passport-btn"]',
+  confirmDialog: '[data-testid="confirmation-dialog"]',
+
+  // ✅ PRAGMATIC: Fallback options when data-qa/data-testid not available
+  cancelButton: '[aria-label="Cancel action"]', // Good - semantic
+  closeIcon: '[title="Close"]', // Acceptable - descriptive
+  dialog: '[role="dialog"]', // Good - semantic HTML
+  heading: 'h2:has-text("Delete Special Authorization")', // Acceptable - text-based
+
+  // ⚠️ LAST RESORT: When nothing else is available
+  tableRow: 'tbody tr', // TODO: Request qa prop on Stratos component
+  genericButton: 'button[type="submit"]', // TODO: Add qa="feature.component.submit-btn"
+};
+```
+
+**Playwright Usage:**
+
+```typescript
+// ✅ Best - Using data-qa selector from Stratos UI
+await page.click('[data-qa="passport.special-authorizations.add-btn"]');
+await page.waitForSelector('[data-qa="passport.special-authorizations.form-modal"]', { state: 'visible' });
+
+// ✅ Good - Using Playwright's locator
+const addButton = page.locator('[data-qa="passport.special-authorizations.add-btn"]');
+await addButton.click();
+
+// ✅ Alternative - Using data-testid (when not using Stratos)
+await page.click('[data-testid="delete-passport-btn"]');
+await expect(page.getByTestId('confirmation-dialog')).toBeVisible();
+```
+
+**Poor Examples:**
+
+```typescript
+selectors = {
+  button: '.btn-primary', // Too generic
+  deleteIcon: '.icon.icon-trash', // CSS class dependent
+  input: '#field123', // ID might change
+};
+```
+
+## 3. Gherkin Feature Files
+
+### Naming Convention
+
+- Use kebab-case: `special-authorizations.feature`, `user-login.feature`
+- Name should clearly indicate the feature being tested
+- Include ticket/story references in tags
+
+### Feature File Structure
+
+```gherkin
+@CCH-1234
+Feature: [Feature Name]
+  As a [user type]
+  I want to [action/capability]
+  So that [business value/goal]
+
+  Background:
+    Given [common preconditions for all scenarios]
+
+  @CCH-1234 @UI @[Category]
+  Scenario: [Clear description of what is being tested]
+    Given [initial context/state]
+    When [action performed by user]
+    And [additional actions if needed]
+    Then [expected outcome]
+    And [additional verifications]
+
+  @CCH-1234 @UI @[Category] @Edge-Case
+  Scenario Outline: [Description with multiple data sets]
+    Given [context with <placeholder>]
+    When [action with <placeholder>]
+    Then [outcome with <placeholder>]
+
+    Examples:
+      | placeholder1 | placeholder2 |
+      | value1       | result1      |
+      | value2       | result2      |
+```
+
+### Gherkin Best Practices
+
+**Good Practices:**
+
+- Use declarative language (what, not how)
+- Keep scenarios focused on business behavior
+- Use Background for common setup steps
+- Tag scenarios with ticket IDs and categories
+- Limit scenarios to 5-10 steps
+- **Avoid excessive `And` chains** - if you have many `And` steps, consider:
+  - Splitting into multiple focused scenarios
+  - Using `Scenario Outline` with Examples for data variations
+  - Refactoring into a Background section for setup steps
+
+**Good Example:**
+
+```gherkin
+@CCH-7798 @UI @SpecialAuthorizations
+Scenario: Add Special Authorization successfully
+  Given a user with permission to add new special authorizations
+  When the user is on the Passports Special Authorizations page
+  And the user clicks on the Add Special Authorization button
+  And the user selects "Euroclear Sweden (SECU)" from "CSD"
+  And the user selects "Equity" from "Security Category"
+  And the user selects "DK-Denmark" from "Primary Issuance Country"
+  And the user selects "ISIN Prefix" from "Apply Passport to"
+  And the user clicks on the Add passport button
+  Then the new passport should appear in the Passports list
+```
+
+**Poor Example:**
+
+```gherkin
+Scenario: Click delete
+  Given I am on the page
+  When I click the element with selector "[title='Delete']"
+  And I wait for 500ms
+  Then I should see a dialog with class ".modal"
+
+# ❌ Too many steps - hard to read and maintain
+Scenario: Complete passport workflow
+  Given a user with permissions
+  When the user navigates to passports
+  And the user clicks create new passport
+  And the user fills in passport name
+  And the user fills in passport type
+  And the user fills in country
+  And the user fills in issue date
+  And the user fills in expiry date
+  And the user uploads a document
+  And the user clicks submit
+  And the user waits for confirmation
+  Then the passport is created
+  And the user sees a success message
+  And the user can see the passport in the list
+  And the passport status is "Active"
+
+# ✅ Better - Split into focused scenarios
+Scenario: Create new passport with valid data
+  Given a user with passport creation permissions
+  When the user creates a passport with valid information
+  Then the passport is successfully created
+  And appears in the passports list with "Active" status
+
+Scenario: Upload document to passport
+  Given a passport exists
+  When the user uploads a valid document
+  Then the document is attached to the passport
+
+# ✅ Or use Scenario Outline for data variations
+Scenario Outline: Add Special Authorizations for different countries
+  Given a user with permission to add new special authorizations
+  When the user clicks on the Add Special Authorization button
+  And the user selects "<CSD>" from "CSD"
+  And the user selects "<Category>" from "Security Category"
+  And the user selects "<Country>" from "Primary Issuance Country"
+  And the user selects "ISIN Prefix" from "Apply Passport to"
+  And the user selects "<ISIN>" in the "ISIN Number" field
+  And the user clicks on the Add passport button
+  Then the new passport should appear in the Passports list
+
+  Examples:
+    | CSD                       | Category | Country       | ISIN        |
+    | Euroclear Sweden (SECU)   | Equity   | DK-Denmark    | DK-Denmark  |
+    | Euroclear Sweden (SECU)   | Equity   | SE-Sweden     | SE-Sweden   |
+    | Euroclear Sweden (SECU)   | Bond     | DK-Denmark    | DK-Denmark  |
+```
+
+## 4. Step Definitions
+
+### Naming Convention
+
+- Use kebab-case matching feature files: `special-authorizations.steps.ts`
+- Group related steps in the same file
+
+### Step Definition Structure
+
+```typescript
+import { Given, When, Then } from '@cucumber/cucumber';
+import { expect } from '@playwright/test';
+import { CustomWorld } from '../support/world';
+import { FeaturePage } from '../pages/FeaturePage';
+
+// Given steps - setup initial state
+Given('a user with permission to edit passports', async function (this: CustomWorld) {
+  await this.page!.goto(getBaseUrl());
+  await this.page!.waitForLoadState('networkidle');
+
+  console.log('✅ User with edit permissions authenticated');
+});
+
+// When steps - user actions
+When('the user is on the {string} page', async function (this: CustomWorld, pageName: string) {
+  const featurePage = new FeaturePage(this.page!);
+  await featurePage.navigateToFeature();
+
+  console.log(`✅ Navigated to ${pageName} page`);
+});
+
+When('the user clicks on the bin icon on the right', async function (this: CustomWorld) {
+  const featurePage = new FeaturePage(this.page!);
+  await featurePage.clickDeleteIcon();
+
+  console.log('✅ Clicked on bin icon');
+});
+
+// Then steps - assertions and verifications
+Then('a delete confirmation popup appears', async function (this: CustomWorld) {
+  const featurePage = new FeaturePage(this.page!);
+  await this.page!.waitForSelector(featurePage.selectors.deletePopup.container, { state: 'visible' });
+
+  const isVisible = await featurePage.isDeletePopupVisible();
+  expect(isVisible).toBe(true);
+
+  console.log('✅ Delete confirmation popup is visible');
+});
+
+Then('the popup title is {string}', async function (this: CustomWorld, expectedTitle: string) {
+  const featurePage = new FeaturePage(this.page!);
+  const actualTitle = await featurePage.getPopupTitle();
+
+  expect(actualTitle).toBe(expectedTitle);
+
+  console.log(`✅ Popup title verified: "${expectedTitle}"`);
+});
+```
+
+### Step Definition Best Practices
+
+**Do's:**
+
+- ✅ Always use `CustomWorld` type: `async function (this: CustomWorld)`
+- ✅ Instantiate Page Objects within steps, not globally
+- ✅ Add informative console logs for debugging (with ✅ emoji)
+- ✅ Wait for elements to be visible/ready before interacting
+- ✅ Use descriptive variable names
+- ✅ Keep steps atomic and reusable
+- ✅ Use Playwright's built-in expect for assertions
+
+**Don'ts:**
+
+- ❌ Don't hardcode timeouts (use `waitForSelector` instead)
+- ❌ Don't use `page.waitForTimeout()` unless absolutely necessary
+- ❌ Don't add business logic in steps (put it in Page Objects)
+- ❌ Don't use generic step names like "I click button"
+- ❌ Don't forget error handling for async operations
+- ❌ Don't create global state between steps
+
+## 5. Wait Strategies
+
+### Preferred Wait Patterns
+
+```typescript
+// ✅ Good - Wait for specific element state
+await this.page.waitForSelector(selector, { state: 'visible' });
+
+// ✅ Good - Wait for network to be idle
+await this.page.waitForLoadState('networkidle');
+
+// ✅ Good - Wait for specific URL
+await this.page.waitForURL('**/passports/other');
+
+// ✅ Good - Auto-wait with Playwright actions
+await this.page.click(selector); // Automatically waits for element
+
+// ⚠️ Use sparingly - Fixed timeout (only for animations)
+await this.page.waitForTimeout(500);
+
+// ❌ Avoid - Arbitrary long waits
+await this.page.waitForTimeout(5000);
+```
+
+### State Options
+
+- `'attached'` - Element is attached to DOM
+- `'detached'` - Element is not attached to DOM
+- `'visible'` - Element is visible
+- `'hidden'` - Element is hidden
+
+## 6. Error Handling and Debugging
+
+### Console Logging
+
+- Add informative logs at each step for debugging
+- Use emojis for visual clarity: ✅ (success), ⚠️ (warning), ❌ (error)
+- Log meaningful context, not just "step completed"
+
+```typescript
+console.log('✅ User authenticated with role: Admin');
+console.log(`✅ Navigated to ${pageName} page`);
+console.log('⚠️ Popup animation delay applied');
+```
+
+### Screenshots and Videos
+
+- Screenshots are automatically captured on failure (Playwright default)
+- Videos can be enabled in Playwright config
+- Store artifacts in `e2e-tests/screenshots/` and `e2e-tests/reports/`
+
+### Common Pitfalls to Avoid
+
+```typescript
+// ❌ Bad - Race condition
+await this.page.click(button);
+const isVisible = await this.page.isVisible(popup); // Might check too early
+
+// ✅ Good - Explicit wait
+await this.page.click(button);
+await this.page.waitForSelector(popup, { state: 'visible' });
+const isVisible = await this.page.isVisible(popup);
+
+// ❌ Bad - Hardcoded data
+await this.page.fill(input, 'test@example.com');
+
+// ✅ Good - Use fixtures or dynamic data
+const testData = await this.context.getTestData('user');
+await this.page.fill(input, testData.email);
+```
+
+## 7. Test Data Management
+
+### Fixtures
+
+- Store test data in `e2e-tests/fixtures/`
+- Use JSON files for structured data
+- Keep data separate from test logic
+
+```typescript
+// fixtures/users.json
+{
+  "adminUser": {
+    "username": "admin@example.com",
+    "role": "ADMIN"
+  },
+  "regularUser": {
+    "username": "user@example.com",
+    "role": "USER"
+  }
+}
+```
+
+### Dynamic Data
+
+- Generate unique data when needed to avoid conflicts
+- Use libraries like `faker` for realistic test data
+- Clean up test data after execution when possible
+
+## 8. Test Organization and Execution
+
+### Tagging Strategy
+
+- `@CCH-XXXX` - Ticket/Story reference (required)
+- `@UI` - User interface tests
+- `@API` - API/Backend tests
+- `@Smoke` - Critical path tests
+- `@Regression` - Full regression suite
+- `@Edge-Case` - Edge cases and negative scenarios
+- `@WIP` - Work in progress (skip in CI)
+- `@[Feature]` - Feature category (e.g., @Passports, @Settlement)
+
+### Running Tests
+
+```bash
+# Run all tests
+npm run test:e2e
+
+# Run specific feature
+npm run test:e2e -- features/special-authorizations.feature
+
+# Run tests by tag
+npm run test:e2e -- --tags "@Smoke"
+
+# Run tests excluding tag
+npm run test:e2e -- --tags "not @WIP"
+
+# Run with specific browser
+BROWSER=chromium npm run test:e2e
+```
+
+## 9. Accessibility and Localization
+
+### Accessible Selectors
+
+- Prefer ARIA attributes and semantic HTML
+- Test keyboard navigation when relevant
+- Verify screen reader compatibility for critical flows
+
+```typescript
+// ✅ Good - Accessible selectors
+await this.page.click('[aria-label="Close dialog"]');
+await this.page.getByRole('button', { name: 'Submit' });
+await this.page.getByLabel('Email address');
+
+// ❌ Poor - Non-semantic selectors
+await this.page.click('.close-btn');
+```
+
+### Multi-language Support
+
+- Avoid hardcoding text that may be localized
+- Use language-agnostic selectors when possible
+- Consider parameterizing text expectations
+
+```typescript
+// ⚠️ Risky - Text might be translated
+Then('the popup title is {string}', async function (this: CustomWorld, expectedTitle: string) {
+  // Text comparison might fail in different languages
+});
+
+// ✅ Better - Use data attributes or structure
+Then('the popup title is displayed', async function (this: CustomWorld) {
+  const title = await this.page.getAttribute('[data-testid="dialog-title"]', 'textContent');
+  expect(title).toBeTruthy();
+});
+```
+
+## 10. Performance Considerations
+
+### Test Speed
+
+- Keep tests fast by minimizing unnecessary waits
+- Use parallel execution when tests are independent
+- Mock external dependencies when possible
+- Avoid testing the same path multiple times
+
+### Resource Management
+
+- Clean up browser contexts between tests
+- Close unnecessary tabs/windows
+- Clear browser storage when needed
+
+```typescript
+// Clean up after tests
+After(async function (this: CustomWorld) {
+  if (this.page) {
+    await this.page.close();
+  }
+});
+```
+
+## 11. Continuous Integration
+
+### CI/CD Integration
+
+- Tests should run on every pull request
+- Tests should run on main branch commits
+- Failed tests should block merges
+- Test reports should be published
+
+### Environment Configuration
+
+- Use environment variables for configuration
+- Support multiple environments (dev, staging, production)
+- Keep credentials out of code (use secrets)
+
+```typescript
+// support/config.ts
+export const getBaseUrl = (): string => {
+  return process.env.BASE_URL || 'http://localhost:3000';
+};
+
+export const getApiUrl = (): string => {
+  return process.env.API_URL || 'http://localhost:8080';
+};
+```
+
+## 12. Code Quality
+
+### TypeScript Best Practices
+
+- Enable strict mode in tsconfig.json
+- Avoid `any` types - use proper interfaces
+- Use async/await consistently
+- Handle promise rejections properly
+
+### Code Review Checklist
+
+- [ ] Feature file is clear and follows Gherkin standards
+- [ ] Step definitions are reusable and atomic
+- [ ] Page Objects follow POM pattern
+- [ ] Selectors are stable and semantic
+- [ ] Wait strategies are appropriate
+- [ ] Error messages are descriptive
+- [ ] Tests are independent and can run in any order
+- [ ] Console logs are informative
+- [ ] No hardcoded values (use fixtures/config)
+- [ ] Tests pass consistently
+
+## 13. Maintenance and Refactoring
+
+### When to Refactor
+
+- When selectors change frequently
+- When step definitions are duplicated
+- When Page Objects become too large (>200 lines)
+- When tests become flaky
+
+### Refactoring Strategies
+
+- Extract common steps into reusable functions
+- Split large Page Objects into smaller components
+- Create helper utilities for repeated patterns
+- Update outdated selectors proactively
+
+## 14. Common Anti-Patterns to Avoid
+
+```typescript
+// ❌ Anti-pattern: Chaining too many actions
+await page.click(button1);
+await page.click(button2);
+await page.click(button3);
+await page.fill(input, 'value');
+// Instead, group related actions in Page Object methods
+
+// ❌ Anti-pattern: Testing implementation details
+expect(await page.$('.hidden-class')).toBeNull();
+// Instead, test user-visible behavior
+
+// ❌ Anti-pattern: Overly complex scenarios
+Scenario: User does everything (20+ steps)
+// Instead, split into multiple focused scenarios
+
+// ❌ Anti-pattern: Global state dependencies
+let globalUserId; // Shared across tests
+// Instead, use isolated test data per scenario
+```
+
+## 15. Summary
+
+**Key Principles:**
+
+1. **Page Object Model:** Encapsulate page interactions in Page Objects
+2. **Declarative Gherkin:** Write business-focused scenarios
+3. **Stable Selectors:** Use semantic, accessibility-friendly selectors
+4. **Wait Properly:** Use explicit waits, avoid fixed timeouts
+5. **Independent Tests:** Each test should run standalone
+6. **Informative Logging:** Add context for debugging
+7. **Clean Code:** Follow TypeScript and testing best practices
+8. **Maintainability:** Refactor regularly, avoid duplication
+
+**Test Quality Checklist:**
+
+- ✅ Clear business intent in Gherkin
+- ✅ Proper Page Object usage
+- ✅ Reliable selectors
+- ✅ Appropriate wait strategies
+- ✅ Good error messages
+- ✅ No flakiness
+- ✅ Fast execution
+- ✅ Easy to maintain
+
+---
+
+_Remember: Good e2e tests simulate real user behavior, are reliable, fast, and easy to understand. They should give confidence in deployments and catch regressions early._

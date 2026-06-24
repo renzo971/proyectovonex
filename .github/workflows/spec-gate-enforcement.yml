@@ -1,0 +1,396 @@
+name: Specification Gate Enforcement
+
+# Enforce gates on PRs that modify specification artifacts
+on:
+  pull_request:
+    paths:
+      - '.specify/specs/**'
+      - '.specify/memory/**'
+    types: [opened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      feature_id:
+        description: 'Feature ID to validate (e.g., 001-user-auth)'
+        required: true
+        type: string
+      gate:
+        description: 'Gate to validate'
+        required: true
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  detect-feature:
+    name: Detect Modified Feature
+    runs-on: ubuntu-latest
+    outputs:
+      feature_ids: ${{ steps.detect.outputs.features }}
+      has_features: ${{ steps.detect.outputs.has_features }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect modified features
+        id: detect
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "features=[\"${{ inputs.feature_id }}\"]" >> $GITHUB_OUTPUT
+            echo "has_features=true" >> $GITHUB_OUTPUT
+          else
+            # Get list of modified spec directories
+            FEATURES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | \
+              grep -E '^\.specify/specs/[^/]+/' | \
+              sed 's|\.specify/specs/\([^/]*\)/.*|\1|' | \
+              sort -u | \
+              jq -R -s -c 'split("\n") | map(select(length > 0))')
+            
+            if [[ "$FEATURES" == "[]" ]] || [[ -z "$FEATURES" ]]; then
+              echo "has_features=false" >> $GITHUB_OUTPUT
+              echo "features=[]" >> $GITHUB_OUTPUT
+            else
+              echo "has_features=true" >> $GITHUB_OUTPUT
+              echo "features=$FEATURES" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Log detected features
+        run: |
+          echo "Detected features: ${{ steps.detect.outputs.features }}"
+          echo "Has features: ${{ steps.detect.outputs.has_features }}"
+
+  validate-gates:
+    name: Validate Gate - ${{ matrix.feature }}
+    needs: detect-feature
+    if: needs.detect-feature.outputs.has_features == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        feature: ${{ fromJson(needs.detect-feature.outputs.feature_ids) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Determine required gate
+        id: gate
+        run: |
+          FEATURE_DIR=".specify/specs/${{ matrix.feature }}"
+          
+          # Determine gate based on what's modified
+          if [[ -f "$FEATURE_DIR/ship-checklist.md" ]]; then
+            GATE=4
+          elif [[ -f "$FEATURE_DIR/analysis-report.md" ]]; then
+            GATE=3
+          elif [[ -f "$FEATURE_DIR/plan.md" ]]; then
+            GATE=2
+          else
+            GATE=1
+          fi
+          
+          # Override with input if provided
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            GATE=${{ inputs.gate }}
+          fi
+          
+          echo "gate=$GATE" >> $GITHUB_OUTPUT
+          echo "Required gate for ${{ matrix.feature }}: Gate $GATE"
+
+      - name: Validate Gate 1 - Requirements
+        if: steps.gate.outputs.gate >= 1
+        id: gate1
+        run: |
+          FEATURE_DIR=".specify/specs/${{ matrix.feature }}"
+          ERRORS=0
+          REPORT=""
+          
+          echo "## Gate 1: Three Amigos Review" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check business-context.md
+          if [[ -f "$FEATURE_DIR/business-context.md" ]]; then
+            echo "✅ business-context.md exists" >> $GITHUB_STEP_SUMMARY
+            
+            # Check for placeholders
+            if grep -q '\[FEATURE_NAME\]\|\[NNN\]\|<!-- INSTRUCTION -->' "$FEATURE_DIR/business-context.md"; then
+              echo "⚠️ business-context.md contains template placeholders" >> $GITHUB_STEP_SUMMARY
+              ((ERRORS++))
+            fi
+          else
+            echo "❌ business-context.md MISSING" >> $GITHUB_STEP_SUMMARY
+            ((ERRORS++))
+          fi
+          
+          # Check spec.md
+          if [[ -f "$FEATURE_DIR/spec.md" ]]; then
+            echo "✅ spec.md exists" >> $GITHUB_STEP_SUMMARY
+            
+            # Check for user stories
+            US_COUNT=$(grep -cE '^\s*#{2,3}\s*US-[0-9]+' "$FEATURE_DIR/spec.md" || true)
+            US_COUNT=${US_COUNT:-0}
+            if [[ $US_COUNT -lt 1 ]]; then
+              echo "❌ No user stories found in spec.md" >> $GITHUB_STEP_SUMMARY
+              ((ERRORS++))
+            else
+              echo "  ✓ Found $US_COUNT user stories" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Check for acceptance criteria
+            AC_COUNT=$(grep -cE 'AC-[0-9]+' "$FEATURE_DIR/spec.md" || true)
+            AC_COUNT=${AC_COUNT:-0}
+            if [[ $AC_COUNT -lt 1 ]]; then
+              echo "❌ No acceptance criteria found" >> $GITHUB_STEP_SUMMARY
+              ((ERRORS++))
+            else
+              echo "  ✓ Found $AC_COUNT acceptance criteria" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ spec.md MISSING" >> $GITHUB_STEP_SUMMARY
+            ((ERRORS++))
+          fi
+          
+          # Check clarifications.md
+          if [[ -f "$FEATURE_DIR/clarifications.md" ]]; then
+            echo "✅ clarifications.md exists" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ clarifications.md missing (optional for Gate 1)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ $ERRORS -eq 0 ]]; then
+            echo "### ✅ Gate 1 PASSED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Gate 1 FAILED ($ERRORS issues)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+
+      - name: Validate Gate 2 - Technical Design
+        if: steps.gate.outputs.gate >= 2
+        id: gate2
+        run: |
+          FEATURE_DIR=".specify/specs/${{ matrix.feature }}"
+          ERRORS=0
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Gate 2: Technical Alignment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check plan.md
+          if [[ -f "$FEATURE_DIR/plan.md" ]]; then
+            echo "✅ plan.md exists" >> $GITHUB_STEP_SUMMARY
+            
+            # Check for architecture diagram
+            if grep -q 'mermaid\|```' "$FEATURE_DIR/plan.md"; then
+              echo "  ✓ Contains diagrams" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Check for component sections
+            if grep -q '## Component\|### Component' "$FEATURE_DIR/plan.md"; then
+              echo "  ✓ Has component definitions" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ plan.md MISSING" >> $GITHUB_STEP_SUMMARY
+            ((ERRORS++))
+          fi
+          
+          # Check contracts (optional but validate if present)
+          if [[ -f "$FEATURE_DIR/contracts/openapi.yaml" ]]; then
+            echo "✅ openapi.yaml exists" >> $GITHUB_STEP_SUMMARY
+            
+            # Basic YAML validation
+            if python3 -c "import yaml; yaml.safe_load(open('$FEATURE_DIR/contracts/openapi.yaml'))" 2>/dev/null; then
+              echo "  ✓ Valid YAML syntax" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "  ❌ Invalid YAML syntax" >> $GITHUB_STEP_SUMMARY
+              ((ERRORS++))
+            fi
+          else
+            echo "ℹ️ No OpenAPI contract (optional)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [[ -f "$FEATURE_DIR/contracts/asyncapi.yaml" ]]; then
+            echo "✅ asyncapi.yaml exists" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ No AsyncAPI contract (optional)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ $ERRORS -eq 0 ]]; then
+            echo "### ✅ Gate 2 PASSED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Gate 2 FAILED ($ERRORS issues)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+
+      - name: Validate Gate 3 - Implementation Ready
+        if: steps.gate.outputs.gate >= 3
+        id: gate3
+        run: |
+          FEATURE_DIR=".specify/specs/${{ matrix.feature }}"
+          ERRORS=0
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Gate 3: Implementation Gate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check test-cases.md
+          if [[ -f "$FEATURE_DIR/test-cases.md" ]]; then
+            echo "✅ test-cases.md exists" >> $GITHUB_STEP_SUMMARY
+            
+            TC_COUNT=$(grep -cE 'TC-[0-9]+' "$FEATURE_DIR/test-cases.md" || true)
+            TC_COUNT=${TC_COUNT:-0}
+            echo "  ✓ Found $TC_COUNT test cases" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ test-cases.md MISSING" >> $GITHUB_STEP_SUMMARY
+            ((ERRORS++))
+          fi
+          
+          # Check tasks.md
+          if [[ -f "$FEATURE_DIR/tasks.md" ]]; then
+            echo "✅ tasks.md exists" >> $GITHUB_STEP_SUMMARY
+            
+            TASK_COUNT=$(grep -cE '^\s*-\s*\[.\]\s*T[0-9]+' "$FEATURE_DIR/tasks.md" || true)
+            TASK_COUNT=${TASK_COUNT:-0}
+            echo "  ✓ Found $TASK_COUNT tasks" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ tasks.md MISSING" >> $GITHUB_STEP_SUMMARY
+            ((ERRORS++))
+          fi
+          
+          # Check analysis-report.md
+          if [[ -f "$FEATURE_DIR/analysis-report.md" ]]; then
+            echo "✅ analysis-report.md exists" >> $GITHUB_STEP_SUMMARY
+            
+            if grep -qiE 'Verdict:\s*PASS' "$FEATURE_DIR/analysis-report.md"; then
+              echo "  ✓ Analysis verdict: PASS" >> $GITHUB_STEP_SUMMARY
+            elif grep -qiE 'Verdict:\s*PASS WITH WARNINGS' "$FEATURE_DIR/analysis-report.md"; then
+              echo "  ⚠️ Analysis verdict: PASS WITH WARNINGS" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "  ❌ Analysis verdict: FAIL or missing" >> $GITHUB_STEP_SUMMARY
+              ((ERRORS++))
+            fi
+          else
+            echo "❌ analysis-report.md MISSING" >> $GITHUB_STEP_SUMMARY
+            ((ERRORS++))
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ $ERRORS -eq 0 ]]; then
+            echo "### ✅ Gate 3 PASSED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Gate 3 FAILED ($ERRORS issues)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+
+      - name: Validate Gate 4 - Ship Ready
+        if: steps.gate.outputs.gate >= 4
+        id: gate4
+        run: |
+          FEATURE_DIR=".specify/specs/${{ matrix.feature }}"
+          ERRORS=0
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Gate 4: Ship Gate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check ship-checklist.md
+          if [[ -f "$FEATURE_DIR/ship-checklist.md" ]]; then
+            echo "✅ ship-checklist.md exists" >> $GITHUB_STEP_SUMMARY
+            
+            TOTAL=$(grep -cE '^\s*-\s*\[.\]' "$FEATURE_DIR/ship-checklist.md" || true)
+            TOTAL=${TOTAL:-0}
+            COMPLETED=$(grep -cE '^\s*-\s*\[[xX]\]' "$FEATURE_DIR/ship-checklist.md" || true)
+            COMPLETED=${COMPLETED:-0}
+            
+            echo "  Checklist: $COMPLETED/$TOTAL items complete" >> $GITHUB_STEP_SUMMARY
+            
+            if [[ $COMPLETED -lt $TOTAL ]]; then
+              echo "  ❌ Ship checklist incomplete" >> $GITHUB_STEP_SUMMARY
+              ((ERRORS++))
+            else
+              echo "  ✓ Ship checklist complete" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ ship-checklist.md MISSING" >> $GITHUB_STEP_SUMMARY
+            ((ERRORS++))
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ $ERRORS -eq 0 ]]; then
+            echo "### ✅ Gate 4 PASSED - Ready to Ship! 🚀" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Gate 4 FAILED ($ERRORS issues)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+
+      - name: Final Gate Status
+        id: final
+        run: |
+          GATE=${{ steps.gate.outputs.gate }}
+          TOTAL_ERRORS=0
+          
+          [[ $GATE -ge 1 ]] && TOTAL_ERRORS=$((TOTAL_ERRORS + ${{ steps.gate1.outputs.errors || 0 }}))
+          [[ $GATE -ge 2 ]] && TOTAL_ERRORS=$((TOTAL_ERRORS + ${{ steps.gate2.outputs.errors || 0 }}))
+          [[ $GATE -ge 3 ]] && TOTAL_ERRORS=$((TOTAL_ERRORS + ${{ steps.gate3.outputs.errors || 0 }}))
+          [[ $GATE -ge 4 ]] && TOTAL_ERRORS=$((TOTAL_ERRORS + ${{ steps.gate4.outputs.errors || 0 }}))
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ $TOTAL_ERRORS -eq 0 ]]; then
+            echo "## ✅ All Gates PASSED for ${{ matrix.feature }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Gate Validation FAILED ($TOTAL_ERRORS total issues)" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const feature = '${{ matrix.feature }}';
+            const gate = ${{ steps.gate.outputs.gate }};
+            const g1 = ${{ steps.gate1.outputs.errors || 0 }};
+            const g2 = ${{ steps.gate2.outputs.errors || 0 }};
+            const g3 = ${{ steps.gate3.outputs.errors || 0 }};
+            const g4 = ${{ steps.gate4.outputs.errors || 0 }};
+            const total = g1 + g2 + g3 + g4;
+            
+            let status = total === 0 ? '✅ PASSED' : '❌ FAILED';
+            let body = `## Specification Gate Validation: ${feature}\n\n`;
+            body += `**Required Gate:** ${gate}\n`;
+            body += `**Status:** ${status}\n\n`;
+            
+            if (gate >= 1) body += `- Gate 1 (Requirements): ${g1 === 0 ? '✅' : '❌'} ${g1} issues\n`;
+            if (gate >= 2) body += `- Gate 2 (Design): ${g2 === 0 ? '✅' : '❌'} ${g2} issues\n`;
+            if (gate >= 3) body += `- Gate 3 (Implementation): ${g3 === 0 ? '✅' : '❌'} ${g3} issues\n`;
+            if (gate >= 4) body += `- Gate 4 (Ship): ${g4 === 0 ? '✅' : '❌'} ${g4} issues\n`;
+            
+            body += `\n[View Details](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})`;
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });

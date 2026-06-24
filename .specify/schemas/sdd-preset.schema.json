@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SDD Preset",
+  "description": "Stackable configuration preset for Enterprise SDD",
+  "type": "object",
+  "required": ["name", "version"],
+  "properties": {
+    "name": { "type": "string", "pattern": "^sdd-preset-.+" },
+    "version": { "type": "string" },
+    "description": { "type": "string" },
+    "modules": { "type": "array", "items": { "type": "string" } },
+    "ceremonyDefault": { "type": "string", "enum": ["ultra-light", "standard", "full"] },
+    "gateOverrides": { "type": "object" },
+    "agentOverrides": { "type": "object" }
+  },
+  "additionalProperties": false
+}

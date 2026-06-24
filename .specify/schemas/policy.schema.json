@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://enterprise-sdd.dev/schemas/policy.schema.json",
+  "title": "Enterprise SDD Module/Extension Governance Policy",
+  "description": "Declarative governance policy for SDD modules, skills, and extensions. Wave 26 §25 #1 — convergence of Spec Kit #2559 (Agent Governance extension) and APM #1290 (ternary policy inheritance). Ternary semantics for `allow`/`deny` lists per category: field absent or `null` → inherit verbatim from parent; `[]` (empty list) → explicit override (block parent's set for that category); `[items]` → explicit list (intersect with parent allowlist, union with parent denylist). Tighten-only invariant: a child policy may only narrow what its parent allows; it can never widen beyond the parent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Currently 1."
+    },
+    "extends": {
+      "type": ["string", "null"],
+      "description": "Optional path (relative to this file) or URL of a parent policy to inherit from. Cycle detection capped at depth 8."
+    },
+    "fetch_failure_default": {
+      "type": "string",
+      "enum": ["block", "warn"],
+      "default": "block",
+      "description": "Behaviour when a parent policy in `extends` cannot be read. `block` = fail-closed (default); `warn` = log and continue with this policy as the root."
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Allow/deny lists for module ids. Ternary semantics apply — see top-level description.",
+      "properties": {
+        "allow": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "deny": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Allow/deny lists for skill ids.",
+      "properties": {
+        "allow": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "deny": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Allow/deny lists for extension ids.",
+      "properties": {
+        "allow": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "deny": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Capability deny-list. A capability listed here causes any module/skill/extension declaring it in its manifest to be refused, regardless of allowlist match.",
+      "properties": {
+        "deny": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "examples": ["shell-exec", "network-egress", "write-outside-workspace"]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

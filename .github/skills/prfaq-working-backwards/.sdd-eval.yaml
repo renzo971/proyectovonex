@@ -1,0 +1,27 @@
+skill: prfaq-working-backwards
+description: Verify PRFAQ output contract — five sections + verdict
+pass_threshold: 1.0
+
+fixtures:
+  - name: output-shape-canonical
+    description: PRFAQ must contain Press Release, both FAQs, Assumptions Log, and a Recommendation verdict
+    transcript: fixtures/canonical-output.md
+    assertions:
+      - type: contains_section
+        value: Press Release
+      - type: contains_section
+        value: Internal FAQ
+      - type: contains_section
+        value: External FAQ
+      - type: contains_section
+        value: Assumptions Log
+      - type: contains_section
+        value: Recommendation
+      - type: contains_field
+        value: Verdict
+        rationale: A grep-able Verdict line is required by downstream automation
+      - type: matches_regex
+        value: "proceed|pause|kill"
+        rationale: Verdict must use the canonical vocabulary
+      - type: min_lines
+        value: 25

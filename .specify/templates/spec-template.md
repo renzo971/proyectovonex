@@ -1,131 +1,146 @@
-# Feature Specification: [FEATURE NAME]
+# Feature Specification: [FEATURE_NAME]
 
-**Feature Branch**: `[###-feature-name]`
-
-**Created**: [DATE]
-
-**Status**: Draft
-
-**Input**: User description: "$ARGUMENTS"
-
-## User Scenarios & Testing *(mandatory)*
-
-<!--
-  IMPORTANT: User stories should be PRIORITIZED as user journeys ordered by importance.
-  Each user story/journey must be INDEPENDENTLY TESTABLE - meaning if you implement just ONE of them,
-  you should still have a viable MVP (Minimum Viable Product) that delivers value.
-
-  Assign priorities (P1, P2, P3, etc.) to each story, where P1 is the most critical.
-  Think of each story as a standalone slice of functionality that can be:
-  - Developed independently
-  - Tested independently
-  - Deployed independently
-  - Demonstrated to users independently
--->
-
-### User Story 1 - [Brief Title] (Priority: P1)
-
-[Describe this user journey in plain language]
-
-**Why this priority**: [Explain the value and why it has this priority level]
-
-**Independent Test**: [Describe how this can be tested independently - e.g., "Can be fully tested by [specific action] and delivers [specific value]"]
-
-**Acceptance Scenarios**:
-
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
-2. **Given** [initial state], **When** [action], **Then** [expected outcome]
+**Feature ID:** [NNN]-[feature-slug]
+**Created:** [DATE]
+**Business Context:** [Link to business-context.md]
+**Status:** Draft | Under Review | Approved
 
 ---
 
-### User Story 2 - [Brief Title] (Priority: P2)
+## User Stories
 
-[Describe this user journey in plain language]
+### US-001: [Story Title]
 
-**Why this priority**: [Explain the value and why it has this priority level]
+**As a** [user persona from business-context.md]
+**I want** [action/capability]
+**So that** [benefit/value]
 
-**Independent Test**: [Describe how this can be tested independently]
+**Priority:** P1 (Must Have) | P2 (Should Have) | P3 (Nice to Have)
+**Story Points:** [estimate if known]
 
-**Acceptance Scenarios**:
+#### Acceptance Criteria
 
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+- [ ] **AC-001:** Given [precondition], When [action], Then [expected result]
+- [ ] **AC-002:** Given [precondition], When [action], Then [expected result]
+- [ ] **AC-003:** Given [precondition], When [action], Then [expected result]
 
----
+#### UI/UX Notes
+[Wireframe references, interaction notes]
 
-### User Story 3 - [Brief Title] (Priority: P3)
-
-[Describe this user journey in plain language]
-
-**Why this priority**: [Explain the value and why it has this priority level]
-
-**Independent Test**: [Describe how this can be tested independently]
-
-**Acceptance Scenarios**:
-
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+#### Technical Notes
+[Any known technical considerations]
 
 ---
 
-[Add more user stories as needed, each with an assigned priority]
+### US-002: [Story Title]
 
-### Edge Cases
+**As a** [user persona]
+**I want** [action/capability]
+**So that** [benefit/value]
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right edge cases.
--->
+**Priority:** P1 | P2 | P3
 
-- What happens when [boundary condition]?
-- How does system handle [error scenario]?
+#### Acceptance Criteria
 
-## Requirements *(mandatory)*
+- [ ] **AC-004:** Given [precondition], When [action], Then [expected result]
+- [ ] **AC-005:** Given [precondition], When [action], Then [expected result]
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right functional requirements.
--->
+---
 
-### Functional Requirements
+### US-003: [Story Title]
 
-- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
-- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]
-- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
-- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
+**As a** [user persona]
+**I want** [action/capability]
+**So that** [benefit/value]
 
-*Example of marking unclear requirements:*
+**Priority:** P1 | P2 | P3
 
-- **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
-- **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
+#### Acceptance Criteria
 
-### Key Entities *(include if feature involves data)*
+- [ ] **AC-006:** Given [precondition], When [action], Then [expected result]
+- [ ] **AC-007:** Given [precondition], When [action], Then [expected result]
 
-- **[Entity 1]**: [What it represents, key attributes without implementation]
-- **[Entity 2]**: [What it represents, relationships to other entities]
+---
 
-## Success Criteria *(mandatory)*
+## Non-Functional Requirements
 
-<!--
-  ACTION REQUIRED: Define measurable success criteria.
-  These must be technology-agnostic and measurable.
--->
+### NFR-001: Performance
 
-### Measurable Outcomes
+- **Requirement:** [specific measurable requirement]
+- **Traces to:** [business context section or constitution article]
+- **Verification:** [how we test this]
 
-- **SC-001**: [Measurable metric, e.g., "Users can complete account creation in under 2 minutes"]
-- **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
-- **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
-- **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
+### NFR-002: Security
 
-## Assumptions
+- **Requirement:** [specific requirement]
+- **Traces to:** [constitution Article III.3.4]
+- **Verification:** [how we test this]
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right assumptions based on reasonable defaults
-  chosen when the feature description did not specify certain details.
--->
+### NFR-003: Accessibility
 
-- [Assumption about target users, e.g., "Users have stable internet connectivity"]
-- [Assumption about scope boundaries, e.g., "Mobile support is out of scope for v1"]
-- [Assumption about data/environment, e.g., "Existing authentication system will be reused"]
-- [Dependency on existing system/service, e.g., "Requires access to the existing user profile API"]
+- **Requirement:** [WCAG level and specifics]
+- **Traces to:** [constitution Article III.3.5]
+- **Verification:** [how we test this]
+
+### NFR-004: Scalability
+
+- **Requirement:** [specific numbers]
+- **Traces to:** [business context success metrics]
+- **Verification:** [how we test this]
+
+---
+
+## Edge Cases
+
+| ID | Scenario | Expected Behavior | Story Reference |
+|----|----------|-------------------|-----------------|
+| EC-001 | [edge case description] | [what should happen] | US-001 |
+| EC-002 | [edge case description] | [what should happen] | US-002 |
+| EC-003 | [edge case description] | [what should happen] | US-001 |
+
+---
+
+## Error Scenarios
+
+| ID | Error Condition | User Message | System Behavior | Story Reference |
+|----|-----------------|--------------|-----------------|-----------------|
+| ERR-001 | [condition] | [message] | [log, retry, etc.] | US-001 |
+| ERR-002 | [condition] | [message] | [system behavior] | US-002 |
+
+---
+
+## Glossary
+
+| Term | Definition | Context |
+|------|------------|---------|
+| [Term 1] | [Definition] | [Where used] |
+| [Term 2] | [Definition] | [Where used] |
+
+---
+
+## Open Questions
+
+> These questions were identified during specification and need resolution in the clarification phase.
+
+1. [ ] [Question 1]
+2. [ ] [Question 2]
+3. [ ] [Question 3]
+
+---
+
+## Revision History
+
+| Version | Date | Author | Changes |
+|---------|------|--------|---------|
+| 1.0 | [DATE] | [Name] | Initial specification |
+
+---
+
+## External References
+
+> Add one row per external source that was consulted during authoring (library docs, RFCs, vendor specs, regulatory text).
+> See `source-verification.instructions.md` for the DETECT→FETCH→IMPLEMENT→CITE workflow.
+
+| Source | Access Date | Relevant Section | Notes |
+|--------|:-----------:|-----------------|-------|
+| [URL or document ID] | [YYYY-MM-DD] | [Section / Version / Clause] | |

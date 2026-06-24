@@ -1,0 +1,479 @@
+{
+  "$schema": "../schemas/agent-definition.schema.json",
+  "agents": [
+    {
+      "name": "Analysis",
+      "slug": "analysis",
+      "description": "Performs consistency analysis across all specification artifacts. Verifies traceability, identifies gaps, contradictions, and orphaned items.",
+      "tools": [
+        "read",
+        "search"
+      ],
+      "model-tier": "deep",
+      "phase": "3.3",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Analysis Passed - Begin Implementation",
+          "prompt": "Consistency analysis PASSED. Begin test implementation. All artifacts verified and aligned.",
+          "send": false,
+          "agent": "test-engineer"
+        },
+        {
+          "label": "Return to Fix Gaps",
+          "prompt": "Consistency analysis found GAPS. Return to specification. See analysis-report.md for details.",
+          "send": false,
+          "agent": "requirement-analyst"
+        }
+      ]
+    },
+    {
+      "name": "API Champion",
+      "slug": "api-champion",
+      "description": "Defines strict REST API contracts in OpenAPI 3.0+ format. Creates the source of truth for API testing and client generation.",
+      "tools": [
+        "read",
+        "edit",
+        "search",
+        "runCommand"
+      ],
+      "model-tier": "standard",
+      "phase": "2.2",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Define Messaging Contracts",
+          "prompt": "API contracts complete. Define async messaging contracts. Input: .specify/specs/NNN/plan.md Output: .specify/specs/NNN/contracts/asyncapi.yaml",
+          "send": false,
+          "agent": "messaging-champion"
+        },
+        {
+          "label": "Skip Messaging - Proceed to Tests",
+          "prompt": "API contracts complete. No async messaging needed. Proceed to test strategy.",
+          "send": false,
+          "agent": "test-explorer"
+        }
+      ]
+    },
+    {
+      "name": "Architect",
+      "slug": "architect",
+      "description": "Converts clarified specifications into technical designs including architecture, data models, and component design. Ensures design satisfies all requirements and follows constitution principles.",
+      "tools": [
+        "read",
+        "edit",
+        "search",
+        "runSubagent",
+        "fetch"
+      ],
+      "model-tier": "deep",
+      "phase": "2.1",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Define API Contracts",
+          "prompt": "Architecture complete. Define REST API contracts. Input: .specify/specs/NNN/plan.md Output: .specify/specs/NNN/contracts/openapi.yaml",
+          "send": false,
+          "agent": "api-champion"
+        },
+        {
+          "label": "Define Messaging Contracts",
+          "prompt": "Architecture complete. Define async messaging contracts. Input: .specify/specs/NNN/plan.md Output: .specify/specs/NNN/contracts/asyncapi.yaml",
+          "send": false,
+          "agent": "messaging-champion"
+        },
+        {
+          "label": "Skip to Test Strategy",
+          "prompt": "No API/Messaging contracts needed. Proceed to test strategy. Input: .specify/specs/NNN/plan.md",
+          "send": false,
+          "agent": "test-explorer"
+        }
+      ]
+    },
+    {
+      "name": "Brainstorming",
+      "slug": "brainstorming",
+      "description": "Guides progressive ideation and architectural brainstorming sessions before formal specification begins. Helps explore ideas, challenge assumptions, and shape feature scope. Runs before Phase 0 or at any time for exploratory work.",
+      "tools": [
+        "read",
+        "search",
+        "fetch",
+        "runSubagent"
+      ],
+      "model-tier": "standard",
+      "phase": "pre-0",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Establish Constitution",
+          "prompt": "Brainstorming complete. Establish project constitution based on our conclusions. Key decisions from brainstorm: [summary]",
+          "send": false,
+          "agent": "constitution"
+        },
+        {
+          "label": "Begin Requirements Capture",
+          "prompt": "Brainstorming complete. Capture requirements based on our conclusions. Key decisions from brainstorm: [summary]",
+          "send": false,
+          "agent": "requirement-analyst"
+        }
+      ]
+    },
+    {
+      "name": "Clarification",
+      "slug": "clarification",
+      "description": "Facilitates structured clarification sessions to resolve ambiguities in specifications. Routes questions to appropriate stakeholders (PO for business, Dev Lead for technical) and documents all decisions.",
+      "tools": [
+        "read",
+        "edit",
+        "search"
+      ],
+      "model-tier": "standard",
+      "phase": "1.3",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Proceed to Architecture",
+          "prompt": "Clarification complete. All questions resolved. Artifacts ready for technical design: - .specify/specs/NNN/business-context.md - .specify/specs/NNN/spec.md - .specify/specs/NNN/clarifications.md",
+          "send": false,
+          "agent": "architect"
+        },
+        {
+          "label": "Return to Specification",
+          "prompt": "Clarification revealed spec gaps. Return to detailed specification mode. Update spec.md based on clarifications.md findings.",
+          "send": false,
+          "agent": "requirement-analyst"
+        }
+      ]
+    },
+    {
+      "name": "Constitution",
+      "slug": "constitution",
+      "description": "Establishes foundational project principles, technology constraints, and quality standards that govern all subsequent development work. Run once per project.",
+      "tools": [
+        "read",
+        "edit",
+        "search"
+      ],
+      "model-tier": "light",
+      "phase": "0",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Begin Requirements Capture",
+          "prompt": "Constitution established. Begin capturing business requirements. Reference: .specify/memory/constitution.md",
+          "send": false,
+          "agent": "requirement-analyst"
+        }
+      ]
+    },
+    {
+      "name": "Gherkin Analyst",
+      "slug": "gherkin-analyst",
+      "description": "Guides testers through creating comprehensive BDD/Gherkin test scenarios from user stories. Uses a positive-first, teaching-oriented approach with structured clarification phases before writing any scenarios.",
+      "tools": [
+        "read",
+        "edit",
+        "search"
+      ],
+      "model-tier": "standard",
+      "phase": "3.1b",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Continue with Task Breakdown",
+          "prompt": "BDD scenarios complete. Generate task breakdown for implementation. Mode: PLANNING Inputs: - .specify/specs/NNN/plan.md - .specify/specs/NNN/test-cases.md",
+          "send": false,
+          "agent": "software-engineer"
+        },
+        {
+          "label": "Run Consistency Analysis",
+          "prompt": "BDD scenarios and test cases ready. Run consistency analysis. Verify all requirements have coverage.",
+          "send": false,
+          "agent": "analysis"
+        }
+      ]
+    },
+    {
+      "name": "Messaging Champion",
+      "slug": "messaging-champion",
+      "description": "Defines async messaging contracts in AsyncAPI 3.0+ format. Creates the source of truth for event-driven communication.",
+      "tools": [
+        "read",
+        "edit",
+        "search",
+        "runCommand"
+      ],
+      "model-tier": "standard",
+      "phase": "2.3",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Proceed to Test Strategy",
+          "prompt": "All contracts complete (API + Messaging). Proceed to test strategy definition. Artifacts: - .specify/specs/NNN/plan.md - .specify/specs/NNN/contracts/openapi.yaml - .specify/specs/NNN/contracts/asyncapi.yaml",
+          "send": false,
+          "agent": "test-explorer"
+        }
+      ]
+    },
+    {
+      "name": "Refactoring",
+      "slug": "refactoring",
+      "description": "Analyzes code against constitution principles and specification artifacts. Identifies tech debt, architecture violations, and improvement opportunities. Produces a structured refactoring plan with full traceability. Runs in Phase 5 alongside Review, or on-demand for existing codebases.",
+      "tools": [
+        "read",
+        "search"
+      ],
+      "model-tier": "standard",
+      "phase": "5b",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Implement Refactoring",
+          "prompt": "Refactoring plan ready for implementation. See .specify/specs/NNN/refactoring-plan.md for details. Mode: IMPL",
+          "send": false,
+          "agent": "software-engineer"
+        },
+        {
+          "label": "Re-review After Refactoring",
+          "prompt": "Refactoring complete. Re-run quality review. Check ship-checklist.md and refactoring-plan.md.",
+          "send": false,
+          "agent": "review"
+        }
+      ]
+    },
+    {
+      "name": "Requirement Analyst",
+      "slug": "requirement-analyst",
+      "description": "Transforms business needs into structured requirements. Operates in three modes - Vision Mode (PO input \u2192 business context), Detailed Mode (FA elaboration \u2192 spec), and Teaching Mode (mentoring junior POs/FAs through the process).",
+      "tools": [
+        "read",
+        "edit",
+        "search",
+        "fetch"
+      ],
+      "model-tier": "standard",
+      "phase": "1.1-1.2",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Elaborate with Functional Analyst",
+          "prompt": "Business context captured. Now elaborate into detailed specification. Mode: DETAILED Input: .specify/specs/NNN/business-context.md",
+          "send": false,
+          "agent": "requirement-analyst"
+        },
+        {
+          "label": "Begin Clarification Session",
+          "prompt": "Specification complete. Begin clarification to resolve ambiguities. Artifacts ready: - .specify/specs/NNN/business-context.md - .specify/specs/NNN/spec.md",
+          "send": false,
+          "agent": "clarification"
+        },
+        {
+          "label": "Switch to Teaching Mode",
+          "prompt": "User needs mentoring on requirements engineering. Mode: TEACHING",
+          "send": false,
+          "agent": "requirement-analyst"
+        }
+      ]
+    },
+    {
+      "name": "Review",
+      "slug": "review",
+      "description": "Performs final quality review before shipping. Validates that implementation meets specification, follows standards, and is production-ready.",
+      "tools": [
+        "read",
+        "search",
+        "runCommand"
+      ],
+      "model-tier": "standard",
+      "phase": "5",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Approved - Ready to Ship",
+          "prompt": "\u2705 Feature APPROVED and ready to ship. All quality gates passed. Next steps: merge PR, deploy, and close the feature.",
+          "send": false
+        },
+        {
+          "label": "Changes Requested",
+          "prompt": "Review found issues. Changes requested. See ship-checklist.md for specific items.",
+          "send": false,
+          "agent": "software-engineer"
+        }
+      ]
+    },
+    {
+      "name": "Software Engineer",
+      "slug": "software-engineer",
+      "description": "Implements features in small, verifiable chunks following the technical plan. Works to make tests pass. Operates in two modes - PLANNING (generate tasks) and IMPLEMENTATION (write code).",
+      "tools": [
+        "read",
+        "edit",
+        "search",
+        "runCommand",
+        "terminalLastCommand",
+        "runSubagent"
+      ],
+      "model-tier": "standard",
+      "phase": "3.2/4B",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Request Code Review",
+          "prompt": "Implementation complete. All tests passing. Request quality review before shipping.",
+          "send": false,
+          "agent": "review"
+        },
+        {
+          "label": "Tests Failing - Debug",
+          "prompt": "Implementation complete but tests failing. Need test review to determine if test or implementation issue.",
+          "send": false,
+          "agent": "test-engineer"
+        },
+        {
+          "label": "Architecture Question",
+          "prompt": "Implementation blocked on architectural question. Need design guidance before proceeding.",
+          "send": false,
+          "agent": "architect"
+        }
+      ]
+    },
+    {
+      "name": "Tech Context Maintainer",
+      "slug": "tech-context-maintainer",
+      "description": "Monitors drift between implementation code, specification artifacts, and constitution. Detects stale documentation, undocumented changes, and spec-code mismatches. Produces drift reports with actionable recommendations. Runs as a maintenance agent after implementation or on a scheduled basis.",
+      "tools": [
+        "read",
+        "search"
+      ],
+      "model-tier": "deep",
+      "phase": "maintenance",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Fix Spec Drift",
+          "prompt": "Drift detected between implementation and specifications. See drift-report.md for details. Update specs to match current implementation or clarify intent.",
+          "send": false,
+          "agent": "requirement-analyst"
+        },
+        {
+          "label": "Fix Code Drift",
+          "prompt": "Drift detected \u2014 code diverges from approved specifications. See drift-report.md for details. Align implementation with spec or escalate for spec change.",
+          "send": false,
+          "agent": "software-engineer"
+        },
+        {
+          "label": "Discuss Discrepancies",
+          "prompt": "Significant discrepancies found between code and specs. See drift-report.md for details. Let's analyze and decide how to proceed.",
+          "send": false,
+          "agent": "brainstorming"
+        }
+      ]
+    },
+    {
+      "name": "Test Engineer",
+      "slug": "test-engineer",
+      "description": "Implements executable test code from test case specifications. Works in parallel with Software Engineer, writing tests that initially fail (TDD).",
+      "tools": [
+        "read",
+        "edit",
+        "search",
+        "runCommand",
+        "terminalLastCommand"
+      ],
+      "model-tier": "standard",
+      "phase": "4A",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Tests Ready - Implement Features",
+          "prompt": "Test suite implemented. Tests are FAILING (expected - TDD). Begin feature implementation to make tests pass.",
+          "send": false,
+          "agent": "software-engineer"
+        },
+        {
+          "label": "Request Test Case Clarification",
+          "prompt": "Test implementation blocked. Need clarification on test cases. See specific questions below.",
+          "send": false,
+          "agent": "test-explorer"
+        }
+      ]
+    },
+    {
+      "name": "Test Explorer",
+      "slug": "test-explorer",
+      "description": "Generates comprehensive test strategies and test case specifications from requirements and technical design. Creates the test blueprint before implementation.",
+      "tools": [
+        "read",
+        "edit",
+        "search"
+      ],
+      "model-tier": "standard",
+      "phase": "3.1",
+      "instructions": [
+        ".github/instructions/anti-patterns.instructions.md",
+        ".github/instructions/constitution-reading.instructions.md"
+      ],
+      "handoffs": [
+        {
+          "label": "Generate Task Breakdown",
+          "prompt": "Test cases defined. Generate task breakdown for implementation. Mode: PLANNING Inputs: - .specify/specs/NNN/plan.md - .specify/specs/NNN/test-cases.md",
+          "send": false,
+          "agent": "software-engineer"
+        },
+        {
+          "label": "Create BDD Scenarios",
+          "prompt": "Test strategy complete. Create BDD/Gherkin scenarios. Inputs: - .specify/specs/NNN/spec.md - .specify/specs/NNN/test-cases.md",
+          "send": false,
+          "agent": "gherkin-analyst"
+        },
+        {
+          "label": "Run Consistency Analysis",
+          "prompt": "Test cases and tasks ready. Run consistency analysis. Verify all requirements have coverage.",
+          "send": false,
+          "agent": "analysis"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+skill: red-team-spec
+description: Verify red-team-spec output contract — adversarial prompts, severity classification
+pass_threshold: 1.0
+
+fixtures:
+  - name: output-shape-canonical
+    description: Red-team report must enumerate adversarial prompts with severity and recommendation
+    transcript: fixtures/canonical-output.md
+    assertions:
+      - type: contains_section
+        value: Summary
+      - type: contains_section
+        value: Findings
+      - type: contains_field
+        value: Verdict
+      - type: matches_regex
+        value: "Critical|High|Medium|Advisory"
+        rationale: Every finding must carry a severity label
+      - type: forbids_text
+        value: "no issues found"
+        rationale: A red-team pass without enumerated probes is suspicious by definition
+      - type: min_lines
+        value: 15

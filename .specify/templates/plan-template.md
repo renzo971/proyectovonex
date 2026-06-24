@@ -1,113 +1,311 @@
-# Implementation Plan: [FEATURE]
+# Solution Design: [FEATURE_NAME]
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
+**Feature ID:** [NNN]-[feature-slug]
+**Created:** [DATE]
+**Architect:** [Name]
+**Status:** Draft | Under Review | Approved
 
-**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
+---
 
-**Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/plan-template.md` for the execution workflow.
+## 1. Architecture Overview
 
-## Summary
+### 1.1 High-Level Diagram
 
-[Extract from feature spec: primary requirement + technical approach from research]
-
-## Technical Context
-
-<!--
-  ACTION REQUIRED: Replace the content in this section with the technical details
-  for the project. The structure here is presented in advisory capacity to guide
-  the iteration process.
--->
-
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]
-
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
-
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
-
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]
-
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
-
-**Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]
-
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]
-
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]
-
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
-
-## Constitution Check
-
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
-
-[Gates determined based on constitution file]
-
-## Project Structure
-
-### Documentation (this feature)
-
-```text
-specs/[###-feature]/
-├── plan.md              # This file (/speckit.plan command output)
-├── research.md          # Phase 0 output (/speckit.plan command)
-├── data-model.md        # Phase 1 output (/speckit.plan command)
-├── quickstart.md        # Phase 1 output (/speckit.plan command)
-├── contracts/           # Phase 1 output (/speckit.plan command)
-└── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        UI[Web Application]
+    end
+    
+    subgraph "API Layer"
+        API[API Gateway]
+        Auth[Auth Service]
+    end
+    
+    subgraph "Service Layer"
+        SVC1[Service 1]
+        SVC2[Service 2]
+    end
+    
+    subgraph "Data Layer"
+        DB[(Database)]
+        Cache[(Cache)]
+    end
+    
+    UI --> API
+    API --> Auth
+    API --> SVC1
+    API --> SVC2
+    SVC1 --> DB
+    SVC1 --> Cache
+    SVC2 --> DB
 ```
 
-### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
+### 1.2 Architecture Decision Summary
 
-```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
-src/
-├── models/
-├── services/
-├── cli/
-└── lib/
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| [Decision 1] | [Choice] | [Why] |
+| [Decision 2] | [Choice] | [Why] |
 
-tests/
-├── contract/
-├── integration/
-└── unit/
+---
 
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
-backend/
-├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
-└── tests/
+## 2. Component Design
 
-frontend/
-├── src/
-│   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
+### 2.1 Component: [Component Name]
 
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
-api/
-└── [same as backend above]
+**Responsibility:** [What this component does]
 
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
+**Interfaces:**
+- `[Interface 1]` - [Description]
+- `[Interface 2]` - [Description]
+
+**Dependencies:**
+- [Dependency 1] - [Purpose]
+- [Dependency 2] - [Purpose]
+
+**Key Classes/Modules:**
+
+> **Note:** The example below uses a TypeScript project structure. Adapt to your project's language and framework as defined in the constitution (Article II).
+
+```
+ComponentName/
+├── index.ts           # Public exports
+├── component.service.ts
+├── component.controller.ts
+├── component.repository.ts
+└── dto/
+    ├── create-component.dto.ts
+    └── update-component.dto.ts
 ```
 
-**Structure Decision**: [Document the selected structure and reference the real
-directories captured above]
+### 2.2 Component: [Component Name 2]
 
-## Complexity Tracking
+**Responsibility:** [What this component does]
 
-> **Fill ONLY if Constitution Check has violations that must be justified**
+**Interfaces:**
+- `[Interface 1]` - [Description]
 
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
-| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
+**Dependencies:**
+- [Dependency 1] - [Purpose]
+
+---
+
+## 3. Data Model
+
+See: [data-model.md](./data-model.md)
+
+### 3.1 Summary
+
+| Entity | Description | Key Relationships |
+|--------|-------------|-------------------|
+| [Entity 1] | [Description] | [Relationships] |
+| [Entity 2] | [Description] | [Relationships] |
+
+---
+
+## 4. API Design
+
+### 4.1 Endpoints Summary
+
+| Method | Path | Description | Auth Required |
+|--------|------|-------------|---------------|
+| POST | `/api/v1/[resource]` | Create resource | Yes |
+| GET | `/api/v1/[resource]` | List resources | Yes |
+| GET | `/api/v1/[resource]/:id` | Get resource | Yes |
+| PUT | `/api/v1/[resource]/:id` | Update resource | Yes |
+| DELETE | `/api/v1/[resource]/:id` | Delete resource | Yes |
+
+See: [contracts/openapi.yaml](./contracts/openapi.yaml)
+
+---
+
+## 5. Security Considerations
+
+### 5.1 Authentication
+
+- **Method:** [OAuth2/JWT/Session]
+- **Token Location:** [Header/Cookie]
+- **Expiration:** [Duration]
+
+### 5.2 Authorization
+
+| Resource | Action | Required Role/Permission |
+|----------|--------|-------------------------|
+| [Resource 1] | Read | [Role] |
+| [Resource 1] | Write | [Role] |
+| [Resource 2] | Read | [Role] |
+
+### 5.3 Data Protection
+
+- **Encryption at Rest:** [Yes/No - Method]
+- **Encryption in Transit:** [TLS version]
+- **PII Fields:** [List of fields requiring special handling]
+
+### 5.4 Security Threats
+
+| Threat | Mitigation |
+|--------|------------|
+| [Threat 1] | [How we address it] |
+| [Threat 2] | [How we address it] |
+
+---
+
+## 6. Performance Considerations
+
+### 6.1 Performance Requirements
+
+| Metric | Target | Strategy |
+|--------|--------|----------|
+| Response Time (p95) | [X]ms | [Strategy] |
+| Throughput | [X] req/s | [Strategy] |
+| Concurrent Users | [X] | [Strategy] |
+
+### 6.2 Optimization Strategies
+
+- **Caching:** [What/Where/TTL]
+- **Database:** [Indexes, query optimization]
+- **Async Processing:** [What goes to queue]
+
+---
+
+## 7. Integration Points
+
+### 7.1 External Services
+
+| Service | Purpose | Integration Method | Error Handling |
+|---------|---------|-------------------|----------------|
+| [Service 1] | [Purpose] | REST API | [Strategy] |
+| [Service 2] | [Purpose] | Event | [Strategy] |
+
+### 7.2 Internal Services
+
+| Service | Purpose | Contract |
+|---------|---------|----------|
+| [Service 1] | [Purpose] | [Link to contract] |
+
+---
+
+## 8. Error Handling
+
+### 8.1 Error Categories
+
+| Category | HTTP Code | Handling |
+|----------|-----------|----------|
+| Validation | 400 | Return field errors |
+| Authentication | 401 | Redirect to login |
+| Authorization | 403 | Return forbidden |
+| Not Found | 404 | Return not found |
+| Business Logic | 422 | Return business error |
+| Internal | 500 | Log + generic message |
+
+### 8.2 Retry Strategy
+
+| Operation | Retries | Backoff | Circuit Breaker |
+|-----------|---------|---------|-----------------|
+| [Operation 1] | [N] | [Strategy] | [Yes/No] |
+
+---
+
+## 9. Testing Strategy
+
+### 9.1 Test Levels
+
+| Level | Scope | Coverage Target |
+|-------|-------|-----------------|
+| Unit | Components | 80% |
+| Integration | APIs | Key paths |
+| E2E | User flows | Happy paths |
+
+### 9.2 Test Data
+
+- **Fixtures:** [Location]
+- **Factories:** [Location]
+- **Mocks:** [External services to mock]
+
+---
+
+## 10. Deployment Considerations
+
+### 10.1 Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | Database connection | Yes |
+| `API_SECRET` | API signing key | Yes |
+
+### 10.2 Database Migrations
+
+- **Migration Tool:** [Prisma/Flyway/etc.]
+- **Rollback Strategy:** [Strategy]
+
+### 10.3 Feature Flags
+
+| Flag | Purpose | Default |
+|------|---------|---------|
+| [Flag 1] | [Purpose] | [Value] |
+
+---
+
+## 11. Observability
+
+### 11.1 Logging
+
+| Event | Level | Data |
+|-------|-------|------|
+| [Event 1] | INFO | [Fields] |
+| [Event 2] | ERROR | [Fields] |
+
+### 11.2 Metrics
+
+| Metric | Type | Purpose |
+|--------|------|---------|
+| [Metric 1] | Counter | [Purpose] |
+| [Metric 2] | Histogram | [Purpose] |
+
+### 11.3 Alerts
+
+| Condition | Severity | Action |
+|-----------|----------|--------|
+| [Condition 1] | Critical | [Action] |
+| [Condition 2] | Warning | [Action] |
+
+---
+
+## 12. Open Issues
+
+| ID | Issue | Resolution Path | Owner |
+|----|-------|-----------------|-------|
+| [1] | [Issue] | [Path] | [Owner] |
+
+---
+
+## 13. Synthesis Assessment
+
+### Generalization
+> [1-sentence: Can patterns in this design be reused across other features or projects?]
+
+### Build-vs-Adopt
+> [1-sentence: For each major component, should we build custom or adopt an existing library/service?]
+
+### Simplification
+> [1-sentence: Can this design be simpler without sacrificing requirements?]
+
+---
+
+## 14. Sign-off
+
+- [ ] Tech Lead: _________________ Date: _______
+- [ ] Security Review: _________________ Date: _______
+- [ ] Architecture Review: _________________ Date: _______
+
+---
+
+## External References
+
+> Add one row per external source consulted during design (API specs, protocol RFCs, vendor documentation, regulatory requirements).
+> See `source-verification.instructions.md` for the DETECT→FETCH→IMPLEMENT→CITE workflow.
+
+| Source | Access Date | Relevant Section | Notes |
+|--------|:-----------:|-----------------|-------|
+| [URL or document ID] | [YYYY-MM-DD] | [Section / Version / Clause] | |

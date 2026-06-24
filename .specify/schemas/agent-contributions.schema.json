@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "agent-contributions.schema.json",
+  "title": "AgentContributions",
+  "description": "Module-level agent contributions for the SDD composition layer. Place this object under the 'agentContributions' key in module.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "tool-overlays": {
+      "type": "array",
+      "description": "Add tools to existing core agents. Each overlay targets one core agent by slug and appends a list of tool identifiers.",
+      "items": {
+        "type": "object",
+        "required": ["target-agent", "add-tools"],
+        "additionalProperties": false,
+        "properties": {
+          "target-agent": {
+            "type": "string",
+            "description": "Slug of the core agent to augment (e.g. 'requirement-analyst').",
+            "minLength": 1
+          },
+          "add-tools": {
+            "type": "array",
+            "description": "Tool identifiers to append to the target agent's tools list.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "array",
+      "description": "Entirely new agents contributed by this module. Each entry must have a unique slug not present in agents-canonical.json.",
+      "items": {
+        "$ref": "#/$defs/ContributedAgent"
+      }
+    }
+  },
+  "$defs": {
+    "ContributedAgent": {
+      "type": "object",
+      "description": "Full definition of a module-contributed agent.",
+      "required": ["name", "slug", "description", "tools", "model-tier", "phase", "instructions"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable agent name (e.g. 'Agent Builder')."
+        },
+        "slug": {
+          "type": "string",
+          "description": "Unique identifier for this agent (kebab-case, used as filename stem).",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "description": "One-to-three sentence description of the agent's purpose."
+        },
+        "tools": {
+          "type": "array",
+          "description": "Tools this agent requires.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "model-tier": {
+          "type": "string",
+          "enum": ["deep", "standard", "light"],
+          "description": "Abstract model tier resolved via constitution Article VI."
+        },
+        "phase": {
+          "type": "string",
+          "description": "Workflow phase identifier (e.g. '0', '2.1', 'meta', 'maintenance')."
+        },
+        "instructions": {
+          "type": "array",
+          "description": "Instruction file paths always loaded by this agent.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "handoffs": {
+          "type": "array",
+          "description": "Possible handoff transitions to other agents.",
+          "items": {
+            "$ref": "#/$defs/Handoff"
+          }
+        }
+      }
+    },
+    "Handoff": {
+      "type": "object",
+      "required": ["label", "prompt"],
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Short label shown in the UI for this handoff."
+        },
+        "agent": {
+          "type": "string",
+          "description": "Target agent slug (kebab-case filename without .agent.md)."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Prompt text pre-filled when initiating the handoff."
+        },
+        "send": {
+          "type": "boolean",
+          "description": "If false (default), user must confirm before the prompt is sent.",
+          "default": false
+        }
+      }
+    }
+  }
+}

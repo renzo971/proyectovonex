@@ -1,0 +1,45 @@
+# SDD Doctor — CI/CD Integration (Example)
+#
+# Copy this file to `.github/workflows/sdd-doctor-ci.yml` and adjust to
+# your project's Python version and installation steps.
+#
+# This workflow runs `sdd doctor` on every pull request and uploads findings
+# as SARIF to GitHub Code Scanning. Findings appear as PR annotations and
+# in the repository's Security → Code scanning alerts tab.
+
+name: SDD Doctor CI
+
+on:
+  pull_request:
+    paths:
+      - ".github/instructions/**"
+      - ".github/skills/**"
+      - ".github/agents/**"
+      - ".github/prompts/**"
+      - ".specify/**"
+
+permissions:
+  security-events: write   # required for upload-sarif
+  contents: read
+
+jobs:
+  sdd-doctor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install SDD CLI
+        run: pip install -e .
+
+      - name: Run sdd doctor (SARIF output)
+        run: sdd doctor --format sarif --output results.sarif
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@4f3212b61783c3c68e8309a0f18a699764811cda # v3.27.1
+        with:
+          sarif_file: results.sarif
+        if: always()

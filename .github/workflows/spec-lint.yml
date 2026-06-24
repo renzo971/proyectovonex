@@ -1,0 +1,135 @@
+name: Specification Linting
+
+# Lint specification markdown files
+on:
+  pull_request:
+    paths:
+      - '.specify/**/*.md'
+  push:
+    branches:
+      - main
+    paths:
+      - '.specify/**/*.md'
+
+permissions:
+  contents: read
+
+jobs:
+  lint-markdown:
+    name: Lint Markdown
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '20'
+
+      - name: Install markdownlint-cli
+        run: npm install -g markdownlint-cli
+
+      - name: Create markdownlint config
+        run: |
+          cat > .markdownlint.json << 'EOF'
+          {
+            "default": true,
+            "MD013": false,
+            "MD033": false,
+            "MD041": false,
+            "MD024": { "siblings_only": true },
+            "MD036": false
+          }
+          EOF
+
+      - name: Lint specification files
+        run: |
+          echo "# Markdown Lint Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Find all markdown files in .specify
+          FILES=$(find .specify -name "*.md" -type f)
+          
+          if [[ -z "$FILES" ]]; then
+            echo "No markdown files found in .specify/" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+          
+          ERRORS=0
+          
+          for file in $FILES; do
+            if markdownlint "$file" 2>&1; then
+              echo "✅ $file" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ $file has issues" >> $GITHUB_STEP_SUMMARY
+              ((ERRORS++)) || true
+            fi
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ $ERRORS -gt 0 ]]; then
+            echo "## ⚠️ $ERRORS files have linting issues" >> $GITHUB_STEP_SUMMARY
+            # Don't fail - just warn
+          else
+            echo "## ✅ All files pass linting" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  check-links:
+    name: Check Internal Links
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check for broken internal links
+        run: |
+          echo "# Internal Link Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          BROKEN=0
+          
+          # Find all markdown files and check their links
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            
+            DIR=$(dirname "$file")
+            
+            # Extract markdown links [text](path)
+            while IFS= read -r link; do
+              [[ -z "$link" ]] && continue
+              
+              # Skip external links and anchors
+              [[ "$link" =~ ^http ]] && continue
+              [[ "$link" =~ ^# ]] && continue
+              [[ "$link" =~ mailto: ]] && continue
+              
+              # Remove anchor from link
+              link_path="${link%%#*}"
+              [[ -z "$link_path" ]] && continue
+              
+              # Resolve relative path
+              if [[ "$link_path" =~ ^/ ]]; then
+                target=".$link_path"
+              else
+                target="$DIR/$link_path"
+              fi
+              
+              # Check if target exists
+              if [[ ! -e "$target" ]]; then
+                echo "❌ Broken link in $file: $link" >> $GITHUB_STEP_SUMMARY
+                ((BROKEN++)) || true
+              fi
+              
+            done < <(grep -oE '\]\([^)]+\)' "$file" | sed 's/\](\(.*\))/\1/' | grep -v '^http')
+            
+          done < <(find .specify -name "*.md" -type f)
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ $BROKEN -gt 0 ]]; then
+            echo "## ⚠️ Found $BROKEN broken links" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ✅ No broken internal links" >> $GITHUB_STEP_SUMMARY
+          fi

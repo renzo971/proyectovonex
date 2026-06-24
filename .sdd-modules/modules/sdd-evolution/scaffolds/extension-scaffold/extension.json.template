@@ -1,0 +1,22 @@
+{
+  "name": "{EXTENSION_NAME}",
+  "version": "1.0.0",
+  "displayName": "{EXTENSION_DISPLAY_NAME}",
+  "description": "{EXTENSION_DESCRIPTION}",
+  "author": "{AUTHOR}",
+  "requires": {
+    "sddVersion": ">=4.3"
+  },
+  "provides": {
+    "agents": [],
+    "instructions": [],
+    "prompts": [],
+    "templates": []
+  },
+  "files": {
+    "agents": [],
+    "instructions": [],
+    "prompts": [],
+    "templates": []
+  }
+}

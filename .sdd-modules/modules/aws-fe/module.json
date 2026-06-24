@@ -1,0 +1,28 @@
+{
+  "name": "aws-fe",
+  "version": "1.0.0",
+  "displayName": "Acme FE Frontend (React / Redux Toolkit / Stratos)",
+  "description": "Tailored frontend prompts, instructions, and reviewer/generator profiles extracted from the Acme FE framework",
+  "source": "_tailored-framework-Acme FE/_framework-aws-fe",
+  "architecture": ["frontend", "microfrontend", "react", "redux"],
+  "techStack": {
+    "language": "TypeScript 5.x",
+    "framework": "React + Vite",
+    "state": "Redux Toolkit",
+    "ui": "Stratos",
+    "testing": "Vitest + mock API"
+  },
+  "provides": {
+    "instructions": 9,
+    "guidances": 0,
+    "setupTemplates": 4,
+    "prompts": 46,
+    "constitutionArticles": 0,
+    "agentPatches": 2,
+    "copilotInstructionsSupplement": true
+  },
+  "requires": {
+    "sddVersion": ">=3.0",
+    "applyToSupport": true
+  }
+}

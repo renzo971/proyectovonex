@@ -1,0 +1,3 @@
+[submodule "tools/enterprise-sdd"]
+	path = tools/enterprise-sdd
+	url = https://github.com/popoloni/enterprise-sdd.git

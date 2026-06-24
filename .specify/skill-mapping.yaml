@@ -1,0 +1,125 @@
+# Enterprise SDD — Skill Scope Mapping (Wave 20 §20.C.1)
+#
+# This file declares which agents may load which skills. It is consumed by:
+#   - sdd skill list --scope <agent>     (Wave 20 §20.C.3)
+#   - the skill loader / agent runtime    (Wave 20 §20.C.2)
+#
+# Schema (JSON Schema Draft 2020-12, informal):
+#
+#   schemaVersion:  integer (currently 1)
+#   skills:
+#     - id:          string                # required, matches skill directory name
+#       category:    "local" | "curated"   # required, mirrors SKILL-INDEX.md sections
+#       purpose:     string                # required, single-line summary
+#       scopes:      [agent-id]            # OPTIONAL — list of agent ids that may
+#                                          # load this skill. When absent, the skill
+#                                          # is globally available to all agents.
+#                                          # When present, only listed agents may
+#                                          # load the skill; others see it filtered.
+#
+# Backward compatibility: skills without a `scopes` field remain globally available.
+# The CLI `sdd skill list` (no flag) shows ALL skills, scoped or not.
+# Only `sdd skill list --scope <agent>` applies the filter.
+
+schemaVersion: 1
+
+skills:
+  # ── Local workflow skills (.specify/skills/) ──────────────────────────────
+  - id: memory-loop
+    category: local
+    purpose: enforce status -> doctor -> sync cadence before gates
+    # globally available
+
+  - id: traceability-audit
+    category: local
+    purpose: verify US/AC/T/TC references before Gate 3
+    # globally available
+
+  - id: extension-safety
+    category: local
+    purpose: check namespace/core immutability before extension install
+    # globally available
+
+  # ── Curated skills (.github/skills/) ──────────────────────────────────────
+  - id: sdd-auto-implement
+    category: curated
+    purpose: incremental implementation flow with gate-safe stop points
+    # globally available
+
+  - id: sdd-challenge
+    category: curated
+    purpose: assumption challenge flow with confidence and risk scoring
+    # globally available
+
+  # Worked examples of `scopes:` — Wave 20 §20.C.4
+  - id: hotspot-review
+    category: curated
+    purpose: composite-risk classification (LoC × churn × complexity) for the diff
+    scopes: [review, design-reviewer]
+
+  - id: red-team-spec
+    category: curated
+    purpose: adversarial review of a spec to surface implicit assumptions
+    scopes: [spec, requirement-analyst, design-reviewer]
+
+  - id: prfaq-working-backwards
+    category: curated
+    purpose: pre-spec PRFAQ + assumption ledger to validate idea before sdd new
+    scopes: [requirement-analyst, spec]
+
+  - id: sdd-spec-review
+    category: curated
+    purpose: structured review of a spec.md against acceptance-criteria checklist
+    scopes: [spec, requirement-analyst, design-reviewer]
+
+  # Wave 21 Phase D — Skill reclassifications from instructions
+  - id: api-patterns
+    category: curated
+    purpose: REST API design decision framework — resource hierarchy, versioning, status codes, workflow transitions
+    scopes: [api-champion, architect]
+
+  - id: messaging-patterns
+    category: curated
+    purpose: async messaging design decision framework — taxonomy, topic naming, envelope, schema evolution
+    scopes: [messaging-champion, architect]
+
+  - id: source-verification
+    category: curated
+    purpose: DETECT->FETCH->IMPLEMENT->CITE workflow for external-knowledge claims during authoring
+    # globally available — any agent may encounter external-knowledge claims
+
+  # ── Wave 23 §23.A.7 — Namespace meta-skills (cold-start surface) ─────────
+  # These six skills form the DEFAULT cold-start surface. The 21 underlying
+  # curated/local skills above remain installed and reachable; they are
+  # surfaced via the namespace meta-skills' keyword-tags routing.
+  #
+  # `sdd skill list` (no flag) shows the 6 namespace meta-skills only.
+  # `sdd skill list --flat` shows the full 21+6 = 27 skill catalog.
+  - id: sdd-specify
+    category: namespace
+    purpose: router for Phase 1 (Specify) sub-skills
+  - id: sdd-architect
+    category: namespace
+    purpose: router for Phase 3 (Architect) sub-skills
+  - id: sdd-implement
+    category: namespace
+    purpose: router for Phase 4 (Implement) sub-skills
+  - id: sdd-review
+    category: namespace
+    purpose: router for Phase 5 (Review) sub-skills
+  - id: sdd-doctor
+    category: namespace
+    purpose: router for diagnostic and integrity sub-skills
+  - id: sdd-module
+    category: namespace
+    purpose: router for module operation sub-skills
+
+# Wave 23 §23.A.7 — Cold-start surface marker.
+# Tools (e.g. `sdd skill list`) honour this list when --flat is NOT passed.
+coldStartSurface:
+  - sdd-specify
+  - sdd-architect
+  - sdd-implement
+  - sdd-review
+  - sdd-doctor
+  - sdd-module

@@ -1,0 +1,12 @@
+{
+  "name": "sdd-preset-monorepo",
+  "version": "1.0.0",
+  "description": "Monorepo preset — multi-package support with per-package gates",
+  "modules": [],
+  "ceremonyDefault": "full",
+  "gateOverrides": {
+    "perPackage": true,
+    "worktreeIsolation": true
+  },
+  "agentOverrides": {}
+}

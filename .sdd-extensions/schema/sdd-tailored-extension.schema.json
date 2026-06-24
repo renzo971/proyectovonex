@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "sdd-tailored-extension.schema.json",
+  "title": "SDD Tailored Frontend Extension Manifest",
+  "description": "Wave 11 Tailored Frontend extension schema specialized from the generic Wave 9 extension contract.",
+  "allOf": [
+    { "$ref": "./sdd-extension.schema.json" },
+    {
+      "type": "object",
+      "required": ["type", "domainCategory", "namespacePrefix"],
+      "properties": {
+        "type": { "enum": ["tailored-frontend"] },
+        "domainCategory": {
+          "type": "string",
+          "description": "Domain category for the tailored extension. Built-in values: 'stratos', 'search', 'review'. Open to module-contributed categories (e.g. 'charts', 'forms').",
+          "minLength": 1
+        },
+        "namespacePrefix": {
+          "type": "string",
+          "description": "Namespace prefix for instructions/prompts isolation (e.g. 'fe', 'aws-fe'). Open to module-contributed namespaces.",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "setupTemplate": { "type": "string" },
+        "compatibilityMatrix": {
+          "type": "object",
+          "properties": {
+            "requiredModules": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "blockedModules": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "requiredPresets": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "blockedPresets": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

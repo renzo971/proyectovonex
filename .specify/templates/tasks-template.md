@@ -1,252 +1,443 @@
----
+# Tasks: [FEATURE_NAME]
 
-description: "Task list template for feature implementation"
----
-
-# Tasks: [FEATURE NAME]
-
-**Input**: Design documents from `/specs/[###-feature-name]/`
-
-**Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
-
-**Tests**: The examples below include test tasks. Tests are OPTIONAL - only include them if explicitly requested in the feature specification.
-
-**Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
-
-## Format: `[ID] [P?] [Story] Description`
-
-- **[P]**: Can run in parallel (different files, no dependencies)
-- **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
-- Include exact file paths in descriptions
-
-## Path Conventions
-
-- **Single project**: `src/`, `tests/` at repository root
-- **Web app**: `backend/src/`, `frontend/src/`
-- **Mobile**: `api/src/`, `ios/src/` or `android/src/`
-- Paths shown below assume single project - adjust based on plan.md structure
-
-<!--
-  ============================================================================
-  IMPORTANT: The tasks below are SAMPLE TASKS for illustration purposes only.
-
-  The /speckit.tasks command MUST replace these with actual tasks based on:
-  - User stories from spec.md (with their priorities P1, P2, P3...)
-  - Feature requirements from plan.md
-  - Entities from data-model.md
-  - Endpoints from contracts/
-
-  Tasks MUST be organized by user story so each story can be:
-  - Implemented independently
-  - Tested independently
-  - Delivered as an MVP increment
-
-  DO NOT keep these sample tasks in the generated tasks.md file.
-  ============================================================================
--->
-
-## Phase 1: Setup (Shared Infrastructure)
-
-**Purpose**: Project initialization and basic structure
-
-- [ ] T001 Create project structure per implementation plan
-- [ ] T002 Initialize [language] project with [framework] dependencies
-- [ ] T003 [P] Configure linting and formatting tools
+**Feature ID:** [NNN]-[feature-slug]
+**Created:** [DATE]
+**Status:** Planning | In Progress | Complete
 
 ---
 
-## Phase 2: Foundational (Blocking Prerequisites)
+## Summary
 
-**Purpose**: Core infrastructure that MUST be complete before ANY user story can be implemented
+| Phase | Tasks | Estimated Hours | Status |
+|-------|-------|-----------------|--------|
+| Phase 1: Foundation | 3 | 8 | Not Started |
+| Phase 2: Core Implementation | 5 | 16 | Not Started |
+| Phase 3: Testing | 3 | 8 | Not Started |
+| Phase 4: Polish | 2 | 4 | Not Started |
+| **Total** | **13** | **36** | |
 
-**⚠️ CRITICAL**: No user story work can begin until this phase is complete
-
-Examples of foundational tasks (adjust based on your project):
-
-- [ ] T004 Setup database schema and migrations framework
-- [ ] T005 [P] Implement authentication/authorization framework
-- [ ] T006 [P] Setup API routing and middleware structure
-- [ ] T007 Create base models/entities that all stories depend on
-- [ ] T008 Configure error handling and logging infrastructure
-- [ ] T009 Setup environment configuration management
-
-**Checkpoint**: Foundation ready - user story implementation can now begin in parallel
-
----
-
-## Phase 3: User Story 1 - [Title] (Priority: P1) 🎯 MVP
-
-**Goal**: [Brief description of what this story delivers]
-
-**Independent Test**: [How to verify this story works on its own]
-
-### Tests for User Story 1 (OPTIONAL - only if tests requested) ⚠️
-
-> **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
-
-- [ ] T010 [P] [US1] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T011 [P] [US1] Integration test for [user journey] in tests/integration/test_[name].py
-
-### Implementation for User Story 1
-
-- [ ] T012 [P] [US1] Create [Entity1] model in src/models/[entity1].py
-- [ ] T013 [P] [US1] Create [Entity2] model in src/models/[entity2].py
-- [ ] T014 [US1] Implement [Service] in src/services/[service].py (depends on T012, T013)
-- [ ] T015 [US1] Implement [endpoint/feature] in src/[location]/[file].py
-- [ ] T016 [US1] Add validation and error handling
-- [ ] T017 [US1] Add logging for user story 1 operations
-
-**Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
+**Legend:**
+- `[P]` = Parallel-safe (can run with other [P] tasks)
+- `[S]` = Sequential (depends on previous tasks)
+- `[T]` = Test task (can run parallel to feature tasks)
+- `_Boundary:_` = Component/module/layer this task may touch (for review boundary-violation detection)
+- `_Depends:_` = Prerequisite task IDs that must complete first
 
 ---
 
-## Phase 4: User Story 2 - [Title] (Priority: P2)
+## Phase 1: Foundation
 
-**Goal**: [Brief description of what this story delivers]
+### T001 [P] - Database Schema Setup
 
-**Independent Test**: [How to verify this story works on its own]
+_Boundary: Database, PrismaSchema_
+_Depends: —_
 
-### Tests for User Story 2 (OPTIONAL - only if tests requested) ⚠️
+**Priority:** P1
+**Estimated:** 2h
+**Assignee:** [Name]
+**Status:** Not Started
 
-- [ ] T018 [P] [US2] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T019 [P] [US2] Integration test for [user journey] in tests/integration/test_[name].py
+**Description:**
+Create database migration for new entities
 
-### Implementation for User Story 2
+**Files to Create/Modify:**
+- `prisma/migrations/[timestamp]_[feature_name]/migration.sql`
+- `prisma/schema.prisma`
 
-- [ ] T020 [P] [US2] Create [Entity] model in src/models/[entity].py
-- [ ] T021 [US2] Implement [Service] in src/services/[service].py
-- [ ] T022 [US2] Implement [endpoint/feature] in src/[location]/[file].py
-- [ ] T023 [US2] Integrate with User Story 1 components (if needed)
+**Acceptance Criteria:**
+- [ ] Migration creates all tables from data-model.md
+- [ ] Indexes created for query patterns
+- [ ] Migration is reversible
+- [ ] Local database updated successfully
 
-**Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
-
----
-
-## Phase 5: User Story 3 - [Title] (Priority: P3)
-
-**Goal**: [Brief description of what this story delivers]
-
-**Independent Test**: [How to verify this story works on its own]
-
-### Tests for User Story 3 (OPTIONAL - only if tests requested) ⚠️
-
-- [ ] T024 [P] [US3] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T025 [P] [US3] Integration test for [user journey] in tests/integration/test_[name].py
-
-### Implementation for User Story 3
-
-- [ ] T026 [P] [US3] Create [Entity] model in src/models/[entity].py
-- [ ] T027 [US3] Implement [Service] in src/services/[service].py
-- [ ] T028 [US3] Implement [endpoint/feature] in src/[location]/[file].py
-
-**Checkpoint**: All user stories should now be independently functional
+**Traces To:** data-model.md
 
 ---
 
-[Add more user story phases as needed, following the same pattern]
+### T002 [P] - Type Definitions
+
+_Boundary: TypeDefinitions, DTOs_
+_Depends: —_
+
+**Priority:** P1
+**Estimated:** 2h
+**Assignee:** [Name]
+**Status:** Not Started
+
+**Description:**
+Create TypeScript types and DTOs for the feature
+
+**Files to Create/Modify:**
+- `src/modules/[feature]/dto/create-[entity].dto.ts`
+- `src/modules/[feature]/dto/update-[entity].dto.ts`
+- `src/modules/[feature]/types/[feature].types.ts`
+
+**Acceptance Criteria:**
+- [ ] Types match data model
+- [ ] DTOs include validation decorators
+- [ ] All fields properly documented
+
+**Traces To:** data-model.md, plan.md
 
 ---
 
-## Phase N: Polish & Cross-Cutting Concerns
+### T003 [S] - Module Scaffolding
 
-**Purpose**: Improvements that affect multiple user stories
+_Boundary: FeatureModule, AppModule_
+_Depends: T001, T002_
 
-- [ ] TXXX [P] Documentation updates in docs/
-- [ ] TXXX Code cleanup and refactoring
-- [ ] TXXX Performance optimization across all stories
-- [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
-- [ ] TXXX Security hardening
-- [ ] TXXX Run quickstart.md validation
+**Priority:** P1
+**Estimated:** 4h
+**Assignee:** [Name]
+**Status:** Not Started
 
----
+**Description:**
+Create NestJS module structure
 
-## Dependencies & Execution Order
+**Files to Create/Modify:**
+- `src/modules/[feature]/[feature].module.ts`
+- `src/modules/[feature]/[feature].controller.ts`
+- `src/modules/[feature]/[feature].service.ts`
+- `src/modules/[feature]/[feature].repository.ts`
 
-### Phase Dependencies
+**Acceptance Criteria:**
+- [ ] Module registered in app.module.ts
+- [ ] Basic CRUD operations scaffolded
+- [ ] Dependency injection configured
 
-- **Setup (Phase 1)**: No dependencies - can start immediately
-- **Foundational (Phase 2)**: Depends on Setup completion - BLOCKS all user stories
-- **User Stories (Phase 3+)**: All depend on Foundational phase completion
-  - User stories can then proceed in parallel (if staffed)
-  - Or sequentially in priority order (P1 → P2 → P3)
-- **Polish (Final Phase)**: Depends on all desired user stories being complete
-
-### User Story Dependencies
-
-- **User Story 1 (P1)**: Can start after Foundational (Phase 2) - No dependencies on other stories
-- **User Story 2 (P2)**: Can start after Foundational (Phase 2) - May integrate with US1 but should be independently testable
-- **User Story 3 (P3)**: Can start after Foundational (Phase 2) - May integrate with US1/US2 but should be independently testable
-
-### Within Each User Story
-
-- Tests (if included) MUST be written and FAIL before implementation
-- Models before services
-- Services before endpoints
-- Core implementation before integration
-- Story complete before moving to next priority
-
-### Parallel Opportunities
-
-- All Setup tasks marked [P] can run in parallel
-- All Foundational tasks marked [P] can run in parallel (within Phase 2)
-- Once Foundational phase completes, all user stories can start in parallel (if team capacity allows)
-- All tests for a user story marked [P] can run in parallel
-- Models within a story marked [P] can run in parallel
-- Different user stories can be worked on in parallel by different team members
+**Traces To:** plan.md Section 2
 
 ---
 
-## Parallel Example: User Story 1
+## Phase 2: Core Implementation
 
-```bash
-# Launch all tests for User Story 1 together (if tests requested):
-Task: "Contract test for [endpoint] in tests/contract/test_[name].py"
-Task: "Integration test for [user journey] in tests/integration/test_[name].py"
+### T004 [P] - Implement Create Operation
 
-# Launch all models for User Story 1 together:
-Task: "Create [Entity1] model in src/models/[entity1].py"
-Task: "Create [Entity2] model in src/models/[entity2].py"
+_Boundary: FeatureController, FeatureService, FeatureRepository_
+_Depends: T003_
+
+**Priority:** P1
+**Estimated:** 4h
+**Assignee:** [Name]
+**Status:** Not Started
+
+**Description:**
+Implement create endpoint with validation
+
+**Files to Modify:**
+- `src/modules/[feature]/[feature].controller.ts`
+- `src/modules/[feature]/[feature].service.ts`
+- `src/modules/[feature]/[feature].repository.ts`
+
+**Acceptance Criteria:**
+- [ ] POST endpoint working
+- [ ] Input validation implemented
+- [ ] Error handling for validation errors
+- [ ] Returns created entity
+
+**Traces To:** US-001, AC-001
+
+---
+
+### T005 [P] - Implement Read Operations
+
+_Boundary: FeatureController, FeatureService_
+_Depends: T003_
+
+**Priority:** P1
+**Estimated:** 3h
+**Assignee:** [Name]
+**Status:** Not Started
+
+**Description:**
+Implement GET endpoints (list and single)
+
+**Files to Modify:**
+- `src/modules/[feature]/[feature].controller.ts`
+- `src/modules/[feature]/[feature].service.ts`
+
+**Acceptance Criteria:**
+- [ ] GET list with pagination working
+- [ ] GET single by ID working
+- [ ] 404 handling for not found
+- [ ] Query filters implemented
+
+**Traces To:** US-001, AC-002
+
+---
+
+### T006 [P] - Implement Update Operation
+
+_Boundary: FeatureController, FeatureService_
+_Depends: T003_
+
+**Priority:** P1
+**Estimated:** 3h
+**Assignee:** [Name]
+**Status:** Not Started
+
+**Description:**
+Implement PUT/PATCH endpoint
+
+**Files to Modify:**
+- `src/modules/[feature]/[feature].controller.ts`
+- `src/modules/[feature]/[feature].service.ts`
+
+**Acceptance Criteria:**
+- [ ] PUT endpoint working
+- [ ] Partial updates supported
+- [ ] Validation on update
+- [ ] 404 for non-existent ID
+
+**Traces To:** US-002, AC-003
+
+---
+
+### T007 [P] - Implement Delete Operation
+
+_Boundary: FeatureController, FeatureService_
+_Depends: T003_
+
+**Priority:** P2
+**Estimated:** 2h
+**Assignee:** [Name]
+**Status:** Not Started
+
+**Description:**
+Implement DELETE endpoint
+
+**Files to Modify:**
+- `src/modules/[feature]/[feature].controller.ts`
+- `src/modules/[feature]/[feature].service.ts`
+
+**Acceptance Criteria:**
+- [ ] DELETE endpoint working
+- [ ] Soft delete if required
+- [ ] 404 for non-existent ID
+- [ ] Cascade handling
+
+**Traces To:** US-002, AC-004
+
+---
+
+### T008 [S] - Authorization Implementation
+
+_Boundary: FeatureController, AuthGuard_
+_Depends: T004, T005, T006, T007_
+
+**Priority:** P1
+**Estimated:** 4h
+**Assignee:** [Name]
+**Status:** Not Started
+
+**Description:**
+Add authorization guards to all endpoints
+
+**Files to Modify:**
+- `src/modules/[feature]/[feature].controller.ts`
+- `src/modules/[feature]/guards/[feature].guard.ts`
+
+**Acceptance Criteria:**
+- [ ] Auth guard on all endpoints
+- [ ] Role-based access per plan.md
+- [ ] 403 for unauthorized access
+- [ ] Owner-only for specific operations
+
+**Traces To:** NFR-002, plan.md Section 5
+
+---
+
+## Phase 3: Testing
+
+### T009 [T] - Unit Tests
+
+_Boundary: TestSuite_
+_Depends: T003_
+
+**Priority:** P1
+**Estimated:** 4h
+**Assignee:** [Name]
+**Status:** Not Started
+
+**Description:**
+Write unit tests for service layer
+
+**Files to Create:**
+- `src/modules/[feature]/__tests__/[feature].service.spec.ts`
+
+**Acceptance Criteria:**
+- [ ] Service methods tested
+- [ ] Edge cases covered
+- [ ] >80% coverage
+- [ ] Mocks for repository
+
+**Traces To:** test-cases.md TC-001, TC-004
+
+---
+
+### T010 [T] - Integration Tests
+
+_Boundary: TestSuite_
+_Depends: T004, T005, T006, T007_
+
+**Priority:** P1
+**Estimated:** 3h
+**Assignee:** [Name]
+**Status:** Not Started
+
+**Description:**
+Write integration tests for API endpoints
+
+**Files to Create:**
+- `tests/integration/[feature].integration.spec.ts`
+
+**Acceptance Criteria:**
+- [ ] All CRUD endpoints tested
+- [ ] Auth scenarios tested
+- [ ] Error scenarios tested
+- [ ] Database cleanup after tests
+
+**Traces To:** test-cases.md TC-002, TC-006, TC-008
+
+---
+
+### T011 [T] - E2E Tests
+
+_Boundary: TestSuite_
+_Depends: T008_
+
+**Priority:** P2
+**Estimated:** 2h
+**Assignee:** [Name]
+**Status:** Not Started
+
+**Description:**
+Write E2E tests for critical flows
+
+**Files to Create:**
+- `tests/e2e/[feature].e2e.spec.ts`
+
+**Acceptance Criteria:**
+- [ ] Happy path tested
+- [ ] Authentication flow tested
+- [ ] Can run in CI
+
+**Traces To:** test-cases.md TC-003
+
+---
+
+## Phase 4: Polish
+
+### T012 [S] - Documentation
+
+_Boundary: Documentation_
+_Depends: T008_
+
+**Priority:** P2
+**Estimated:** 2h
+**Assignee:** [Name]
+**Status:** Not Started
+
+**Description:**
+Update API documentation
+
+**Files to Modify:**
+- `docs/api/[feature].md`
+- `README.md`
+
+**Acceptance Criteria:**
+- [ ] OpenAPI spec updated
+- [ ] README updated
+- [ ] Examples provided
+
+---
+
+### T013 [S] - Code Review Fixes
+
+_Boundary: AllModified_
+_Depends: T009, T010_
+
+**Priority:** P1
+**Estimated:** 2h
+**Assignee:** [Name]
+**Status:** Not Started
+
+**Description:**
+Address code review feedback
+
+**Acceptance Criteria:**
+- [ ] All review comments addressed
+- [ ] Tests still passing
+- [ ] Documentation updated
+
+---
+
+## Dependencies Graph
+
+```mermaid
+graph LR
+    subgraph "Phase 1: Foundation"
+        T001[T001: Schema]
+        T002[T002: Types]
+        T003[T003: Scaffold]
+    end
+    
+    subgraph "Phase 2: Core"
+        T004[T004: Create]
+        T005[T005: Read]
+        T006[T006: Update]
+        T007[T007: Delete]
+        T008[T008: Auth]
+    end
+    
+    subgraph "Phase 3: Testing"
+        T009[T009: Unit]
+        T010[T010: Integration]
+        T011[T011: E2E]
+    end
+    
+    subgraph "Phase 4: Polish"
+        T012[T012: Docs]
+        T013[T013: Review]
+    end
+    
+    T001 --> T003
+    T002 --> T003
+    T003 --> T004
+    T003 --> T005
+    T003 --> T006
+    T003 --> T007
+    T003 --> T009
+    T004 --> T008
+    T005 --> T008
+    T006 --> T008
+    T007 --> T008
+    T004 --> T010
+    T005 --> T010
+    T006 --> T010
+    T007 --> T010
+    T008 --> T011
+    T008 --> T012
+    T009 --> T013
+    T010 --> T013
 ```
 
 ---
 
-## Implementation Strategy
+## Progress Tracking
 
-### MVP First (User Story 1 Only)
-
-1. Complete Phase 1: Setup
-2. Complete Phase 2: Foundational (CRITICAL - blocks all stories)
-3. Complete Phase 3: User Story 1
-4. **STOP and VALIDATE**: Test User Story 1 independently
-5. Deploy/demo if ready
-
-### Incremental Delivery
-
-1. Complete Setup + Foundational → Foundation ready
-2. Add User Story 1 → Test independently → Deploy/Demo (MVP!)
-3. Add User Story 2 → Test independently → Deploy/Demo
-4. Add User Story 3 → Test independently → Deploy/Demo
-5. Each story adds value without breaking previous stories
-
-### Parallel Team Strategy
-
-With multiple developers:
-
-1. Team completes Setup + Foundational together
-2. Once Foundational is done:
-   - Developer A: User Story 1
-   - Developer B: User Story 2
-   - Developer C: User Story 3
-3. Stories complete and integrate independently
-
----
-
-## Notes
-
-- [P] tasks = different files, no dependencies
-- [Story] label maps task to specific user story for traceability
-- Each user story should be independently completable and testable
-- Verify tests fail before implementing
-- Commit after each task or logical group
-- Stop at any checkpoint to validate story independently
-- Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence
+| Task | Status | Started | Completed | Notes |
+|------|--------|---------|-----------|-------|
+| T001 | Not Started | | | |
+| T002 | Not Started | | | |
+| T003 | Not Started | | | |
+| T004 | Not Started | | | |
+| T005 | Not Started | | | |
+| T006 | Not Started | | | |
+| T007 | Not Started | | | |
+| T008 | Not Started | | | |
+| T009 | Not Started | | | |
+| T010 | Not Started | | | |
+| T011 | Not Started | | | |
+| T012 | Not Started | | | |
+| T013 | Not Started | | | |

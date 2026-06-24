@@ -1,0 +1,10 @@
+name: no-console-log
+description: Flag console.log statements in production source code
+filePatterns:
+  - "src/**/*.ts"
+  - "src/**/*.tsx"
+  - "src/**/*.js"
+  - "src/**/*.jsx"
+condition: "console\\.log\\("
+severity: FAIL
+message: "console.log found in production code — use a structured logger instead"

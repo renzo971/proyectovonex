@@ -1,0 +1,214 @@
+{
+  "name": "sdd-evolution",
+  "version": "1.0.0",
+  "displayName": "SDD Evolution — Framework Self-Improvement",
+  "description": "Gives Enterprise SDD the ability to evolve itself by analysing external frameworks, comparing approaches, harvesting features, planning improvements, and designing new modules and extensions",
+  "author": "Enterprise SDD",
+  "architecture": ["meta-evolution", "framework-analysis", "feature-harvest"],
+  "provides": {
+    "agents": 12,
+    "instructions": 2,
+    "prompts": 5,
+    "templates": 3,
+    "scaffolds": 2,
+    "copilotInstructionsSupplement": true,
+    "setupScript": "setup-module.sh"
+  },
+  "requires": {
+    "sddVersion": ">=4.3"
+  },
+  "files": {
+    "agents": [
+      "agents/framework-analyst.agent.md",
+      "agents/framework-comparator.agent.md",
+      "agents/framework-updater.agent.md",
+      "agents/sdd-evolver.agent.md",
+      "agents/evolution-planner.agent.md",
+      "agents/module-designer.agent.md",
+      "agents/extension-designer.agent.md",
+      "agents/agent-builder.agent.md",
+      "agents/instruction-builder.agent.md",
+      "agents/guidance-builder.agent.md",
+      "agents/prompt-builder.agent.md",
+      "agents/workflow-builder.agent.md"
+    ],
+    "instructions": [
+      "instructions/sdd-philosophy.instructions.md",
+      "instructions/framework-repos.instructions.md"
+    ],
+    "prompts": [
+      "prompts/analyse-framework.prompt.md",
+      "prompts/compare-frameworks.prompt.md",
+      "prompts/evolve-sdd.prompt.md",
+      "prompts/design-module.prompt.md",
+      "prompts/design-extension.prompt.md"
+    ],
+    "templates": [
+      "templates/analysis-template.md",
+      "templates/comparison-template.md",
+      "templates/evolution-section-template.md"
+    ],
+    "scaffolds": [
+      "scaffolds/module-scaffold/",
+      "scaffolds/extension-scaffold/"
+    ]
+  },
+  "placeholders": {},
+  "agentContributions": {
+    "tool-overlays": [],
+    "agents": [
+      {
+        "name": "Agent Builder",
+        "slug": "agent-builder",
+        "description": "Creates new AI agents or improves existing ones through interactive consultation. Enforces SDD conventions: constitution reference, phase assignment, boundaries (Always Do / Ask First / Never Do), shared instructions, templates, send: false on all handoffs. Meta-layer agent for extending the framework itself.",
+        "tools": ["read", "edit", "search", "fetch"],
+        "model-tier": "standard",
+        "phase": "meta",
+        "instructions": [
+          ".github/instructions/anti-patterns.instructions.md",
+          ".github/instructions/constitution-reading.instructions.md"
+        ],
+        "handoffs": []
+      },
+      {
+        "name": "Evolution Planner",
+        "slug": "evolution-planner",
+        "description": "Converts proposed improvements from _evolution/EVOLUTION.md into detailed, actionable implementation plans with phased tasks, stored in _plan/. Mandatory T/V/Z closure phases are always included.",
+        "tools": ["read", "search", "edit"],
+        "model-tier": "standard",
+        "phase": "meta",
+        "instructions": [
+          ".sdd-modules/modules/sdd-evolution/instructions/sdd-philosophy.instructions.md"
+        ],
+        "handoffs": []
+      },
+      {
+        "name": "Extension Designer",
+        "slug": "extension-designer",
+        "description": "Interactive agent that helps design and scaffold new SDD extensions. Extensions are lighter-weight single-purpose additions (one agent + optional instruction/prompt) compared to full modules.",
+        "tools": ["read", "search", "edit"],
+        "model-tier": "standard",
+        "phase": "meta",
+        "instructions": [
+          ".sdd-modules/modules/sdd-evolution/instructions/sdd-philosophy.instructions.md"
+        ],
+        "handoffs": []
+      },
+      {
+        "name": "Framework Analyst",
+        "slug": "framework-analyst",
+        "description": "Reads an entire AI agent framework directory and produces a comprehensive structured ANALYSIS.md document following the standard template. Does NOT update repos (use framework-updater) or produce comparison documents (use framework-comparator).",
+        "tools": ["read", "search", "edit", "runCommand"],
+        "model-tier": "deep",
+        "phase": "meta",
+        "instructions": [
+          ".sdd-modules/modules/sdd-evolution/instructions/sdd-philosophy.instructions.md",
+          ".sdd-modules/modules/sdd-evolution/instructions/framework-repos.instructions.md"
+        ],
+        "handoffs": []
+      },
+      {
+        "name": "Framework Comparator",
+        "slug": "framework-comparator",
+        "description": "Compares multiple AI agent frameworks from their ANALYSIS.md files and produces a structured COMPARISON.md with master table, thematic deep-dives, and cross-framework synthesis. Does NOT update repos or produce individual analyses.",
+        "tools": ["read", "search", "edit"],
+        "model-tier": "deep",
+        "phase": "meta",
+        "instructions": [
+          ".sdd-modules/modules/sdd-evolution/instructions/sdd-philosophy.instructions.md",
+          ".sdd-modules/modules/sdd-evolution/instructions/framework-repos.instructions.md"
+        ],
+        "handoffs": []
+      },
+      {
+        "name": "Framework Updater",
+        "slug": "framework-updater",
+        "description": "Pulls latest versions of tracked public framework repositories, detects changes since the last refresh, and updates WHATSNEW.md. For major changes, delegates to framework-analyst and framework-comparator. Does NOT produce comparison documents from scratch.",
+        "tools": ["runCommand", "read", "edit", "search"],
+        "model-tier": "standard",
+        "phase": "meta",
+        "instructions": [
+          ".sdd-modules/modules/sdd-evolution/instructions/framework-repos.instructions.md"
+        ],
+        "handoffs": []
+      },
+      {
+        "name": "Guidance Builder",
+        "slug": "guidance-builder",
+        "description": "Creates structured guidance files (.guidance.md) through interactive consultation. Guidance documents explain best practices, patterns, trade-offs, and recommendations with concrete examples. Meta-layer companion to Agent Builder and Instruction Builder.",
+        "tools": ["read", "edit", "search"],
+        "model-tier": "standard",
+        "phase": "meta",
+        "instructions": [
+          ".github/instructions/anti-patterns.instructions.md",
+          ".github/instructions/constitution-reading.instructions.md"
+        ],
+        "handoffs": []
+      },
+      {
+        "name": "Instruction Builder",
+        "slug": "instruction-builder",
+        "description": "Creates structured instruction files (.instructions.md) through interactive consultation. Standardizes patterns, best practices, and coding rules that apply to specific file types via glob patterns. Meta-layer companion to Agent Builder.",
+        "tools": ["read", "edit", "search"],
+        "model-tier": "standard",
+        "phase": "meta",
+        "instructions": [
+          ".github/instructions/anti-patterns.instructions.md",
+          ".github/instructions/constitution-reading.instructions.md"
+        ],
+        "handoffs": []
+      },
+      {
+        "name": "Module Designer",
+        "slug": "module-designer",
+        "description": "Interactive agent that helps design and scaffold new SDD modules. Guides the user through requirements gathering, then generates module.json, agents, instructions, prompts, templates, and scaffolds following the module system conventions.",
+        "tools": ["read", "search", "edit"],
+        "model-tier": "standard",
+        "phase": "meta",
+        "instructions": [
+          ".sdd-modules/modules/sdd-evolution/instructions/sdd-philosophy.instructions.md"
+        ],
+        "handoffs": []
+      },
+      {
+        "name": "Prompt Builder",
+        "slug": "prompt-builder",
+        "description": "Creates custom SDD prompt files (.prompt.md) through interactive consultation. Composes agent chains, selects phases, and generates reusable prompt templates for specific project patterns. Meta-layer companion to Agent Builder.",
+        "tools": ["read", "edit", "search"],
+        "model-tier": "light",
+        "phase": "meta",
+        "instructions": [
+          ".github/instructions/anti-patterns.instructions.md",
+          ".github/instructions/constitution-reading.instructions.md"
+        ],
+        "handoffs": []
+      },
+      {
+        "name": "SDD Evolver",
+        "slug": "sdd-evolver",
+        "description": "Analyses public framework updates and proposes improvements for Enterprise SDD by appending a new harvest section to _evolution/EVOLUTION.md — respecting SDD philosophy, design boundaries, and gate integrity.",
+        "tools": ["read", "search", "edit"],
+        "model-tier": "deep",
+        "phase": "meta",
+        "instructions": [
+          ".sdd-modules/modules/sdd-evolution/instructions/sdd-philosophy.instructions.md",
+          ".sdd-modules/modules/sdd-evolution/instructions/framework-repos.instructions.md"
+        ],
+        "handoffs": []
+      },
+      {
+        "name": "Workflow Builder",
+        "slug": "workflow-builder",
+        "description": "Creates and maintains GitHub Actions CI/CD workflow files (.yml) for the .github/workflows/ directory. Designs automated pipelines that enforce SDD quality gates, run consistency checks, and validate specification artifacts on pull requests and pushes. Meta-layer agent for CI/CD automation.",
+        "tools": ["read", "edit", "search", "runCommand"],
+        "model-tier": "light",
+        "phase": "meta",
+        "instructions": [
+          ".github/instructions/anti-patterns.instructions.md",
+          ".github/instructions/constitution-reading.instructions.md"
+        ],
+        "handoffs": []
+      }
+    ]
+  }
+}

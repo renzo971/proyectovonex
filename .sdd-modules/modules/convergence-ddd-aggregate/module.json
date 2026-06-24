@@ -1,0 +1,34 @@
+{
+  "name": "convergence-ddd-aggregate",
+  "version": "1.0.0",
+  "displayName": "DDD Aggregate Decision-Matrix Module",
+  "description": "Optional Domain-Driven Design aggregate boundary decision support — invariant-first modeling, anti-pattern checks, and trade-off records. Use only for DDD contexts.",
+  "optional": true,
+  "domain": "ddd",
+  "source": "vortex-harvest",
+  "requires": {
+    "sddVersion": ">=4.0",
+    "applyToSupport": true
+  },
+  "provides": {
+    "skills": 1,
+    "templates": 1,
+    "readme": true
+  },
+  "files": {
+    "skills": [
+      "skills/ddd-aggregate-design.skill.md"
+    ],
+    "templates": [
+      "templates/aggregate-decision-record-template.md"
+    ],
+    "docs": [
+      "README.md"
+    ]
+  },
+  "activation": {
+    "command": "sdd module add convergence-ddd-aggregate",
+    "note": "This module is opt-in. Do not activate unless the project explicitly uses Domain-Driven Design aggregate modeling."
+  },
+  "scopeConstraint": "DDD contexts only — do not activate for projects that do not use aggregate-based domain modeling"
+}

@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://enterprise-sdd.local/schemas/cli-output.schema.json",
+  "title": "SDD CLI JSON envelope (Wave 26 §25 #3)",
+  "description": "Stable envelope emitted on stdout by every `sdd <cmd> --json` invocation. Logs and progress bars are routed to stderr; data lives in the `data` field as a JSON object (never a top-level list).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "ok", "command", "data", "warnings", "errors"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Envelope schema version. Increments are breaking changes; additive fields stay on v1."
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "True when the command completed without errors. Mirrors process exit code 0."
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Dot-joined command path (e.g. `doctor`, `module.verify`)."
+    },
+    "data": {
+      "type": "object",
+      "description": "Command-specific payload. MUST be a JSON object (map-form). Top-level lists are rejected to keep field-level evolution non-breaking."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/finding" },
+      "description": "Non-fatal issues; `ok` may still be true."
+    },
+    "errors": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/finding" },
+      "description": "Fatal issues; if non-empty, `ok` MUST be false."
+    }
+  },
+  "definitions": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable machine-readable code (e.g. `policy.compliance.drift`)."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "location": {
+          "type": "string",
+          "description": "Optional file path or other locator."
+        }
+      }
+    }
+  }
+}

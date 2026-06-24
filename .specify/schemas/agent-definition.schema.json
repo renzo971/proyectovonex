@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://enterprise-sdd.dev/schemas/agent-definition.schema.json",
+  "title": "AgentDefinition",
+  "description": "Canonical definition schema for an Enterprise SDD AI agent.",
+  "type": "object",
+  "required": ["name", "description", "tools", "model-tier", "phase", "instructions"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Human-readable agent name (e.g. 'Architect')."
+    },
+    "description": {
+      "type": "string",
+      "description": "One-to-three sentence description of the agent's purpose and responsibilities."
+    },
+    "tools": {
+      "type": "array",
+      "description": "Minimal sufficient set of tools the agent requires. Core tools are validated by enum; module-contributed tools (e.g. integration-specific MCP tools) are allowed via the open string type.",
+      "items": {
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "read",
+              "edit",
+              "search",
+              "fetch",
+              "runCommand",
+              "runSubagent",
+              "terminalLastCommand"
+            ],
+            "description": "Core SDD tool (always available)."
+          },
+          {
+            "type": "string",
+            "minLength": 1,
+            "description": "Module-contributed tool (e.g. 'githubRepo', 'mcp-atlassian/jira_get_issue'). Installed by a module at runtime."
+          }
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "model-tier": {
+      "type": "string",
+      "description": "Abstract model tier. Resolved to a concrete model via Article VI of the constitution.",
+      "enum": ["deep", "standard", "light"]
+    },
+    "phase": {
+      "type": "string",
+      "description": "Workflow phase identifier (e.g. '0', '2.1', 'meta', 'maintenance')."
+    },
+    "instructions": {
+      "type": "array",
+      "description": "List of instruction file paths that are always loaded by this agent.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "handoffs": {
+      "type": "array",
+      "description": "Possible handoff transitions to other agents.",
+      "items": {
+        "$ref": "#/$defs/Handoff"
+      }
+    }
+  },
+  "$defs": {
+    "Handoff": {
+      "type": "object",
+      "required": ["label", "prompt"],
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Short label shown in the UI for this handoff option."
+        },
+        "agent": {
+          "type": "string",
+          "description": "Target agent identifier (kebab-case filename without .agent.md)."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Prompt text pre-filled when initiating the handoff."
+        },
+        "send": {
+          "type": "boolean",
+          "description": "If false (default), the user must confirm before the prompt is sent.",
+          "default": false
+        }
+      }
+    }
+  }
+}

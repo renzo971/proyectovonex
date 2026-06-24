@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+CLI_ROOT="$REPO_ROOT/.specify/cli"
+
+show_help() {
+    cat << 'EOF'
+Enterprise SDD Workflow
+
+Usage: sdd <command> [arguments]
+
+Core commands:
+    init
+    new <name> [--template <name>] [-l <ultra-light|standard|full>]
+    gate <feature-id> <N>
+    status [feature-id]
+    analyze <feature-id>
+    report <feature-id>
+    resume <feature-id>
+    bridge <feature-id> <phase>
+    module <install|remove|list|update> [name]
+    spell <prompt-name> [--guide <name>]
+    adapters generate [--target <vscode|cursor|claude|windsurf|codex|all>] [--feature-id <id>]
+    preset apply <name>
+    sync <push|pull> <feature-id>
+    route <feature-id>
+    ship <feature-id> [--base <branch>]
+    extension <validate|doctor> <path>
+    memory <status|sync|doctor> <feature-id>
+    skill <list|validate|run|validate-mapping> [name] [feature-id]
+
+Legacy aliases:
+    validate <feature-id> <N>  -> gate
+
+Use `sdd <command> --help` for command details.
+EOF
+    exit 0
+}
+
+CMD="${1:-help}"
+shift || true
+
+if [[ "$CMD" == "help" || "$CMD" == "--help" || "$CMD" == "-h" ]]; then
+    show_help
+fi
+
+# Compatibility alias: old validate command -> new gate command
+if [[ "$CMD" == "validate" ]]; then
+    CMD="gate"
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 is required to run sdd CLI" >&2
+    exit 2
+fi
+
+export PYTHONPATH="$CLI_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m sdd "$CMD" "$@"

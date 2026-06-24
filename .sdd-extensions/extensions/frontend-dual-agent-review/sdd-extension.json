@@ -1,0 +1,30 @@
+{
+  "name": "sdd-extension-frontend-dual-agent-review",
+  "version": "1.0.0",
+  "description": "Severity-first dual-agent review profile pair. One agent generates frontend code, the other reviews with ranked findings. Leverages Acme FE Neo/Smith patterns.",
+  "type": "tailored-frontend",
+  "domainCategory": "review",
+  "namespacePrefix": "aws-fe",
+  "sddVersionRequired": "4.0+",
+  "hooks": {},
+  "commands": {},
+  "templates": {
+    "branch-diff-review-checklist": "templates/branch-diff-review-checklist.template.md"
+  },
+  "agentPatches": {
+    "neo-generator": "agent-patches/agent-neo-generator.patch.md",
+    "smith-reviewer": "agent-patches/agent-smith-reviewer.patch.md"
+  },
+  "instructions": [],
+  "prompts": [
+    "prompts/aws-fe/aws-fe-review-branch-diff.prompt.md",
+    "prompts/aws-fe/aws-fe-generate-and-review.prompt.md"
+  ],
+  "setupTemplate": "",
+  "compatibilityMatrix": {
+    "requiredModules": ["aws-fe"],
+    "blockedModules": [],
+    "requiredPresets": [],
+    "blockedPresets": []
+  }
+}

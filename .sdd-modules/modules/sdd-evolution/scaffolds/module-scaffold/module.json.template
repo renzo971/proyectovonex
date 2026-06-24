@@ -1,0 +1,28 @@
+{
+  "name": "{MODULE_NAME}",
+  "version": "1.0.0",
+  "displayName": "{MODULE_DISPLAY_NAME}",
+  "description": "{MODULE_DESCRIPTION}",
+  "author": "{AUTHOR}",
+  "requires": {
+    "sddVersion": ">=4.3"
+  },
+  "provides": {
+    "agents": [],
+    "instructions": [],
+    "prompts": [],
+    "templates": [],
+    "scaffolds": []
+  },
+  "files": {
+    "agents": [],
+    "instructions": [],
+    "prompts": [],
+    "templates": [],
+    "scaffolds": []
+  },
+  "hooks": {
+    "postInstall": "",
+    "preRemove": ""
+  }
+}

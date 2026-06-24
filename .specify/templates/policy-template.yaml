@@ -1,0 +1,47 @@
+# Wave 26 §25 #1 — Project policy template (3-tier example)
+#
+# Drop this file at `.sdd-modules/policy.yaml`, edit the lists, and run:
+#     sdd doctor --policy-preflight
+#     sdd doctor --policy-compliance --strict
+#
+# Inheritance ternary (per allow/deny list):
+#   - field absent / null   → inherit verbatim from parent
+#   - []  (explicit empty)  → override parent (block parent's set)
+#   - [items]               → explicit list (allowlists intersect, denylists union)
+#
+# See: .specify/schemas/policy.schema.json
+#      .github/instructions/module-extension-policy.instructions.md
+
+schema_version: 1
+
+# 3-tier example: project ← division ← org. Comment out `extends:` if this is
+# the root policy.
+extends: ../../division/policy.yaml   # division ← org ← (root)
+
+# fail-closed when a parent file cannot be read. Use `warn` only in dev sandboxes.
+fetch_failure_default: block
+
+modules:
+  # state: explicit allow → intersect with parent allowlist
+  allow: [core-be, std-fe]
+  # state: explicit deny → union with parent denylist
+  deny:  [legacy-fe]
+  # to inherit verbatim, omit the field or set it to null:
+  # allow: null
+
+skills:
+  # state: explicit empty override → block all skills not yet installed
+  allow: []
+  # state: field absent → inherit verbatim from parent
+
+extensions:
+  # state: field absent everywhere → inherit verbatim from parent
+  # (uncomment to override)
+  # allow: [acme-ci]
+
+capabilities:
+  # state: explicit deny → union with parent denylist
+  deny:
+    - shell-exec
+    - network-egress
+    - write-outside-workspace
