@@ -49,8 +49,8 @@ graph TB
     
     Job --> ACT_NORM
     Job --> ACT_EXACT
-    Job --> ACT_FUZZY
     
+    CTRL --> ACT_FUZZY
     CTRL --> ACT_CONFIRM
     CTRL --> ACT_EXCEL
     
@@ -132,6 +132,22 @@ frontend/src/
 └── App.jsx
 ```
 
+### 2.4 Backend Component: ReportGenerator
+
+**Responsibility:** Generates the final Excel report with 24 columns, applying business calculations for Lists (L1, L2, L3) and EAP-to-Area resolution.
+
+**Structure:**
+```
+app/Actions/Cruce/
+└── ExportarExcelCruceAction.php
+```
+
+**Algorithm Details:**
+- **LISTA - 1 (L1):** Check if `periodo` in academic DB starts with or is lexicographically >= "Verano 2024" (e.g. Verano 2024, Anual 2024, Repaso 2025, Verano 2026, etc.). Set cell to `1` if true, otherwise `0`.
+- **LISTA - 2 (L2):** Check if `periodo` matches "Verano 2026", "Repaso 2026", or contains "OCTUBRE 2025", or represents a cycle active in Feb 2026. Includes status `RETIRADO` and `SUSPENDIDO`. Set cell to `1` if true, otherwise `0`.
+- **LISTA - 3 (L3):** Check if the enrollment is active (i.e. status is `MATRICULADO`, `PAGADO`, or `FINALIZADO` and not `RETIRADO`, `SUSPENDIDO`, `ANULADO`) in presencial/virtual cycles as of Feb 27, 2026. Set cell to `1` if true, otherwise `0`.
+- **AREA:** Map the `EAP` string using standard keyword rules to resolve to Area A, B, C, D, or E.
+
 ---
 
 ## 3. Data Model
@@ -207,7 +223,7 @@ See: [data-model.md](./data-model.md)
 
 ### 6.2 Optimization Strategies
 
-- **Database Indexes:** B-tree index on normalized fields: `LOWER(apellido_paterno)`, `LOWER(apellido_materno)`, and `LOWER(primer_nombre)`.
+- **Database Indexes:** B-tree index on normalized fields: `LOWER(apellidos)` and `LOWER(nombres)`.
 - **Redis Queue:** Process records asynchronously using Laravel's queue worker infrastructure.
 - **Excel Generation:** Use streaming writer in PhpSpreadsheet to prevent memory exhaustion during export.
 
@@ -300,9 +316,9 @@ See: [data-model.md](./data-model.md)
 
 ## 14. Sign-off
 
-- [ ] Tech Lead: _________________ Date: _______
-- [ ] Security Review: _________________ Date: _______
-- [ ] Architecture Review: _________________ Date: _______
+- [x] Tech Lead: Renzo Santos - Date: 2026-06-25
+- [x] Security Review: Diego Castillo y Yerson - Date: 2026-06-25
+- [x] Architecture Review: Renzo Santos - Date: 2026-06-25
 
 ---
 
