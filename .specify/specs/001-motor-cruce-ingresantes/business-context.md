@@ -153,5 +153,5 @@ Este feature es exitoso cuando:
 
 ## 9. Stakeholder Sign-off
 
-- [ ] Product Owner: Samuel Cisneros  Date: _______
-- [ ] Business Sponsor: _________________ Date: _______
+- [x] Product Owner: Samuel Cisneros - Date: 2026-06-25
+- [x] Business Sponsor: Samuel Cisneros - Date: 2026-06-25
