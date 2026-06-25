@@ -94,7 +94,19 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 #### Technical Notes
 
 - El cruce exacto (AC-008) es responsabilidad de `RealizarCruceExactoAction.php`.
-- El cálculo de similitud (AC-009) es responsabilidad de `CalcularSimilitudesCabosAction.php`.
+- El cálculo de similitud (AC-009) es responsabilidad de `CalcularSimilitudesCabosAction.php`. La similitud compuesta se calcula como:
+
+  ```
+  similitud(ingresante, alumno) = (levenshtein_normalizado × 0.6) + (dice_bigramas × 0.4)
+  ```
+
+  Definiciones:
+  - **Cadena de comparación:** concatenación normalizada `apellidos + ' ' + nombres` de ambos registros (post-`NormalizarTextoAction`).
+  - **`levenshtein_normalizado(a, b)`** = `1 - (levenshtein_distance(a, b) / max(length(a), length(b)))` — rango [0.0, 1.0].
+  - **`dice_bigramas(a, b)`** = `(2 × |bigramas_comunes(a, b)|) / (|bigramas(a)| + |bigramas(b)|)` (Dice coefficient sobre bigramas de caracteres) — rango [0.0, 1.0].
+  - El resultado final multiplicado por 100 es el **porcentaje de similitud** almacenado en `porcentaje_similitud`.
+  - Ejemplo de referencia obligatorio para TC-007: `similitud("JHON RAMOS LOPEZ", "JOHN RAMOS LOPEZ")` debe producir un valor **≥ 85%**; `similitud("GARCIA TORRES LUIS", "PEREZ MENDOZA ANA")` debe producir un valor **< 30%**.
+
 - El umbral del 30% (AC-010) es un supuesto revisable — ver **Assumption A-03**.
 
 ---
@@ -123,8 +135,9 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 #### Technical Notes
 
-- La API REST expone los cabos sueltos del lote vía `GET /api/cruce/{lote}/pendientes`.
-- La confirmación se envía vía `POST /api/cruce/{ingresante}/confirmar`.
+- La API REST expone los cabos sueltos del lote vía `GET /api/cruce/lotes/{lote_id}/pendientes` (ver openapi.yaml — fuente autoritativa de paths).
+- Los candidatos se obtienen vía `GET /api/cruce/ingresantes/{ingresante_id}/candidatos`.
+- La confirmación se envía vía `POST /api/cruce/ingresantes/{ingresante_id}/confirmar`.
 - El componente principal es `UnmatchedRow.jsx`; el orquestador de la vista es `App.jsx`.
 
 ---
@@ -222,7 +235,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 - **Requirement:** La importación y normalización del CSV debe ejecutarse fuera del ciclo de vida HTTP, utilizando **Redis** como driver de colas de Laravel. El sistema debe soportar al menos 1 worker concurrente y tolerar reinicios del worker sin pérdida de datos (jobs fallidos deben quedar en la cola `failed_jobs` para reintento manual).
 - **Traces to:** Art. 4 de la Constitución — Pipeline sin intervención manual; Gestión de Errores Silenciosos; NFR-001 (SLA de 50 s); volumen real de ~27,000 filas × 12 columnas que excede los límites prácticos de procesamiento síncrono en HTTP.
-- **Verification:** (a) Verificar con `php artisan queue:work --queue=cruce` que el job `ProcessCsvBatchJob` se despacha y completa correctamente. (b) Simular fallo de worker a mitad de procesamiento y confirmar que el lote queda en estado `pausado` (no corruptible). (c) Confirmar que `QUEUE_CONNECTION=redis` está configurado en `.env`.
+- **Verification:** (a) Verificar con `php artisan queue:work --queue=cruce` que el job `ProcessCsvBatchJob` se despacha y completa correctamente. (b) Simular fallo de worker a mitad de procesamiento y confirmar que el lote queda en estado `paused` (no corruptible). (c) Confirmar que `QUEUE_CONNECTION=redis` está configurado en `.env`.
 
 ---
 
@@ -236,7 +249,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | EC-004 | Fecha de examen del CSV ya procesada previamente | Ignorar silenciosamente los registros de esa fecha; registrar el salto en el log con la fecha omitida y la razón | US-001 |
 | EC-005 | Alumno con más de 5 registros históricos de igual similitud | Tomar solo los 5 de mayor similitud; en caso de empate exacto, desempatar por orden alfabético del apellido paterno | US-003 |
 | EC-006 | CSV con codificación distinta de UTF-8 o ISO-8859-1 (ej. UTF-16) | Detectar la codificación al inicio de la carga; si no es soportada, rechazar con error descriptivo de codificación sin insertar ningún registro | US-001 |
-| EC-007 | Timeout o error de conexión a la BD `academia` durante el cruce | Pausar el lote, marcar los registros procesados con su estado actual y alertar al administrador; los registros no procesados quedan en `pendiente` para reintento | US-002 / NFR-006 |
+| EC-007 | Timeout o error de conexión a la BD `academia` durante el cruce | Marcar el lote como `paused` (recuperable); conservar los registros ya procesados con su estado actual; los registros no procesados quedan en `pendiente` para reintento manual. Ver CQ-003. | US-002 / NFR-006 |
 | EC-008 | Worker Redis caído o reiniciado durante el procesamiento del job | El job queda en la cola `failed_jobs`; el lote permanece en estado `procesando` hasta que el administrador reintente el job manualmente; no se pierden ni duplican registros ya insertados | US-001 / NFR-006 |
 
 ---
@@ -247,7 +260,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 |----|-----------------|:------------:|-----------------|----------------:|
 | ERR-001 | CSV con formato de columnas incorrecto | "El archivo CSV no contiene las columnas requeridas: {lista}. Verifique el formato e intente nuevamente." | Rechazar carga; no insertar registros; log con detalle técnico | US-001 |
 | ERR-002 | Codificación de archivo no soportada | "El archivo no puede leerse con la codificación detectada ({encoding}). Se acepta UTF-8 o ISO-8859-1." | Rechazar carga; retornar HTTP 422 con detalle de codificación detectada | US-001 |
-| ERR-003 | Fallo de conexión a BD `academia` | "No se pudo establecer conexión con la base de datos de la academia. Contacte al administrador del sistema." | Abortar proceso de cruce; marcar lote como `error`; registrar stack trace en log del servidor | US-002 |
+| ERR-003 | Fallo de conexión a BD `academia` | "No se pudo establecer conexión con la base de datos de la academia. Contacte al administrador del sistema." | Marcar lote como `paused` (fallo recuperable); registrar stack trace en log del servidor. Ver CQ-003. | US-002 |
 | ERR-004 | CSV vacío (0 registros tras filtro OBSERVACION) | "El archivo no contiene registros con observación 'ALCANZO VACANTE'. Verifique el contenido del CSV." | Retornar HTTP 422; no crear lote en BD | US-001 |
 | ERR-005 | Archivo mayor a 20 MB | "El archivo supera el tamaño máximo permitido (20 MB). Divídalo en partes y vuelva a intentarlo." | Rechazar antes de procesar; retornar HTTP 413 | US-001 |
 | ERR-006 | Confirmación de match con `alumno_id` inválido | "El alumno seleccionado no existe en la base de datos. Recargue la página e intente nuevamente." | Retornar HTTP 404; no actualizar estado del ingresante | US-004 |
@@ -326,6 +339,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | 2.4.0 | 2026-06-24 | Samuel Cisneros (PO) | Correcciones post-revisión: NFR-001 ajustado de 5 s → 50 s; NC-1 resuelto (filtro post-normalización); persistencia dual ingresantes/no_ingresantes en AC-004; NFR-006 Redis Queue añadido; volumen real documentado (~27,000 filas × 12 columnas) |
 | 2.5.0 | 2026-06-24 | Equipo V2 (revisión elite Antigravity) | Revisión final: Executive Summary actualizado con dual-table + Redis; NFR-001 título y trazabilidad unificados; NFR-003 verificación alineada con arquitectura de colas; EC-008 añadido (worker Redis caído); ERR-007 añadido (job a failed_jobs); Glosario extendido con 4 términos nuevos (ingresantes, no_ingresantes, ProcessCsvBatchJob, Redis Queue); A-05 añadido (disponibilidad Redis); enlace corregido al business-context.md en .specify/specs/ |
 | 2.6.0 | 2026-06-25 | Equipo V2 | Enmienda para incorporar campos DB, CSV y la estructura de reporte Excel final con Listas y Área. |
+| 2.7.0 | 2026-06-25 | Equipo V2 (Auditoría SDD-Enterprise) | Auditoría de cumplimiento: fórmula de similitud formalizada en AC-009 (Levenshtein × 0.6 + Dice bigramas × 0.4); EC-007 y ERR-003 unificados a estado `paused` (CQ-003); NFR-006 corregido de `pausado` a `paused`. |
 
 ---
 
