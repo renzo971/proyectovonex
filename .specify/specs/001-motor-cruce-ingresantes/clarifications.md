@@ -8,13 +8,55 @@
 
 ## Summary
 
-**Total Questions:** 2
-**Resolved:** 2
+**Total Questions:** 3
+**Resolved:** 3
 **Pending:** 0
 
 **Key Decisions:**
 1. El filtro por OBSERVACION (`ALCANZO VACANTE`) se aplica siempre sobre el texto normalizado, enrutando a `ingresantes` o `no_ingresantes` (dual table).
 2. De-duplicación automática de filas idénticas dentro del mismo CSV de origen para asegurar la calidad de la data analítica.
+3. Ante fallo de conexión a `academia` durante el cruce, el lote se marca `paused` (recuperable); ante fallo catastrófico del job, se marca `error` (requiere intervención manual).
+
+---
+
+## Session 2: 2026-06-25
+
+**Participants:** Samuel Cisneros (PO), Renzo Santos (Tech Lead), Antigravity (Clarification Agent)
+**Duration:** 10 min
+
+### Questions Addressed
+
+#### CQ-003: Estado del lote ante fallo de conexión a `academia` vs fallo catastrófico del job
+
+**Category:** Business Logic / Error Handling
+**Route To:** Tech Lead
+**Status:** Resolved
+
+**Question:**
+Tres artefactos describían comportamientos distintos para el fallo durante el cruce:
+- `EC-007` decía "pausar el lote".
+- `ERR-003` decía "marcar lote como `error`".
+- `TC-019` decía "error o pausado".
+
+¿Cuál es el comportamiento canónico para cada tipo de fallo?
+
+**Options Considered:**
+1. **Opción A (Diferenciación semántica):** `paused` para fallos recuperables (conexión a `academia` caída); `error` para fallos catastróficos del job (excepción inesperada no capturada). El BatchStatus enum ya soporta ambos.
+2. **Opción B (Estado único):** Todo fallo resulta en `error`, dejando la semántica de recuperabilidad al log.
+
+**Decision:**
+Se elige la **Opción A (Diferenciación semántica)**.
+
+**Rationale:**
+La distinción operativa es crítica: `paused` le indica al administrador que puede reintentar sin riesgo de duplicar datos; `error` le indica que requiere diagnóstico. Sin esta distinción, el operador no sabe si volver a encolar el job es seguro.
+
+**Impact on Artifacts:**
+- [x] spec.md: EC-007 → estado `paused` (conexión caída, recuperable); ERR-003 → estado `paused` (idem); ERR-007 → estado `error` (job catastrófico, requiere diagnóstico).
+- [x] test-cases.md: TC-019 → verificar específicamente estado `paused`; TC-027 → verificar específicamente estado `error`.
+- [x] plan.md §8.1: Alinear tabla de Error Categories con esta distinción.
+
+**Decided By:** Renzo Santos, Tech Lead
+**Date:** 2026-06-25
 
 ---
 
@@ -105,6 +147,10 @@ No hay preguntas diferidas en esta sesión.
 |------|----------|---------|--------|--------------|
 | 2026-06-24 | spec.md | US-001 | Modificación de AC-004 para reflejar la persistencia dual post-normalización. | CQ-001 |
 | 2026-06-24 | spec.md | US-001 | Modificación de AC-001 para especificar la de-duplicación automática de filas idénticas en el lote. | CQ-002 |
+| 2026-06-25 | spec.md | EC-007 | Estado del lote ante fallo de conexión a `academia` unificado a `paused`. | CQ-003 |
+| 2026-06-25 | spec.md | ERR-003 | Estado del lote ante fallo catastrófico del job unificado a `error`. | CQ-003 |
+| 2026-06-25 | test-cases.md | TC-019 | Verificación de estado `paused` específicamente (no ambiguo). | CQ-003 |
+| 2026-06-25 | test-cases.md | TC-027 | Verificación de estado `error` específicamente. | CQ-003 |
 
 ---
 
@@ -115,5 +161,5 @@ No hay preguntas diferidas en esta sesión.
 - [x] QA Lead: Diego Castillo y Yerson - Technical feasibility confirmed
 - [x] FA: Diego Castillo y Yerson - Requirements complete
 
-**Clarification Phase Status:** Ready for Gate 1 (All business questions resolved)
+**Clarification Phase Status:** Gate 1 Complete — 3 preguntas resueltas (2026-06-25)
 
