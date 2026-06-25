@@ -1,0 +1,562 @@
+openapi: 3.0.3
+info:
+  title: Motor de Cruce Automático de Ingresantes UNMSM - API Contract
+  description: |
+    This API contract governs the integration between the React client and Laravel backend
+    for Phase 2.2 of the UNMSM applicant cross-matching motor. 
+    It supports CSV batch uploads, progress monitoring, resolving ambiguous matches,
+    and downloading enriched Excel reports.
+  version: 1.0.0
+  license:
+    name: Proprietary
+    url: https://vonex.edu.pe/license
+servers:
+  - url: /api
+    description: Local API gateway
+paths:
+  /cruce/upload:
+    post:
+      summary: Upload official UNMSM applicant CSV
+      description: |
+        Receives a CSV file containing UNMSM applicants, groups records into batches by exam date,
+        filters out duplicates, and enqueues matching processes.
+        Traceability: US-001 (AC-001, AC-004), NFR-001, NFR-003, NFR-006.
+      operationId: uploadCsv
+      security:
+        - CookieAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The official CSV file (Max 20MB).
+              required:
+                - file
+      responses:
+        '202':
+          description: CSV received and queue job successfully dispatched.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lote_id:
+                    type: integer
+                    format: int64
+                    example: 101
+                  estado:
+                    type: string
+                    example: processing
+                  message:
+                    type: string
+                    example: El archivo CSV está siendo procesado en segundo plano.
+                required:
+                  - lote_id
+                  - estado
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '413':
+          description: Payload Too Large. The file exceeds the 20MB limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Unprocessable Entity. e.g., Empty CSV after filtering, wrong encoding.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /cruce/lotes:
+    get:
+      summary: Retrieve all processing/completed upload batches
+      description: |
+        Returns a list of all CSV batch import lotes.
+        Traceability: US-001, NFR-005.
+      operationId: getLotes
+      security:
+        - CookieAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of batch lotes retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LoteCruce'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /cruce/lotes/{lote_id}/status:
+    get:
+      summary: Retrieve specific batch status and execution stats
+      description: |
+        Returns current processing state and matches statistics for the given lote ID.
+        Traceability: US-001, NFR-005.
+      operationId: getLoteStatus
+      security:
+        - CookieAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: lote_id
+          in: path
+          required: true
+          description: ID of the batch lote
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Batch status and stats retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoteCruce'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /cruce/lotes/{lote_id}/pendientes:
+    get:
+      summary: List unmatched applicants requiring manual resolution
+      description: |
+        Returns a paginated list of applicants in 'pendiente' state, including up to 5 suggested candidates.
+        Traceability: US-004 (AC-011), NFR-002.
+      operationId: getPendientes
+      security:
+        - CookieAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: lote_id
+          in: path
+          required: true
+          description: ID of the batch lote
+          schema:
+            type: integer
+            format: int64
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 15
+      responses:
+        '200':
+          description: Paginated list of pending applicants.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IngresantePendiente'
+                  current_page:
+                    type: integer
+                    example: 1
+                  last_page:
+                    type: integer
+                    example: 4
+                  per_page:
+                    type: integer
+                    example: 15
+                  total:
+                    type: integer
+                    example: 54
+                required:
+                  - data
+                  - current_page
+                  - last_page
+                  - per_page
+                  - total
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /cruce/ingresantes/{id}/candidatos:
+    get:
+      summary: Query fuzzy match candidates for a single applicant
+      description: |
+        Computes or retrieves the top 5 match candidates in the Academia database for the applicant.
+        Traceability: US-003 (AC-009, AC-010), NFR-002.
+      operationId: getCandidatos
+      security:
+        - CookieAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The ID of the ingresante.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Up to 5 candidates sorted by similarity percentage.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CandidatoMatch'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /cruce/ingresantes/{id}/confirmar:
+    post:
+      summary: Confirm match manually or mark applicant as non-student
+      description: |
+        Associates an applicant with a specific student record from the Academia database,
+        or explicitly marks the applicant as a non-student (No Ingresado).
+        Traceability: US-004 (AC-012, AC-013), US-002 (AC-007).
+      operationId: confirmarMatch
+      security:
+        - CookieAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID of the ingresante record
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                alumno_id:
+                  type: integer
+                  format: int64
+                  nullable: true
+                  description: The matched student ID. Must be null if marking as no match.
+                  example: 54321
+                marcar_no_ingresado:
+                  type: boolean
+                  description: Set to true if declaring this applicant has no matching student.
+                  example: false
+              oneOf:
+                - required: [alumno_id]
+                - required: [marcar_no_ingresado]
+      responses:
+        '200':
+          description: Match resolved and status updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Coincidencia confirmada exitosamente.
+                  ingresante:
+                    $ref: '#/components/schemas/Ingresante'
+                required:
+                  - message
+                  - ingresante
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          description: Applicant or candidate student not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /cruce/lotes/{lote_id}/exportar:
+    get:
+      summary: Export processed batch results to Excel
+      description: |
+        Generates and downloads a binary Excel file (.xlsx) containing the enriched matching reports.
+        Traceability: US-005 (AC-014, AC-015).
+      operationId: exportarExcel
+      security:
+        - CookieAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: lote_id
+          in: path
+          required: true
+          description: ID of the batch lote
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Excel spreadsheet stream.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: XSRF-TOKEN
+      description: Laravel session cookie based authentication.
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Laravel Sanctum API Token.
+
+  schemas:
+    LoteCruce:
+      type: object
+      description: Metadata and matching stats of a CSV batch.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 101
+        fecha_examen:
+          type: string
+          format: date
+          example: '2026-06-24'
+        total_registros:
+          type: integer
+          example: 27150
+        total_ingresantes:
+          type: integer
+          example: 3200
+        total_no_ingresantes:
+          type: integer
+          example: 23950
+        total_match_exacto:
+          type: integer
+          example: 2850
+        total_pendientes:
+          type: integer
+          example: 350
+        total_no_ingresado:
+          type: integer
+          example: 0
+        estado:
+          type: string
+          enum: [processing, completed, paused, error]
+          example: completed
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-06-25T02:48:00Z'
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-06-25T02:48:45Z'
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-06-25T02:48:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-06-25T02:48:45Z'
+      required:
+        - id
+        - fecha_examen
+        - total_registros
+        - total_ingresantes
+        - total_no_ingresantes
+        - total_match_exacto
+        - total_pendientes
+        - total_no_ingresado
+        - estado
+        - created_at
+        - updated_at
+
+    Ingresante:
+      type: object
+      description: An applicant record containing normalization data and match resolution.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 4501
+        lote_cruce_id:
+          type: integer
+          format: int64
+          example: 101
+        alumno_id:
+          type: integer
+          format: int64
+          nullable: true
+          example: 54321
+        codigo_postulante:
+          type: string
+          example: '891024'
+        nombres:
+          type: string
+          example: JUAN CARLOS
+        apellido_paterno:
+          type: string
+          example: PEREZ
+        apellido_materno:
+          type: string
+          example: GOMEZ
+        observacion:
+          type: string
+          example: ALCANZO VACANTE
+        estado_match:
+          type: string
+          enum: [pendiente, confirmado_automatico, confirmado_manual, no_ingresado]
+          example: confirmado_manual
+        porcentaje_similitud:
+          type: number
+          format: float
+          nullable: true
+          example: 87.50
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-06-25T02:48:10Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-06-25T02:49:15Z'
+      required:
+        - id
+        - lote_cruce_id
+        - codigo_postulante
+        - nombres
+        - apellido_paterno
+        - apellido_materno
+        - observacion
+        - estado_match
+        - created_at
+        - updated_at
+
+    IngresantePendiente:
+      allOf:
+        - $ref: '#/components/schemas/Ingresante'
+        - type: object
+          properties:
+            candidatos:
+              type: array
+              description: Top 5 suggested candidates from Academia DB.
+              maxItems: 5
+              items:
+                $ref: '#/components/schemas/CandidatoMatch'
+          required:
+            - candidatos
+
+    CandidatoMatch:
+      type: object
+      description: Student record from Academia DB with computed Levenshtein similarity metric.
+      properties:
+        alumno_id:
+          type: integer
+          format: int64
+          example: 54321
+        nombre_completo:
+          type: string
+          example: JUAN CARLOS PEREZ GOMEZ
+        porcentaje_similitud:
+          type: number
+          format: float
+          minimum: 30.0
+          maximum: 100.0
+          example: 87.50
+        estado_academia:
+          type: string
+          enum: [MATRICULADO, PAGADO, FINALIZADO, SUSPENDIDO, RETIRADO, TRASLADADO, STAND BY, ANULADO]
+          example: MATRICULADO
+      required:
+        - alumno_id
+        - nombre_completo
+        - porcentaje_similitud
+        - estado_academia
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Solicitud incorrecta.
+        message:
+          type: string
+          example: Explicación detallada del error ocurrido.
+        details:
+          type: array
+          items:
+            type: string
+          example: ["El campo 'file' es obligatorio."]
+      required:
+        - error
+        - message
+
+  responses:
+    ValidationError:
+      description: Invalid request parameter validation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnauthorizedError:
+      description: Authentication is required or has failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalServerError:
+      description: Internal Server Error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
