@@ -22,7 +22,7 @@
 
 | Tipo de prueba | Alcance | Objetivo de cobertura |
 |---------------|---------|----------------------|
-| Pruebas de Unidad | `NormalizarTextoAction`, `ProcesarCargaCsvAction`, `RealizarCruceExactoAction`, `CalcularSimilitudesCabosAction`, `GuardarCruceConfirmadoAction`, `ExportarExcelCruceAction` | 80% en lógica de negocio |
+| Pruebas de Unidad | `NormalizarTextoAction`, `ProcesarCargaCsvAction`, `RealizarCruceExactoAction`, `CalcularSimilitudesCabosAction`, `GuardarCruceConfirmadoAction`, `ExportarExcelCruceAction` | 100% en lógica de negocio (Art. III §3.2 Constitution) |
 | Pruebas de Integración | endpoints de API, BD `academia` y `lotes_cruce`, cola Redis | Flujos clave de carga, cruce, confirmación y exportación |
 | Pruebas E2E | Archivo CSV completo → reporte Excel, interfaz de validación asistida | Flujo feliz + casos de error críticos |
 | Pruebas de Rendimiento | Procesamiento asíncrono de CSV y respuesta de endpoints de candidatos | Validación de NFR-001 y NFR-002 |
@@ -72,7 +72,7 @@
 ```json
 {
   "input": {
-    "csv": "FECHA_EXAMEN,NOMBRES,APELLIDO_PATERNO,APELLIDO_MATERNO,OBSERVACION\n2026-05-10,JUAN,LOPEZ,GARCIA,ALCANZO VACANTE\n2026-05-10,JUAN,LOPEZ,GARCIA,ALCANZO VACANTE\n2026-05-17,MARIA,PEREZ,LOPEZ,ALCANZO VACANTE"
+    "csv": "CODIGO,APELLIDOS,NOMBRES,EAP,PUNTAJE,MERITO,OBSERVACION,TIPO,MODALIDAD,UNIVERSIDAD,PERIODO,FECHA\n001,LOPEZ GARCIA,JUAN,MEDICINA HUMANA,15.500,10,ALCANZO VACANTE,ORDINARIO,GENERAL,UNMSM,2026-I,2026-05-10\n001,LOPEZ GARCIA,JUAN,MEDICINA HUMANA,15.500,10,ALCANZO VACANTE,ORDINARIO,GENERAL,UNMSM,2026-I,2026-05-10\n002,PEREZ LOPEZ,MARIA,DERECHO,14.200,25,ALCANZO VACANTE,ORDINARIO,GENERAL,UNMSM,2026-I,2026-05-17"
   },
   "expected": {
     "lote_fecha": "2026-05-17",
@@ -347,10 +347,6 @@
 | Atributo | Valor |
 |----------|-------|
 | **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | EC-004 |
-
 | **Prioridad** | P1 |
 | **Automatizado** | Sí |
 | **Trazas a** | EC-004 |
@@ -652,6 +648,158 @@
 
 ---
 
+### 5.2 Pruebas de Lógica de Negocio Adicionales (Campos y Reportes)
+
+#### TC-034: Mapeo de EAP a AREA académica en UNMSM
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Unidad |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | US-005, AC-014, plan.md: ExportarExcelCruceAction |
+
+**Dado:** Diferentes carreras profesionales de UNMSM en el CSV (`EAP`).
+**Cuando:** Se calcula la columna `AREA` en el reporte.
+**Entonces:** El sistema asocia correctamente la carrera a su área académica correspondiente.
+
+**Datos de Prueba:**
+- `"MEDICINA HUMANA"` -> `Área A`
+- `"CIENCIAS BIOLOGICAS"` -> `Área B`
+- `"INGENIERIA DE SOFTWARE"` -> `Área C`
+- `"ADMINISTRACION"` -> `Área D`
+- `"DERECHO"` -> `Área E`
+
+---
+
+#### TC-035: Validación de la estructura de 24 columnas del reporte final
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | US-005, AC-014 |
+
+**Dado:** Un lote de cruce finalizado con alumnos coincidentes.
+**Cuando:** Se genera y descarga el Excel consolidado.
+**Entonces:** El archivo contiene exactamente 24 columnas en el orden A-X especificado en `AC-014` y los campos de la base de datos se corresponden correctamente.
+
+---
+
+#### TC-036: Cálculo de LISTA - 1 (Cachimbos Históricos)
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Unidad |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | US-005, AC-014 |
+
+**Dado:** Alumnos matriculados en diferentes ciclos históricos de Vonex.
+**Cuando:** Se realiza la exportación del Excel.
+**Entonces:** La columna `LISTA - 1` se marca con `1` si el ciclo es igual o posterior a "Verano 2024", y con `0` si es anterior.
+
+**Datos de Prueba:**
+- Ciclo "Verano 2024" -> `1`
+- Ciclo "Verano 2025" -> `1`
+- Ciclo "Anual 2023" -> `0`
+
+---
+
+#### TC-037: Cálculo de LISTA - 2 (Cachimbos Temporada)
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Unidad |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | US-005, AC-014 |
+
+**Dado:** Alumnos matriculados en ciclos del verano 2026, octubre 2025 o activos a febrero 2026.
+**Cuando:** Se realiza la exportación del Excel.
+**Entonces:** La columna `LISTA - 2` se marca con `1` si se cumple la condición de temporada (incluyendo retirados/suspendidos), y con `0` si no.
+
+**Datos de Prueba:**
+- Ciclo "VERANO 2026", Estado "RETIRADO" -> `1`
+- Ciclo "OCTUBRE 2025", Estado "SUSPENDIDO" -> `1`
+- Ciclo "ANUAL 2025", Estado "MATRICULADO" (no activo a feb 2026) -> `0`
+
+---
+
+#### TC-038: Cálculo de LISTA - 3 (Cachimbos Activos a Febrero 2026)
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Unidad |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | US-005, AC-014 |
+
+**Dado:** Alumnos matriculados en la academia.
+**Cuando:** Se realiza la exportación del Excel.
+**Entonces:** La columna `LISTA - 3` se marca con `1` si el alumno es activo (MATRICULADO, PAGADO, FINALIZADO) al 27 de febrero de 2026, y con `0` en cualquier otro caso.
+
+**Datos de Prueba:**
+- Ciclo "Verano 2026", Estado "MATRICULADO", fecha de matrícula <= 27/02/2026 -> `1`
+- Ciclo "Verano 2026", Estado "RETIRADO", fecha de retiro <= 27/02/2026 -> `0`
+
+---
+
+### 5.4 Pruebas de Invariantes de Negocio
+
+#### TC-039: Solo RealizarCruceExactoAction puede asignar estado `confirmado_automatico` (INV-01)
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Unidad |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | INV-01, US-003 AC-008 |
+
+**Dado:** Un ingresante en estado `pendiente`.
+**Cuando:** Se intenta actualizar directamente `estado_match` a `confirmado_automatico` desde un path de código distinto a `RealizarCruceExactoAction` (ej. `GuardarCruceConfirmadoAction`, controlador directo o Tinker).
+**Entonces:** La operación es rechazada o detectada como violación de invariante. Solo `RealizarCruceExactoAction` puede asignar este estado.
+
+**Enfoque de implementación:** Encapsular la asignación de `confirmado_automatico` en un método privado o protegido dentro de `RealizarCruceExactoAction` y usar un event/observer o policy que valide el origen del cambio.
+
+---
+
+#### TC-040: Tabla `no_ingresantes` es append-only — sin DELETE ni UPDATE (INV-02)
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | INV-02 |
+
+**Dado:** Registros existentes en la tabla `no_ingresantes`.
+**Cuando:** Se intenta ejecutar una operación `DELETE` o `UPDATE` sobre la tabla `no_ingresantes`.
+**Entonces:** La operación es rechazada a nivel de modelo Eloquent (el modelo `NoIngresante` no tiene `updated_at`, y no expone métodos de eliminación). Opcionalmente, se puede reforzar con un trigger de BD o un observer que impida la operación.
+
+**Datos de prueba:**
+- Insertar un registro válido en `no_ingresantes`.
+- Intentar `NoIngresante::find($id)->update([...])` → debe fallar.
+- Intentar `NoIngresante::find($id)->delete()` → debe fallar o ser interceptado.
+
+---
+
+#### TC-041: Cero operaciones de escritura sobre la conexión `academia` (INV-07)
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | INV-07, US-002 |
+
+**Dado:** Un lote de ingresantes procesado y cruzado contra la base de datos `academia`.
+**Cuando:** Se ejecuta el pipeline completo (importación + cruce exacto + fuzzy match).
+**Entonces:** Se interceptan todas las queries ejecutadas contra la conexión `academia` (usando `DB::connection('academia')->listen()`) y se verifica que NINGUNA sea de tipo `INSERT`, `UPDATE` o `DELETE`. Solo se permiten operaciones `SELECT`.
+
+---
+
 ## 6. Suite de Pruebas de Regresión
 
 | ID de Prueba | Descripción | Prioridad | Automatizado |
@@ -682,7 +830,7 @@
 | US-004/AC-011 |  |  | TC-009 |  |
 | US-004/AC-012 |  |  | TC-009 |  |
 | US-004/AC-013 |  |  | TC-010 |  |
-| US-005/AC-014 |  | TC-011 |  |  |
+| US-005/AC-014 | TC-034, TC-036, TC-037, TC-038 | TC-011, TC-035 |  |  |
 | US-005/AC-015 |  | TC-012 |  |  |
 | EC-001 |  | TC-013 |  |  |
 | EC-002 |  | TC-014 |  |  |
@@ -695,6 +843,9 @@
 | NFR-004 |  | TC-031 |  |  |
 | NFR-005 |  | TC-032 |  |  |
 | NFR-006 |  | TC-033 |  |  |
+| INV-01 | TC-039 |  |  |  |
+| INV-02 |  | TC-040 |  |  |
+| INV-07 |  | TC-041 |  |  |
 
 ---
 
@@ -720,5 +871,5 @@
 
 ## 9. Aprobación
 
-- [ ] QA Lead: _________________ Date: _______
-- [ ] Dev Lead: _________________ Date: _______
+- [x] QA Lead: Diego Castillo y Yerson - Date: 2026-06-25
+- [x] Dev Lead: Renzo Santos - Date: 2026-06-25
