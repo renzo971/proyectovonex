@@ -7,9 +7,9 @@ decay_floor: true
 
 # Project Constitution: Vonex
 
-**Version:** 2.2.0
+**Version:** 2.3.0
 **Established:** 2026-06-16
-**Last Amended:** 2026-06-16
+**Last Amended:** 2026-06-25
 
 ---
 
@@ -353,3 +353,4 @@ Cuando `tdd_mode: true` está habilitado, los agentes (Software Engineer / Test 
 | ---------- | ------- | ------- | ---------------------------------------------------------------------- | ----------- |
 | 2026-06-16 | 2.2.0   | -       | Constitución inicial alineada al flujo de Vonex                        | Equipo      |
 | 2026-06-24 | 2.2.1   | V-VIII  | Reestructuración de artículos a paridad estricta con SDD-Enterprise    | Antigravity |
+| 2026-06-25 | 2.3.0   | III, VIII| Enmienda para incorporar campos DB, CSV y la estructura Excel consolidada. | Antigravity |
