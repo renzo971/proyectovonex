@@ -404,7 +404,7 @@
 
 **Dado:** Conexión a `academia` falla durante el proceso.
 **Cuando:** `RealizarCruceExactoAction` se ejecuta.
-**Entonces:** El lote se marca `error` o `pausado`, los registros procesados conservan su estado, y los no procesados quedan en `pendiente`.
+**Entonces:** El lote se marca `paused` (fallo recuperable, ver CQ-003); los registros ya procesados conservan su estado; los no procesados quedan en `pendiente` para reintento. El sistema NO marca `error` ante fallo de conexión recuperable.
 
 ---
 
@@ -429,18 +429,20 @@
 
 ### ERR-001: CSV con formato de columnas incorrecto
 
-#### TC-021: Retornar error descriptivo cuando faltan columnas requeridas
+#### TC-021: Rechazar carga cuando columnas requeridas tienen nombres incorrectos
 
 | Atributo | Valor |
 |----------|-------|
 | **Tipo** | Integración |
 | **Prioridad** | P1 |
 | **Automatizado** | Sí |
-| **Trazas a** | ERR-001 |
+| **Trazas a** | ERR-001, US-001 AC-001a |
 
-**Dado:** CSV con columnas faltantes.
+**Dado:** Un CSV que contiene 12 columnas pero con nombres incorrectos (ej: `APELLIDO` en lugar de `APELLIDOS`, `NOMBRE` en lugar de `NOMBRES`, `FECHA_EXAMEN` en lugar de `FECHA`).
 **Cuando:** Se hace `POST /api/cruce/upload`.
-**Entonces:** HTTP 422, mensaje de error con la lista de columnas faltantes y no se crean registros.
+**Entonces:** HTTP 422, mensaje de error que lista las columnas con nombres incorrectos o faltantes y no se crea ningún registro en BD.
+
+> **Diferencia con TC-014:** TC-014 cubre columnas AUSENTES; TC-021 cubre columnas PRESENTES pero con nombres incorrectos. Ambos casos están definidos en AC-001a.
 
 ---
 
@@ -540,9 +542,9 @@
 | **Automatizado** | Sí |
 | **Trazas a** | ERR-007, NFR-006 |
 
-**Dado:** Job `ProcessCsvBatchJob` lanza una excepción inesperada.
+**Dado:** Job `ProcessCsvBatchJob` lanza una excepción inesperada no recuperable.
 **Cuando:** El worker de Redis procesa el job.
-**Entonces:** El job aparece en `failed_jobs`, el lote se marca según política de error y no se pierden registros ya insertados.
+**Entonces:** El job aparece en `failed_jobs`, el lote se marca específicamente como `error` (fallo catastrófico, ver CQ-003) y no se pierden ni duplican registros ya insertados.
 
 ---
 
@@ -776,12 +778,13 @@
 
 **Dado:** Registros existentes en la tabla `no_ingresantes`.
 **Cuando:** Se intenta ejecutar una operación `DELETE` o `UPDATE` sobre la tabla `no_ingresantes`.
-**Entonces:** La operación es rechazada a nivel de modelo Eloquent (el modelo `NoIngresante` no tiene `updated_at`, y no expone métodos de eliminación). Opcionalmente, se puede reforzar con un trigger de BD o un observer que impida la operación.
+**Entonces:** La operación es rechazada a nivel de BD por el trigger `trg_no_ingresantes_readonly` (INV-02 enforceado a nivel DDL — ver data-model.md §5.1). El modelo Eloquent `NoIngresante` también lo rechaza a nivel de aplicación (`const UPDATED_AT = null`). Ambas capas deben fallar independientemente.
 
 **Datos de prueba:**
 - Insertar un registro válido en `no_ingresantes`.
-- Intentar `NoIngresante::find($id)->update([...])` → debe fallar.
-- Intentar `NoIngresante::find($id)->delete()` → debe fallar o ser interceptado.
+- Intentar `NoIngresante::find($id)->update([...])` → debe lanzar excepción Eloquent.
+- Intentar `DB::statement("DELETE FROM no_ingresantes WHERE id = ?", [$id])` → debe lanzar excepción PostgreSQL del trigger (código SQLSTATE P0001).
+- Intentar `DB::statement("UPDATE no_ingresantes SET observacion = 'X' WHERE id = ?", [$id])` → idem.
 
 ---
 
@@ -797,6 +800,96 @@
 **Dado:** Un lote de ingresantes procesado y cruzado contra la base de datos `academia`.
 **Cuando:** Se ejecuta el pipeline completo (importación + cruce exacto + fuzzy match).
 **Entonces:** Se interceptan todas las queries ejecutadas contra la conexión `academia` (usando `DB::connection('academia')->listen()`) y se verifica que NINGUNA sea de tipo `INSERT`, `UPDATE` o `DELETE`. Solo se permiten operaciones `SELECT`.
+
+---
+
+#### TC-042: Constraint UNIQUE en `lotes_cruce.fecha_examen` rechaza INSERT duplicado a nivel de BD (INV-03)
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | INV-03, data-model.md §5.1 |
+
+**Dado:** Un registro existente en `lotes_cruce` con `fecha_examen = '2026-05-17'`.
+**Cuando:** Se intenta ejecutar directamente `INSERT INTO lotes_cruce (fecha_examen, ...) VALUES ('2026-05-17', ...)` a nivel de SQL (simulando bypass de la lógica de aplicación).
+**Entonces:** PostgreSQL lanza una excepción de violación de constraint UNIQUE (`duplicate key value violates unique constraint "lotes_cruce_fecha_examen_key"`). La inserción es rechazada sin datos corruptos.
+
+---
+
+#### TC-043: Filas idénticas dentro del mismo CSV solo producen un registro en BD (INV-04)
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Unidad |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | INV-04, CQ-002, US-001 AC-001 |
+
+**Dado:** Un CSV con 3 filas completamente idénticas (mismo código, apellidos, nombres, EAP, puntaje, mérito, observación, tipo, modalidad, universidad, período y fecha).
+**Cuando:** `ProcesarCargaCsvAction` procesa el lote.
+**Entonces:** Solo se persiste 1 registro en la tabla correspondiente (`ingresantes` o `no_ingresantes`); las 2 filas duplicadas son eliminadas antes de cualquier INSERT. El total reportado en `lotes_cruce` refleja 1 registro, no 3.
+
+---
+
+#### TC-044: Valor crudo de OBSERVACION nunca es evaluado en el filtro — solo el normalizado (INV-05)
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Unidad |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | INV-05, CQ-001, US-001 AC-004 |
+
+**Dado:** Un CSV con una fila cuyo campo `OBSERVACION` contiene `alcanzó vacante` (minúsculas y con tilde — que post-normalización resulta en `ALCANZO VACANTE`).
+**Cuando:** `ProcesarCargaCsvAction` aplica el filtro.
+**Entonces:** El registro se enruta a `ingresantes` (el filtro opera sobre el valor normalizado, no el crudo). Verificar en el código que el valor crudo del CSV nunca es comparado directamente con ningún string de filtro.
+
+**Dato adicional de violación:** Si se modifica `ProcesarCargaCsvAction` para comparar el string crudo, este test DEBE fallar. Esto lo convierte en un test de regresión de la invariante.
+
+---
+
+#### TC-045: Jerarquía de estados cubre todas las combinaciones de borde de INV-06
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Unidad |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | INV-06, US-002 AC-007 |
+
+**Dado:** Un alumno con múltiples registros históricos en `academia` en diferentes combinaciones de estado.
+**Cuando:** Se resuelve el estado mediante la jerarquía de INV-06.
+**Entonces:** El estado resuelto es siempre el de mayor prioridad según el orden: `MATRICULADO > PAGADO > FINALIZADO > SUSPENDIDO > RETIRADO > TRASLADADO > STAND BY > ANULADO`.
+
+**Datos de prueba — casos de borde obligatorios:**
+
+| Estados presentes | Estado resuelto esperado |
+|---|---|
+| `ANULADO`, `STAND BY` | `STAND BY` |
+| `RETIRADO`, `TRASLADADO`, `ANULADO` | `RETIRADO` |
+| `SUSPENDIDO`, `FINALIZADO` | `FINALIZADO` |
+| `MATRICULADO`, `ANULADO`, `RETIRADO` | `MATRICULADO` |
+| Solo `ANULADO` | `ANULADO` |
+| Solo `STAND BY` | `STAND BY` |
+
+---
+
+#### TC-046: Credenciales de `academia` no existen en ningún archivo del repositorio (INV-08)
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Seguridad |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | INV-08, NFR-004, TC-031 |
+
+**Dado:** El repositorio de código completo.
+**Cuando:** Se ejecuta un scanner de secretos (ej. `git-secrets`, `trufflehog`, o búsqueda por regex de `DB_ACADEMIA_PASSWORD`, `password`, IPs de servidor de producción).
+**Entonces:** No se encuentran valores reales de credenciales en ningún archivo rastreado por git. Solo se permiten referencias a variables de entorno (`DB_ACADEMIA_*`). El archivo `.env.example` solo contiene placeholders vacíos o descriptivos (ej. `DB_ACADEMIA_PASSWORD=`).
+
+> **Diferencia con TC-031 (NFR-004):** TC-031 verifica la política general de credenciales; TC-046 verifica específicamente el enforcement del invariante INV-08 para la conexión `academia`. Se complementan.
 
 ---
 
@@ -818,15 +911,17 @@
 | Requisito | Unidad | Integración | E2E | Rendimiento |
 |-----------|--------|------------|-----|-------------|
 | US-001/AC-001 |  | TC-001 |  |  |
+| US-001/AC-001a |  | TC-014, TC-021 |  |  |
 | US-001/AC-002 | TC-002 |  |  |  |
 | US-001/AC-003 | TC-003 |  |  |  |
 | US-001/AC-004 |  | TC-004 |  |  |
 | US-002/AC-005 |  | TC-005 |  |  |
+| US-002/AC-005a |  | TC-005 |  |  |
 | US-002/AC-006 |  | TC-005 |  |  |
-| US-002/AC-007 |  | TC-005 |  |  |
+| US-002/AC-007 | TC-045 | TC-005 |  |  |
 | US-003/AC-008 |  | TC-006 |  |  |
 | US-003/AC-009 | TC-007 |  |  |  |
-| US-003/AC-010 |  | TC-008 |  |  |
+| US-003/AC-010 |  | TC-008, TC-015 |  |  |
 | US-004/AC-011 |  |  | TC-009 |  |
 | US-004/AC-012 |  |  | TC-009 |  |
 | US-004/AC-013 |  |  | TC-010 |  |
@@ -835,8 +930,18 @@
 | EC-001 |  | TC-013 |  |  |
 | EC-002 |  | TC-014 |  |  |
 | EC-003 |  | TC-015 |  |  |
-| ERR-001 |  | TC-021 |  |  |
+| EC-004 |  | TC-016 |  |  |
+| EC-005 | TC-017 |  |  |  |
+| EC-006 |  | TC-018 |  |  |
+| EC-007 |  | TC-019 |  |  |
+| EC-008 |  | TC-020 |  |  |
+| ERR-001 |  | TC-014, TC-021 |  |  |
 | ERR-002 |  | TC-022 |  |  |
+| ERR-003 |  | TC-023 |  |  |
+| ERR-004 |  | TC-024 |  |  |
+| ERR-005 |  | TC-025 |  |  |
+| ERR-006 |  | TC-026 |  |  |
+| ERR-007 |  | TC-027 |  |  |
 | NFR-001 |  |  |  | TC-028 |
 | NFR-002 |  |  |  | TC-029 |
 | NFR-003 |  |  |  | TC-030 |
@@ -845,7 +950,12 @@
 | NFR-006 |  | TC-033 |  |  |
 | INV-01 | TC-039 |  |  |  |
 | INV-02 |  | TC-040 |  |  |
+| INV-03 |  | TC-042 |  |  |
+| INV-04 | TC-043 |  |  |  |
+| INV-05 | TC-044 |  |  |  |
+| INV-06 | TC-045 | TC-005 |  |  |
 | INV-07 |  | TC-041 |  |  |
+| INV-08 |  | TC-046, TC-031 |  |  |
 
 ---
 
