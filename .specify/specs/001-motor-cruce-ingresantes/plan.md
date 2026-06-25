@@ -73,6 +73,34 @@ graph TB
 
 ---
 
+### 1.3 Architectural Decisions
+
+> Decisiones de diseño técnico migradas desde `context-bridge.md` — pertenecen aquí según los límites de artefactos SDD-Enterprise.
+
+#### AD-001: Fuzzy match corre on-demand con lazy persistence
+
+**Decisión:** El `ProcessCsvBatchJob` realiza normalize → filter → exact match → persist. El fuzzy match **NO** corre en el job.
+
+**Cuándo corre:** La primera vez que el endpoint `GET /cruce/ingresantes/{id}/candidatos` es llamado para un ingresante en estado `pendiente`.
+
+**Persistencia:** Los candidatos computados se guardan en la tabla `ingresante_candidatos` (ver data-model.md §2.4). Las llamadas subsiguientes al mismo endpoint hacen un SELECT simple sobre esa tabla.
+
+**Razón:** El job debe procesar ~27k filas en ≤ 50s. Solo ~350 registros terminan en estado `pendiente` (estimación basada en datos de ejemplo del openapi.yaml). Computar candidatos para todos en el job es riesgo innecesario para el SLA de NFR-001. El NFR-002 (300ms) aplica al lookup post-compute, no al compute inicial.
+
+**Consecuencia en data model:** Requiere la tabla `ingresante_candidatos` — definida en data-model.md §2.4.
+
+---
+
+#### AD-002: `correlation_id` eliminado del contrato AsyncAPI
+
+**Decisión:** El campo `correlation_id` fue removido del payload de `ProcessCsvBatchJob` en `asyncapi.yaml`.
+
+**Razón:** Laravel asigna internamente un UUID a cada job en cola. El `lote_id` sirve como clave de correlación en los logs estructurados. Sin infraestructura de distributed tracing (Jaeger, Datadog, etc.), el campo no tiene consumidor real.
+
+**Impacto:** El `lote_id` es el único identificador de correlación en logs y eventos.
+
+---
+
 ## 2. Component Design
 
 ### 2.1 Backend Component: CsvImporter
@@ -223,7 +251,7 @@ See: [data-model.md](./data-model.md)
 
 ### 6.2 Optimization Strategies
 
-- **Database Indexes:** B-tree index on normalized fields: `LOWER(apellidos)` and `LOWER(nombres)`.
+- **Database Indexes:** B-tree composite index on `(apellidos, nombres)` — los campos se almacenan pre-normalizados en MAYÚSCULAS por `NormalizarTextoAction`, por lo que un índice funcional con `LOWER()` es incorrecto e innecesario.
 - **Redis Queue:** Process records asynchronously using Laravel's queue worker infrastructure.
 - **Excel Generation:** Use streaming writer in PhpSpreadsheet to prevent memory exhaustion during export.
 
@@ -243,12 +271,15 @@ See: [data-model.md](./data-model.md)
 
 ### 8.1 Error Categories
 
-| Category | HTTP Code | Handling |
-|----------|-----------|----------|
-| Validation | 400 | Return CSV schema / column errors |
-| File Size | 413 | Web server level rejection |
-| Unprocessable | 422 | Empty CSV after filtering |
-| Database Error | 500 | Pause batch queue job, log details, and notify administrator |
+> **Distinción semántica de estados de lote (CQ-003):** `paused` = fallo recuperable (puede reintentarse sin duplicar datos); `error` = fallo catastrófico (requiere diagnóstico antes de reintentar).
+
+| Category | HTTP Code | Lote Estado | Handling |
+|----------|-----------|-------------|----------|
+| Validation | 400 | — (sin lote creado) | Return CSV schema / column errors |
+| File Size | 413 | — (sin lote creado) | Web server level rejection |
+| Unprocessable | 422 | — (sin lote creado) | Empty CSV after filtering |
+| Academia Connection Failure | — (async) | `paused` | Pause job, preserve already-processed records, log connection error, notify administrator. Retryable. |
+| Unexpected Job Exception | — (async) | `error` | Move job to `failed_jobs`, log full stack trace, notify administrator. Requires diagnosis before retry. |
 
 ---
 
