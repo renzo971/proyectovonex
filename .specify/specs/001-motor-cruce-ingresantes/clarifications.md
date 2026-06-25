@@ -78,7 +78,7 @@ Se elige la **Opción A (De-duplicación automática)**.
 Evita la polución de datos duplicados en las tablas analíticas y asegura que las métricas y los conteos finales del lote representen personas únicas.
 
 **Impact on Artifacts:**
-- [ ] spec.md: US-001, AC-001 y Notas Técnicas.
+- [x] spec.md: US-001, AC-001 y Notas Técnicas.
 
 **Decided By:** Samuel Cisneros, PO
 **Date:** 2026-06-24
@@ -111,9 +111,9 @@ No hay preguntas diferidas en esta sesión.
 ## Sign-off
 
 - [x] Product Owner: Samuel Cisneros - Business decisions validated
-- [ ] Dev Lead: [Name] - Technical feasibility confirmed
-- [ ] QA Lead: [Name] - Technical feasibility confirmed
-- [ ] FA: [Name] - Requirements complete
+- [x] Dev Lead: Renzo Santos - Technical feasibility confirmed
+- [x] QA Lead: Diego Castillo y Yerson - Technical feasibility confirmed
+- [x] FA: Diego Castillo y Yerson - Requirements complete
 
 **Clarification Phase Status:** Ready for Gate 1 (All business questions resolved)
 
