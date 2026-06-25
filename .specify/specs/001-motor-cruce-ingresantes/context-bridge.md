@@ -18,7 +18,7 @@ Automatizar la validación y emparejamiento de identidades de ingresantes UNMSM 
 | Phase | Artifact | Status |
 |---|---|---|
 | Business Context | business-context.md | Complete |
-| Clarifications | clarifications.md | 2 preguntas resueltas — Gate 1 pendiente sign-off formal |
+| Clarifications | clarifications.md | 3 preguntas resueltas — Gate 1: Complete (2026-06-25) |
 | Specification | spec.md v2.5.0 | Complete |
 | Data Model | data-model.md | Complete |
 | Solution Design | plan.md | Complete |
@@ -127,32 +127,7 @@ Reglas que el diseño técnico DEBE preservar. Cualquier implementación que las
 | PHP strict types (8.4+) | constitution.md Art. II | Todos los archivos PHP declaran `strict_types=1` |
 | Sin SQL directo en controladores | constitution.md Art. VII §7.3 | Todas las queries van por Eloquent o DB query builder |
 | Credenciales solo en `.env` | constitution.md Art. VII §7.3 | Aplica tanto a la BD Vonex como a la BD Academia |
-
----
-
-## Architectural Decisions Captured Here
-
-### AD-001: Fuzzy match corre on-demand con lazy persistence
-
-**Decisión:** El `ProcessCsvBatchJob` realiza normalize → filter → exact match → persist. El fuzzy match NO corre en el job.
-
-**Cuándo corre:** La primera vez que el endpoint `GET /cruce/ingresantes/{id}/candidatos` es llamado para un ingresante en estado `pendiente`.
-
-**Persistencia:** Los candidatos computados se guardan en la tabla `ingresante_candidatos` (ver data-model.md). Las llamadas subsiguientes al mismo endpoint hacen un SELECT simple.
-
-**Razón:** El job debe procesar ~27k filas en ≤ 50s. Solo ~350 registros terminan en estado `pendiente` (estimación basada en datos de ejemplo del openapi.yaml). Computar candidatos para todos en el job es riesgo innecesario para el SLA de NFR-001. El NFR-002 (300ms) aplica al lookup post-compute, no al compute inicial.
-
-**Consecuencia en data model:** Requiere la tabla `ingresante_candidatos` — definida en data-model.md §2.4.
-
----
-
-### AD-002: `correlation_id` eliminado del contrato AsyncAPI
-
-**Decisión:** El campo `correlation_id` fue removido del payload de `ProcessCsvBatchJob` en `asyncapi.yaml`.
-
-**Razón:** Laravel asigna internamente un UUID a cada job en cola. El `lote_id` sirve como clave de correlación en los logs estructurados. Sin infraestructura de distributed tracing (Jaeger, Datadog, etc.), el campo no tiene consumidor real.
-
-**Impacto:** El `lote_id` es el único identificador de correlación en logs y eventos.
+| **Contrato API autoritativo** | contracts/openapi.yaml | Todo path de endpoint definido en `openapi.yaml` es la fuente de verdad; referencias de paths en `spec.md` y `plan.md` son informativas y deben mantenerse en sincronía con el YAML. |
 
 ---
 
@@ -160,8 +135,10 @@ Reglas que el diseño técnico DEBE preservar. Cualquier implementación que las
 
 **De Fase 1 (Business + Clarifications) → Fase 2 (Design):**
 
-Dos decisiones de clarificación (ver `clarifications.md`) impactan materialmente el data model y la pipeline:
+Tres decisiones de clarificación (ver `clarifications.md`) impactan materialmente el data model y la pipeline:
 
 1. **CQ-001 — Filtro sobre valor normalizado:** El filtro `ALCANZO VACANTE` corre después de la normalización. Las columnas `observacion` en `ingresantes` y `no_ingresantes` almacenan el valor NORMALIZADO, no el original del CSV.
 
 2. **CQ-002 — De-duplicación automática:** Las filas idénticas dentro del mismo CSV se eliminan antes de persistir. La clave de de-duplicación es el contenido completo de la fila (todos los campos), no solo el código del postulante.
+
+3. **CQ-003 — Semántica de estado de lote ante fallos:** Fallo de conexión a `academia` → `paused` (recuperable, reintentable sin riesgo de duplicados). Fallo catastrófico del job → `error` (requiere diagnóstico). Esta distinción impacta `ProcessCsvBatchJob`, `plan.md §8.1` y los test cases TC-019 y TC-027.
