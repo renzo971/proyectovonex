@@ -354,6 +354,22 @@ CREATE TABLE no_ingresantes (
 
 CREATE INDEX idx_no_ingresantes_lote ON no_ingresantes(lote_cruce_id);
 
+-- Trigger DDL que enforce INV-02: no_ingresantes es append-only.
+-- Previene operaciones directas desde psql, herramientas externas o migraciones futuras
+-- que no conozcan el invariante. El enforcement a nivel de modelo Eloquent (UPDATED_AT=null)
+-- es complementario, no sustituto.
+CREATE OR REPLACE FUNCTION prevent_no_ingresantes_mutation()
+RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'no_ingresantes is append-only (INV-02). DELETE and UPDATE are not permitted.';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_no_ingresantes_readonly
+BEFORE UPDATE OR DELETE ON no_ingresantes
+FOR EACH ROW
+EXECUTE PROCEDURE prevent_no_ingresantes_mutation();
+
 CREATE TABLE ingresante_candidatos (
     id BIGSERIAL PRIMARY KEY,
     ingresante_id BIGINT NOT NULL REFERENCES ingresantes(id) ON DELETE CASCADE,
@@ -404,8 +420,16 @@ No database seeds are required for production, as the engine dynamically process
 
 | Table | Column | Classification | Handling |
 |-------|--------|----------------|----------|
-| `ingresantes` | `nombres` | PII | Access restricted to role `admisiones` |
 | `ingresantes` | `apellidos` | PII | Access restricted to role `admisiones` |
+| `ingresantes` | `nombres` | PII | Access restricted to role `admisiones` |
+| `ingresantes` | `codigo` | PII — identificador oficial de postulante UNMSM | Access restricted to role `admisiones` |
+| `ingresantes` | `alumno_id` | PII reference — apunta a registro PII en BD `academia` | No exponer directamente; resolver nombre solo bajo rol `admisiones` |
+| `no_ingresantes` | `apellidos` | PII | Read-only; acceso restringido a rol `admisiones` para auditoría |
+| `no_ingresantes` | `nombres` | PII | Read-only; acceso restringido a rol `admisiones` para auditoría |
+| `no_ingresantes` | `codigo` | PII — identificador oficial de postulante UNMSM | Read-only; acceso restringido a rol `admisiones` para auditoría |
+| `ingresante_candidatos` | `alumno_id` | PII reference — apunta a registro en BD `academia` | No exponer sin validación de rol; solo accesible en contexto de resolución asistida |
+
+> **Nota:** Los campos `dni_alumno`, `cel_alumno`, `cel_responsable` y `dni_responsable` provenientes de la BD `academia` NO se persisten en las tablas propias de este sistema. Solo se incluyen en el reporte Excel (columnas R y S de AC-014), cuyo acceso está restringido a roles `admin`, `admisiones` y `marketing`. Si en el futuro se decide persistir estos campos, deberán clasificarse como PII Sensible y requerir cifrado en reposo.
 
 ---
 
