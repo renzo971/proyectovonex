@@ -58,6 +58,7 @@ Create Laravel migrations for the 4 new tables in the Vonex analytics DB.
 - [ ] Migration `create_no_ingresantes_table`: Same 12 CSV columns as `ingresantes` + FK `lote_cruce_id` (CASCADE). **NO `updated_at` column** — this table is append-only per INV-02. Only `created_at`.
 - [ ] Migration `create_ingresante_candidatos_table`: FK `ingresante_id` (CASCADE), `alumno_id BIGINT NOT NULL` (logical ref, no FK), `porcentaje_similitud DECIMAL(5,2) CHECK >= 30.00`, `ranking SMALLINT CHECK 1-5`, `UNIQUE(ingresante_id, ranking)`, only `created_at`.
 - [ ] All migrations use `BIGSERIAL` (PostgreSQL) and `declare(strict_types=1)`.
+- [ ] Migration `no_ingresantes`: incluir la creación del trigger `trg_no_ingresantes_readonly` que enforce INV-02 a nivel de base de datos (ver data-model.md §5.1 para el SQL del trigger). Este enforcement es independiente del modelo Eloquent.
 
 **Files:**
 ```
@@ -310,7 +311,7 @@ app/Actions/Cruce/GuardarCruceConfirmadoAction.php
 
 ---
 
-## Sprint 4: API Layer
+## Sprint 4: API Layer — Core Endpoints (MVP)
 
 ### T-008: Upload Endpoint
 
@@ -419,63 +420,7 @@ app/Http/Controllers/CruceIngresantesController.php (index, show, pendientes met
 
 ---
 
-### T-014: ExportarExcelCruceAction
-
-- [ ] **Status:** Not Started
-- **Priority:** P2
-- **Story Points:** 5
-- **Traces to:** US-005 AC-014, AC-015, plan.md §2.4
-
-**Description:**
-Generate the consolidated Excel report with 24 columns and analytics charts.
-
-**Acceptance Criteria:**
-- [ ] **Sheet 1:** Exactly 24 columns (A–X) in strict order per AC-014:
-  - A: CODIGO, B: DNI, C: APELLIDOS, D: NOMBRES, E: EAP, F: PUNTAJE, G: MERITO, H: OBSERVACION, I: TIPO, J: MODALIDAD, K: UNIVERSIDAD, L: PERIODO, M: FECHA, N: ANIO, O: SEDE, P: CICLO, Q: F-MATRICULA, R: CEL-ALUMNO, S: CEL-APODERADO, T: ESTADO, U: LISTA-1, V: LISTA-2, W: LISTA-3, X: AREA.
-- [ ] **LISTA-1 (L1):** `1` if `periodo` ≥ "Verano 2024" cycle; `0` otherwise.
-- [ ] **LISTA-2 (L2):** `1` if enrolled in cycle active as of Feb 2026, or Verano/Repaso 2026, or OCTUBRE 2025 (includes RETIRADO/SUSPENDIDO); `0` otherwise.
-- [ ] **LISTA-3 (L3):** `1` if active (MATRICULADO, PAGADO, FINALIZADO) as of Feb 27, 2026; `0` otherwise.
-- [ ] **AREA:** Map `EAP` to Areas A-E per spec.md keyword rules. Empty if no match.
-- [ ] **ESTADO (T):** Resolved via hierarchy INV-06 for alumni with multiple records.
-- [ ] **Sheet 2:** Pre-built charts (distribution by estado, sede, ciclo) with date slicers (AC-015).
-- [ ] Use streaming writer (PhpSpreadsheet) to prevent memory exhaustion.
-- [ ] Sanitize CSV fields for formula injection (`=`, `+`, `-`, `@`).
-- [ ] `declare(strict_types=1)`.
-
-**Files:**
-```
-app/Actions/Cruce/ExportarExcelCruceAction.php
-```
-
-**Tests:** TC-011 (Sheet 1 structure), TC-012 (Sheet 2 charts), TC-034 (AREA mapping), TC-035 (24 columns validation), TC-036 (L1), TC-037 (L2), TC-038 (L3).
-
----
-
-### T-015: Exportar Endpoint
-
-- [ ] **Status:** Not Started
-- **Priority:** P2
-- **Story Points:** 1
-- **Traces to:** plan.md §4.1 `GET /api/cruce/lotes/{lote_id}/exportar`
-
-**Description:**
-Endpoint to download the generated Excel file.
-
-**Acceptance Criteria:**
-- [ ] `GET /api/cruce/lotes/{lote_id}/exportar`.
-- [ ] Returns binary Excel download (Content-Type: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).
-- [ ] Auth: roles `admin`, `admisiones`, `marketing`.
-
-**Files:**
-```
-app/Http/Controllers/CruceIngresantesController.php (exportar method)
-```
-
-**Tests:** TC-011.
-
----
-
-## Sprint 5: Frontend (React)
+## Sprint 5: Frontend (React) — Core MVP
 
 ### T-016: FileUpload Component
 
@@ -536,13 +481,12 @@ frontend/src/components/UnmatchedRow.jsx
 - **Traces to:** plan.md §2.3
 
 **Description:**
-Orchestrate the full frontend flow: upload → status → pending list → resolution → export.
+Orchestrate the full frontend flow: upload → status → pending list → resolution.
 
 **Acceptance Criteria:**
 - [ ] Integrates `FileUpload` and `UnmatchedRow` components.
 - [ ] Polling or WebSocket for batch status after upload.
 - [ ] Paginated list of pending ingresantes per batch.
-- [ ] Export button linking to download endpoint.
 
 **Files:**
 ```
@@ -551,16 +495,78 @@ frontend/src/App.jsx
 
 ---
 
+## Sprint 6: Phase 2 — Deferred (FR-05 Nice to Have)
+
+> **Nota de prioridad:** Las tareas de este sprint corresponden a FR-05 (Nice to Have) del `business-context.md §5.1`. Son independientes del MVP y no deben bloquear el lanzamiento de Sprints 1–5. Se implementan en una iteración posterior según disponibilidad del equipo y validación de la necesidad del stakeholder.
+
+### T-014: ExportarExcelCruceAction
+
+- [ ] **Status:** Deferred (Phase 2)
+- **Priority:** P2 (Nice to Have — FR-05)
+- **Story Points:** 5
+- **Traces to:** US-005 AC-014, AC-015, plan.md §2.4
+
+**Description:**
+Generate the consolidated Excel report with 24 columns and analytics charts.
+
+**Acceptance Criteria:**
+- [ ] **Sheet 1:** Exactly 24 columns (A–X) in strict order per AC-014:
+  - A: CODIGO, B: DNI, C: APELLIDOS, D: NOMBRES, E: EAP, F: PUNTAJE, G: MERITO, H: OBSERVACION, I: TIPO, J: MODALIDAD, K: UNIVERSIDAD, L: PERIODO, M: FECHA, N: ANIO, O: SEDE, P: CICLO, Q: F-MATRICULA, R: CEL-ALUMNO, S: CEL-APODERADO, T: ESTADO, U: LISTA-1, V: LISTA-2, W: LISTA-3, X: AREA.
+- [ ] **LISTA-1 (L1):** `1` if `periodo` ≥ "Verano 2024" cycle; `0` otherwise.
+- [ ] **LISTA-2 (L2):** `1` if enrolled in cycle active as of Feb 2026, or Verano/Repaso 2026, or OCTUBRE 2025 (includes RETIRADO/SUSPENDIDO); `0` otherwise.
+- [ ] **LISTA-3 (L3):** `1` if active (MATRICULADO, PAGADO, FINALIZADO) as of Feb 27, 2026; `0` otherwise.
+- [ ] **AREA:** Map `EAP` to Areas A-E per spec.md keyword rules. Empty if no match.
+- [ ] **ESTADO (T):** Resolved via hierarchy INV-06 for alumni with multiple records.
+- [ ] **Sheet 2:** Pre-built charts (distribution by estado, sede, ciclo) with date slicers (AC-015).
+- [ ] Use streaming writer (PhpSpreadsheet) to prevent memory exhaustion.
+- [ ] Sanitize CSV fields for formula injection (`=`, `+`, `-`, `@`).
+- [ ] `declare(strict_types=1)`.
+
+**Files:**
+```
+app/Actions/Cruce/ExportarExcelCruceAction.php
+```
+
+**Tests:** TC-011 (Sheet 1 structure), TC-012 (Sheet 2 charts), TC-034 (AREA mapping), TC-035 (24 columns validation), TC-036 (L1), TC-037 (L2), TC-038 (L3).
+
+---
+
+### T-015: Exportar Endpoint
+
+- [ ] **Status:** Deferred (Phase 2)
+- **Priority:** P2 (Nice to Have — FR-05)
+- **Story Points:** 1
+- **Traces to:** plan.md §4.1 `GET /api/cruce/lotes/{lote_id}/exportar`
+
+**Description:**
+Endpoint to download the generated Excel file.
+
+**Acceptance Criteria:**
+- [ ] `GET /api/cruce/lotes/{lote_id}/exportar`.
+- [ ] Returns binary Excel download (Content-Type: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).
+- [ ] Auth: roles `admin`, `admisiones`, `marketing`.
+
+**Files:**
+```
+app/Http/Controllers/CruceIngresantesController.php (exportar method)
+```
+
+**Tests:** TC-011.
+
+---
+
 ## Summary
 
-| Sprint | Tasks | Total SP | Dependencies |
-|--------|-------|----------|-------------|
-| 1: Foundation | T-001, T-002, T-003 | 6 | None |
-| 2: Core Actions | T-004, T-005 | 7 | Sprint 1 |
-| 3: Match Engine | T-006, T-007, T-009, T-011 | 15 | Sprint 2 |
-| 4: API Layer | T-008, T-010, T-012, T-013, T-014, T-015 | 13 | Sprint 3 |
-| 5: Frontend | T-016, T-017, T-018 | 8 | Sprint 4 |
-| **Total** | **18 tasks** | **49 SP** | |
+| Sprint | Tasks | Total SP | Dependencies | Scope |
+|--------|-------|----------|-------------|-------|
+| 1: Foundation | T-001, T-002, T-003 | 6 | None | MVP |
+| 2: Core Actions | T-004, T-005 | 7 | Sprint 1 | MVP |
+| 3: Match Engine | T-006, T-007, T-009, T-011 | 15 | Sprint 2 | MVP |
+| 4: API Layer (Core) | T-008, T-010, T-012, T-013 | 7 | Sprint 3 | MVP |
+| 5: Frontend | T-016, T-017, T-018 | 8 | Sprint 4 | MVP |
+| 6: Phase 2 (Deferred) | T-014, T-015 | 6 | Sprint 3 | FR-05 Nice to Have |
+| **Total MVP** | **15 tasks** | **43 SP** | | |
+| **Total con Phase 2** | **17 tasks** | **49 SP** | | |
 
 ---
 
