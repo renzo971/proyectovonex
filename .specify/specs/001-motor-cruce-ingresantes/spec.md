@@ -21,7 +21,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 ### US-001: Carga, Normalización y Filtrado de CSV
 
 **As a** Administrador de la academia Vonex
-**I want** subir el CSV oficial de ingresantes UNMSM para que el sistema filtre, normalice y agrupe los registros por fecha de examen
+**I want** subir el CSV oficial de ingresantes UNMSM con los campos estructurados (CODIGO, APELLIDOS, NOMBRES, EAP, PUNTAJE, MERITO, OBSERVACION, TIPO, MODALIDAD, UNIVERSIDAD, PERIODO, FECHA) para que el sistema filtre, normalice y agrupe los registros por fecha de examen
 **So that** solo los ingresantes con vacante confirmada sean procesados, eliminando errores de carga manual y duplicados
 
 **Priority:** P1 (Must Have)
@@ -30,6 +30,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 #### Acceptance Criteria
 
 - [ ] **AC-001:** Dado un archivo CSV con múltiples fechas de examen, cuando se sube al sistema, entonces se divide en lotes independientes por fecha de examen, se eliminan automáticamente las filas idénticas duplicadas dentro del lote, y se ignoran silenciosamente las fechas que ya fueron procesadas previamente, registrando el salto en el log del lote.
+- [ ] **AC-001a:** El archivo CSV debe contener exactamente las siguientes 12 columnas: `CODIGO`, `APELLIDOS`, `NOMBRES`, `EAP`, `PUNTAJE`, `MERITO`, `OBSERVACION`, `TIPO`, `MODALIDAD`, `UNIVERSIDAD`, `PERIODO`, `FECHA`. Si falta alguna columna o tiene nombres incorrectos, se aborta la importación.
 - [ ] **AC-002:** Dado un registro del CSV, cuando se aplica la normalización, entonces el texto se convierte íntegramente a MAYÚSCULAS, se eliminan todas las tildes (á→A, é→E, í→I, ó→O, ú→U) y se reemplaza estrictamente la "Ñ" por "N" sin excepción alguna.
 - [ ] **AC-003:** Dado un nombre normalizado, cuando se procesa la cadena de texto, entonces el sistema separa lógicamente el apellido paterno, el apellido materno y los nombres, reconociendo correctamente apellidos compuestos de dos o más palabras (ej. "DE LA CRUZ", "DEL AGUILA").
 - [ ] **AC-004:** Dado el archivo CSV, cuando se importa el lote, entonces el sistema normaliza primero el campo `OBSERVACION` (mayúsculas, sin tildes) y luego aplica el filtro: los registros cuyo valor normalizado sea exactamente `ALCANZO VACANTE` se persisten en la tabla `ingresantes`; todos los demás registros se persisten en la tabla `no_ingresantes` para trazabilidad. Ambas inserciones quedan vinculadas al mismo `lote_cruce_id` y se registran los totales de cada grupo en el log del lote.
@@ -46,7 +47,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 - **De-duplicación de filas (AC-001):** El job de importación remueve las filas idénticas duplicadas en el archivo CSV antes de procesar las inserciones.
 - El filtro de OBSERVACION (AC-004) se aplica **después** de la normalización del campo, no sobre el valor crudo. *(NC-1 — Resuelto. Ver Open Questions.)*
 - **Persistencia dual (AC-004):** los registros que cumplen el filtro van a la tabla `ingresantes`; los que no lo cumplen van a la tabla `no_ingresantes`. Ambas tablas llevan el mismo `lote_cruce_id` como clave de trazabilidad.
-- **Redis + Colas (Laravel Queue):** dado que el CSV real alcanza ~27,000 filas × 12 columnas, la importación, normalización y enrutamiento a `ingresantes`/`no_ingresantes` se despachan como un job en cola (`ProcessCsvBatchJob`) a través de Redis. El endpoint de carga responde inmediatamente con el `lote_id` y el estado `procesando`; el frontend consulta el progreso vía polling o WebSocket. Esto evita timeouts HTTP y permite procesar el volumen real dentro del SLA de NFR-001.
+- **Redis + Colas (Laravel Queue):** dado que el CSV real alcanza ~27,000 filas × 12 columnas (específicamente `CODIGO`, `APELLIDOS`, `NOMBRES`, `EAP`, `PUNTAJE`, `MERITO`, `OBSERVACION`, `TIPO`, `MODALIDAD`, `UNIVERSIDAD`, `PERIODO`, `FECHA`), la importación, normalización y enrutamiento a `ingresantes`/`no_ingresantes` se despachan como un job en cola (`ProcessCsvBatchJob`) a través de Redis. El endpoint de carga responde inmediatamente con el `lote_id` y el estado `procesando`; el frontend consulta el progreso vía polling o WebSocket. Esto evita timeouts HTTP y permite procesar el volumen real dentro del SLA de NFR-001.
 
 ---
 
@@ -62,13 +63,15 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 #### Acceptance Criteria
 
 - [ ] **AC-005:** Dado un lote de ingresantes importados, cuando se inicia el proceso de cruce, entonces el sistema valida la conexión con la base de datos `academia` en PostgreSQL antes de ejecutar cualquier consulta, abortando limpiamente con alerta si la conexión falla.
-- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema trae registros en todos los estados válidos: MATRICULADO, PAGADO, FINALIZADO, SUSPENDIDO, RETIRADO, TRASLADADO, STAND BY, ANULADO — sin filtrar ningún estado en la consulta de extracción.
+- [ ] **AC-005a:** La consulta a la base de datos `academia` debe recuperar exactamente los campos de matrícula: `dni_alumno`, `apellidos`, `nombres`, `anio`, `local`, `periodo`, `aula`, `fecha`, `cel_alumno`, `dni_responsable`, `cel_responsable`, `estado_matricula`, `fecha_registro`.
+- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema trae registros en todos los estados válidos: MATRICULADO, PAGADO, FINALIZADO, SUSPENDIDO, RETIRADO, TRASLADADO, STAND BY, ANULADO — sin filtrar ningún estado en la consulta de extracción (obtenido del campo `estado_matricula`).
 - [ ] **AC-007:** Dado un alumno con múltiples registros históricos en la base de datos `academia`, cuando se determina su estado para el reporte, entonces se resuelve eligiendo el estado de mayor prioridad según la jerarquía inmutable: 1. MATRICULADO → 2. PAGADO → 3. FINALIZADO → 4. SUSPENDIDO → 5. RETIRADO → 6. TRASLADADO → 7. STAND BY → 8. ANULADO.
 
 #### Technical Notes
 
 - La validación de conexión (AC-005) se ejecuta al inicio de `RealizarCruceExactoAction.php`.
-- La jerarquía de estados (AC-007) es inmutable según Art. 3 de la Constitución; cualquier cambio requiere enmienda constitucional documentada.
+- **Extracción de Alumnos (AC-005a):** La consulta SQL/Eloquent debe seleccionar explícitamente las columnas `dni_alumno`, `apellidos`, `nombres`, `anio`, `local`, `periodo`, `aula`, `fecha`, `cel_alumno`, `dni_responsable`, `cel_responsable`, `estado_matricula`, `fecha_registro` de la base de datos `academia`.
+- La jerarquía de estados (AC-007) es inmutable según INV-06 del Context Bridge (constitution.md Art. IV §4.7); cualquier cambio requiere enmienda constitucional documentada.
 - Las credenciales de conexión se gestionan exclusivamente mediante variables de entorno (`.env`) — Art. 4 de la Constitución.
 
 ---
@@ -137,13 +140,48 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 #### Acceptance Criteria
 
-- [ ] **AC-014:** Dado un lote procesado (con matches confirmados), cuando el usuario descarga el reporte Excel, entonces la **Hoja 1** contiene en las columnas A–M los datos del CSV crudo original del ingresante y a partir de la columna N los campos enriquecidos del alumno de la academia: Sede, Ciclo, Año académico y Estado resuelto por jerarquía.
+- [ ] **AC-014:** Dado un lote procesado (con matches confirmados), cuando el usuario descarga el reporte Excel, entonces la **Hoja 1** contiene exactamente 24 columnas en el siguiente orden estricto (de la A a la X):
+  - **A: CODIGO** (del CSV `CODIGO`)
+  - **B: DNI** (de la BD `dni_alumno`)
+  - **C: APELLIDOS** (del CSV `APELLIDOS`)
+  - **D: NOMBRES** (del CSV `NOMBRES`)
+  - **E: EAP** (del CSV `EAP`)
+  - **F: PUNTAJE** (del CSV `PUNTAJE`)
+  - **G: MERITO** (del CSV `MERITO`)
+  - **H: OBSERVACION** (del CSV `OBSERVACION`)
+  - **I: TIPO** (del CSV `TIPO`)
+  - **J: MODALIDAD** (del CSV `MODALIDAD`)
+  - **K: UNIVERSIDAD** (del CSV `UNIVERSIDAD`)
+  - **L: PERIODO** (del CSV `PERIODO`)
+  - **M: FECHA** (del CSV `FECHA`)
+  - **N: ANIO** (de la BD `anio`)
+  - **O: SEDE** (de la BD `local`)
+  - **P: CICLO** (de la BD `periodo`)
+  - **Q: F-MATRICULA** (de la BD `fecha_registro`)
+  - **R: CEL-ALUMNO** (de la BD `cel_alumno`)
+  - **S: CEL-APODERADO** (de la BD `cel_responsable`)
+  - **T: ESTADO** (de la BD `estado_matricula` resuelto por jerarquía)
+  - **U: LISTA - 1** (L1: `1` si el alumno está matriculado desde el ciclo Verano 2024 hasta la actualidad, presencial y virtual; `0` si no)
+  - **V: LISTA - 2** (L2: `1` si el alumno está matriculado en cualquier ciclo activo a febrero 2026, verano 2026 (verano/repaso) o ciclos OCTUBRE 2025, incluyendo retirados/suspendidos, presencial y virtual; `0` si no)
+  - **W: LISTA - 3** (L3: `1` si el alumno está activo al 27 de febrero de 2026 en ciclos presenciales y virtuales; `0` si no)
+  - **X: AREA** (Área UNMSM resuelta a partir del campo `EAP`)
 - [ ] **AC-015:** Dado el archivo Excel descargado, cuando el usuario abre la **Hoja 2**, entonces encuentra gráficos analíticos pre-construidos (distribución por estado, por sede, por ciclo) y segmentadores dinámicos que filtran todas las métricas por fecha de examen.
 
 #### Technical Notes
 
 - La exportación es responsabilidad de `ExportarExcelCruceAction.php`.
 - Utilizar una librería PHP compatible con Excel (ej. PhpSpreadsheet) para generar ambas hojas y los gráficos dinámicos.
+- **Cálculo de Listas (AC-014):**
+  - **L1 (LISTA - 1):** Valida si el registro de matrícula en `academia` tiene un ciclo (`periodo`) igual o posterior a "Verano 2024".
+  - **L2 (LISTA - 2):** Valida si el ciclo (`periodo`) del alumno es un ciclo activo a febrero 2026, o bien un ciclo de verano 2026 (ej. "VERANO 2026", "REPASO 2026") o de octubre 2025 (ej. "OCTUBRE 2025"), sin importar si el estado es `RETIRADO` o `SUSPENDIDO`.
+  - **L3 (LISTA - 3):** Valida si al 27 de febrero de 2026 el estado de matrícula (`estado_matricula`) corresponde a un alumno activo (por jerarquía: `MATRICULADO`, `PAGADO`, `FINALIZADO` y no retirado/suspendido/anulado) en ciclos presenciales o virtuales.
+- **Mapeo de AREA (AC-014):** La resolución del campo `AREA` mapea la columna `EAP` a las áreas académicas de la UNMSM:
+  - **Área A (Ciencias de la Salud):** Carreras que contienen MEDICINA, OBSTETRICIA, ENFERMERIA, TECNOLOGIA MEDICA, ODONTOLOGIA, FARMACIA, VETERINARIA, PSICOLOGIA.
+  - **Área B (Ciencias Básicas):** Carreras que contienen QUIMICA, BIOLOGICAS, FISICA, MATEMATICA, ESTADISTICA.
+  - **Área C (Ingenierías):** Carreras que contienen INGENIERIA, SOFTWARE, SISTEMAS, INDUSTRIAL, CIVIL.
+  - **Área D (Ciencias Económicas y de la Gestión):** Carreras que contienen ADMINISTRACION, NEGOCIOS, CONTABILIDAD, ECONOMIA.
+  - **Área E (Humanidades y Ciencias Jurídicas y Sociales):** Carreras que contienen DERECHO, POLITICA, LITERATURA, FILOSOFIA, COMUNICACION, ARTE, ARQUEOLOGIA, EDUCACION, HISTORIA, TRABAJO SOCIAL.
+  - Si no se encuentra correspondencia exacta, se deja vacío.
 
 ---
 
@@ -240,13 +278,17 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | `confirmado_manual` | Estado asignado cuando el administrador valida manualmente la asociación en la interfaz React | Estado del sistema |
 | `pendiente` | Estado inicial de un ingresante que no obtuvo match exacto; requiere revisión manual | Estado del sistema |
 | `no_ingresado` | Estado final cuando el administrador descarta todos los candidatos sugeridos | Estado del sistema |
-| Jerarquía de estados | Orden de prioridad inmutable para resolver el estado de un alumno con múltiples registros históricos (Art. 3 Constitución) | Regla de negocio |
+| Jerarquía de estados | Orden de prioridad inmutable para resolver el estado de un alumno con múltiples registros históricos (INV-06 Context Bridge) | Regla de negocio |
 | Normalización | Proceso de convertir texto a MAYÚSCULAS, eliminar tildes y sustituir "Ñ" por "N" | Motor de normalización |
 | Levenshtein | Algoritmo de distancia de edición usado para calcular la similitud entre cadenas de texto en el motor difuso | Técnico |
 | `ingresantes` | Tabla de BD que almacena los registros del CSV cuyo campo `OBSERVACION` normalizado equivale a `ALCANZO VACANTE` | Schema analítico |
 | `no_ingresantes` | Tabla de BD que almacena los registros del CSV que **no** cumplen el filtro de `OBSERVACION`; conservados para auditoría y trazabilidad del lote | Schema analítico |
 | `ProcessCsvBatchJob` | Job de Laravel despachado a la cola Redis que orquesta la importación, normalización y enrutamiento dual del CSV | Técnico |
 | `Redis Queue` | Servicio de cola basado en Redis usado como driver de `QUEUE_CONNECTION` en Laravel para procesar jobs asíncronos fuera del ciclo HTTP | Técnico |
+| `LISTA - 1` | Indicador binario en el reporte Excel para alumnos Vonex matriculados desde el ciclo Verano 2024 hasta la actualidad. | Dominio de negocio |
+| `LISTA - 2` | Indicador binario en el reporte Excel para alumnos matriculados en ciclos activos a febrero 2026, verano 2026 o ciclos de octubre 2025 (incluye retirados/suspendidos). | Dominio de negocio |
+| `LISTA - 3` | Indicador binario en el reporte Excel para alumnos con matrícula activa al 27 de febrero de 2026. | Dominio de negocio |
+| `AREA` | Clasificación de la carrera profesional (EAP) según la distribución oficial de áreas académicas de la UNMSM (Áreas A, B, C, D, E). | Dominio de negocio |
 
 ---
 
@@ -283,6 +325,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | 2.3.0 | 2026-06-24 | Equipo V2 (refactor por Antigravity) | Adaptación completa al modelo Enterprise SDD: US-XXX H3, AC como checkboxes, NFR con trazabilidad, tablas de EC/ERR, Story Linking, Glosario, Assumptions formalizados |
 | 2.4.0 | 2026-06-24 | Samuel Cisneros (PO) | Correcciones post-revisión: NFR-001 ajustado de 5 s → 50 s; NC-1 resuelto (filtro post-normalización); persistencia dual ingresantes/no_ingresantes en AC-004; NFR-006 Redis Queue añadido; volumen real documentado (~27,000 filas × 12 columnas) |
 | 2.5.0 | 2026-06-24 | Equipo V2 (revisión elite Antigravity) | Revisión final: Executive Summary actualizado con dual-table + Redis; NFR-001 título y trazabilidad unificados; NFR-003 verificación alineada con arquitectura de colas; EC-008 añadido (worker Redis caído); ERR-007 añadido (job a failed_jobs); Glosario extendido con 4 términos nuevos (ingresantes, no_ingresantes, ProcessCsvBatchJob, Redis Queue); A-05 añadido (disponibilidad Redis); enlace corregido al business-context.md en .specify/specs/ |
+| 2.6.0 | 2026-06-25 | Equipo V2 | Enmienda para incorporar campos DB, CSV y la estructura de reporte Excel final con Listas y Área. |
 
 ---
 
@@ -294,4 +337,4 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | Source | Access Date | Relevant Section | Notes |
 |--------|:-----------:|-----------------|-------|
 | Papalini, E. (2026). *Non-Deterministic Spec-Driven Development — Enterprise Edition*. Independently published. | 2026-06-24 | Cap. 2 (Four Phases / Four Gates), Cap. 11-12 (Enterprise SDD Pipeline), App. C Template 2 (spec.md) | Framework de referencia para la estructura del presente spec |
-| Constitución del Proyecto Vonex v2.2.0 ([constitution.md](../../../feature-motor-cruce-grupoV2/constitution.md)) | 2026-06-16 | Art. 2-7 | Fuente de verdad para estándares de calidad, jerarquía de estados y límites del proyecto |
+| Constitución del Proyecto Vonex v2.3.0 ([constitution.md](../../memory/constitution.md)) | 2026-06-25 | Art. 2-7 | Fuente de verdad para estándares de calidad, jerarquía de estados y límites del proyecto |
