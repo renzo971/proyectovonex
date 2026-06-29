@@ -1,8 +1,8 @@
 # Casos de Prueba: Motor de Cruce Automático de Ingresantes UNMSM
 
-**Dueño (QA)**: Diego Fernando
+**Dueño (QA)**: Diego Fernando (QA Tester)
 **Equipo**: Grupo V2 (Vonex)
-**Versión**: 2.2.0
+**Versión**: 2.5.0
 
 ## Resumen ejecutivo (≤150 palabras)
 
@@ -49,15 +49,23 @@ Este documento define los casos de prueba del flujo de trabajo analítico que cr
 **Pasos:** Procesar el lote para la generación del reporte.
 **Esperado:** El sistema detecta que el estado no pertenece a los 8 estados permitidos por negocio, por lo que ignora el cruce y el alumno no aparece en la data enriquecida de la academia.
 
-### TC-7 (de AC-5.1 y AC-5.2, caso feliz): Integridad Estructural del Excel y Dashboard
+### TC-7 (de AC-14 y AC-15, caso feliz): Integridad Estructural del Excel y Dashboard Dinámico
 
-**Datos:** Cruce automatizado finalizado de un lote de 20 alumnos ingresantes.
-**Pasos:** Descargar el Excel generado y abrir el archivo. Navegar a la Hoja 1 y luego a la Hoja 2. Aplicar el filtro por fecha en la Hoja 2.
+**Datos:** Lote de cruce completado con 3 ingresantes:
+- Ingresante 1: "RAMOS LOPEZ JHON" (DNI: 74839201, EAP: "INGENIERIA DE SOFTWARE", OBSERVACION: "ALCANZO VACANTE", ESTADO: "MATRICULADO" en Sede Lima, Ciclo 2026-I, F-Matrícula: 2026-02-10).
+- Ingresante 2: "PEREZ MENDOZA ANA" (DNI: 71229384, EAP: "MEDICINA HUMANA", OBSERVACION: "ALCANZO VACANTE", ESTADO: "PAGADO" en Sede Lima, Ciclo 2026-I, F-Matrícula: 2026-02-12).
+- Ingresante 3: "GOMEZ CASTRO LUIS" (DNI: 75940392, EAP: "ADMINISTRACION", OBSERVACION: "ALCANZO VACANTE", ESTADO: "SUSPENDIDO" en Sede Huaral, Ciclo 2025-II, F-Matrícula: 2025-08-20).
+**Pasos:**
+1. Iniciar sesión como administrador, ir al módulo de lotes y hacer clic en "Descargar Reporte Excel" para el lote procesado.
+2. Abrir el archivo `.xlsx` en Microsoft Excel o software compatible.
+3. Verificar que la **Hoja 1** contiene exactamente 24 columnas etiquetadas de la A a la X: A (CODIGO), B (DNI), C (APELLIDOS), D (NOMBRES), E (EAP), F (PUNTAJE), G (MERITO), H (OBSERVACION), I (TIPO), J (MODALIDAD), K (UNIVERSIDAD), L (PERIODO), M (FECHA), N (ANIO), O (SEDE), P (CICLO), Q (F-MATRICULA), R (CEL-ALUMNO), S (CEL-APODERADO), T (ESTADO), U (LISTA - 1), V (LISTA - 2), W (LISTA - 3) y X (AREA).
+4. Verificar que el ingresante 1 tiene "1" en LISTA - 1, LISTA - 2, LISTA - 3, y "Área C" en AREA.
+5. Ir a la **Hoja 2** ("Dashboard") y comprobar que se visualizan 3 gráficos dinámicos de distribución de ingresantes: (a) por Estado (circular), (b) por Sede (barras), y (c) por Ciclo (barras).
+6. Activar el segmentador de datos (Slicer) por "Fecha de Examen" y seleccionar únicamente la fecha "15/03/2026".
 **Esperado:**
-
-- En la Hoja 1, las columnas A hasta M contienen data estricta de San Marcos.
-- A partir de la columna N, aparece la Sede, Ciclo y Estado histórico de la academia.
-- En la Hoja 2, el Dashboard se carga correctamente mostrando las gráficas pre-construidas. Al seleccionar una fecha específica en el segmentador, los gráficos se filtran dinámicamente.
+- La Hoja 1 tiene exactamente las 24 columnas en el orden estricto de la A a la X sin columnas adicionales ni omitidas. Los datos de matrícula y campos enriquecidos (A-X) están correctamente poblados.
+- Las listas (L1, L2, L3) y el campo AREA se calculan con exactitud matemática según la EAP y estados.
+- La Hoja 2 renderiza los gráficos de manera nativa sin imágenes estáticas. Al filtrar por la fecha "15/03/2026" en el segmentador, todos los gráficos se actualizan de forma instantánea mostrando únicamente la distribución correspondiente a ese lote (ej. 2 estudiantes de Sede Lima y 0 de Sede Huaral).
 
 ### TC-8 (de AC-1.4, caso feliz): Filtrado por campo OBSERVACION
 

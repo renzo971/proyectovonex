@@ -6,7 +6,7 @@
 **PO:** Samuel Cisneros
 **Equipo:** Grupo V2 (Vonex)
 **Status:** Under Review
-**Versión:** 2.4.0
+**Versión:** 2.5.0
 
 ---
 
