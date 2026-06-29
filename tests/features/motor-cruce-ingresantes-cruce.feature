@@ -53,7 +53,7 @@ Característica: Cruce con la base de datos Academia y resolución de coincidenc
     Dado la conexión a academia no está disponible
     Cuando RealizarCruceExactoAction se ejecuta
     Entonces el proceso falla limpiamente con mensaje de usuario
-    Y el lote queda en estado error
+    Y el lote queda en estado paused
 
   @US-001 @AC-001d @ERR-007 @TC-027
   Escenario: Capturar job fallido y conservar consistencia de lote
