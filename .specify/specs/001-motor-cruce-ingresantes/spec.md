@@ -35,7 +35,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 - [ ] **AC-001c:** El endpoint de carga rechaza archivos mayores a 20 MB con HTTP 413 y registra el motivo en el log del lote.
 - [ ] **AC-001d:** Si `ProcessCsvBatchJob` falla de forma no recuperable, el job se registra en `failed_jobs`, el `lote_cruce` se marca con estado `error`, y no se duplican registros ya persistidos.
 - [ ] **AC-001e:** El procesamiento en cola (Redis) tolera reinicios del worker: jobs fallidos quedan en `failed_jobs` y el lote mantiene consistencia para reintentos posteriores.
-- [ ] **AC-001f:** El procesamiento completo de un lote en entorno de producción sintético (≈27,000 filas × 12 columnas) debe completarse en menos de 50 segundos desde `Job::dispatch()` hasta `lotes_cruce.estado = 'completado'.`
+- [ ] **AC-001f:** El procesamiento completo de un lote en entorno de producción sintético (≈27,000 filas × 12 columnas) debe completarse en menos de 50 segundos desde `Job::dispatch()` hasta `lotes_cruce.estado = 'completed'.`
 - [ ] **AC-002:** Dado un registro del CSV, cuando se aplica la normalización, entonces el texto se convierte íntegramente a MAYÚSCULAS, se eliminan todas las tildes (á→A, é→E, í→I, ó→O, ú→U) y se reemplaza estrictamente la "Ñ" por "N" sin excepción alguna.
 - [ ] **AC-003:** Dado un nombre normalizado, cuando se procesa la cadena de texto, entonces el sistema separa lógicamente el apellido paterno, el apellido materno y los nombres, reconociendo correctamente apellidos compuestos de dos o más palabras (ej. "DE LA CRUZ", "DEL AGUILA").
 - [ ] **AC-004:** Dado el archivo CSV, cuando se importa el lote, entonces el sistema normaliza primero el campo `OBSERVACION` (mayúsculas, sin tildes) y luego aplica el filtro: los registros cuyo valor normalizado sea exactamente `ALCANZO VACANTE` se persisten en la tabla `ingresantes`; todos los demás registros se persisten en la tabla `no_ingresantes` para trazabilidad. Ambas inserciones quedan vinculadas al mismo `lote_cruce_id` y se registran los totales de cada grupo en el log del lote.
@@ -52,7 +52,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 - **De-duplicación de filas (AC-001):** El job de importación remueve las filas idénticas duplicadas en el archivo CSV antes de procesar las inserciones.
 - El filtro de OBSERVACION (AC-004) se aplica **después** de la normalización del campo, no sobre el valor crudo. *(NC-1 — Resuelto. Ver Open Questions.)*
 - **Persistencia dual (AC-004):** los registros que cumplen el filtro van a la tabla `ingresantes`; los que no lo cumplen van a la tabla `no_ingresantes`. Ambas tablas llevan el mismo `lote_cruce_id` como clave de trazabilidad.
-- **Redis + Colas (Laravel Queue):** dado que el CSV real alcanza ~27,000 filas × 12 columnas (específicamente `CODIGO`, `APELLIDOS`, `NOMBRES`, `EAP`, `PUNTAJE`, `MERITO`, `OBSERVACION`, `TIPO`, `MODALIDAD`, `UNIVERSIDAD`, `PERIODO`, `FECHA`), la importación, normalización y enrutamiento a `ingresantes`/`no_ingresantes` se despachan como un job en cola (`ProcessCsvBatchJob`) a través de Redis. El endpoint de carga responde inmediatamente con el `lote_id` y el estado `procesando`; el frontend consulta el progreso vía polling o WebSocket. Esto evita timeouts HTTP y permite procesar el volumen real dentro del SLA de NFR-001.
+- **Redis + Colas (Laravel Queue):** dado que el CSV real alcanza ~27,000 filas × 12 columnas (específicamente `CODIGO`, `APELLIDOS`, `NOMBRES`, `EAP`, `PUNTAJE`, `MERITO`, `OBSERVACION`, `TIPO`, `MODALIDAD`, `UNIVERSIDAD`, `PERIODO`, `FECHA`), la importación, normalización y enrutamiento a `ingresantes`/`no_ingresantes` se despachan como un job en cola (`ProcessCsvBatchJob`) a través de Redis. El endpoint de carga responde inmediatamente con el `lote_id` y el estado `processing`; el frontend consulta el progreso vía polling o WebSocket. Esto evita timeouts HTTP y permite procesar el volumen real dentro del SLA de NFR-001.
 
 ---
 
@@ -212,16 +212,16 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 ### NFR-001: Rendimiento de Carga (Procesamiento Asíncrono en Cola)
 
-- **Requirement:** El procesamiento completo de un CSV con hasta ~27,000 filas × 12 columnas (filtrado, normalización, enrutamiento a `ingresantes`/`no_ingresantes` y agrupación en lote) debe completarse en menos de **50 segundos** medidos desde que el job es despachado a la cola Redis hasta que el lote queda en estado `completado` en base de datos.
-- **Context:** El endpoint HTTP de carga responde en < 2 s retornando el `lote_id` y el estado `procesando`; el SLA de 50 s aplica exclusivamente al procesamiento asíncrono del job en cola, no a la respuesta HTTP inicial.
+- **Requirement:** El procesamiento completo de un CSV con hasta ~27,000 filas × 12 columnas (filtrado, normalización, enrutamiento a `ingresantes`/`no_ingresantes` y agrupación en lote) debe completarse en menos de **50 segundos** medidos desde que el job es despachado a la cola Redis hasta que el lote queda en estado `completed` en base de datos.
+- **Context:** El endpoint HTTP de carga responde en < 2 s retornando el `lote_id` y el estado `processing`; el SLA de 50 s aplica exclusivamente al procesamiento asíncrono del job en cola, no a la respuesta HTTP inicial.
 - **Traces to:** Art. 4 de la Constitución — Pipeline sin intervención manual; NFR-006 (Redis Queue); Assumption A-05 (disponibilidad de Redis).
-- **Verification:** Test de rendimiento con un CSV sintético de ~27,000 filas × 12 columnas: medir el tiempo desde `Job::dispatch()` hasta que `lotes_cruce.estado = 'completado'` vía worker de cola Redis activo.
+- **Verification:** Test de rendimiento con un CSV sintético de ~27,000 filas × 12 columnas: medir el tiempo desde `Job::dispatch()` hasta que `lotes_cruce.estado = 'completed'` vía worker de cola Redis activo.
 
 ### NFR-002: Tiempo de Respuesta API (Fuzzy Match)
 
 - **Requirement:** La consulta de candidatos (fuzzy match) para un ingresante individual en la interfaz interactiva debe responder en menos de 300 ms (percentil 95).
 - **Traces to:** Art. 4 de la Constitución — Pruebas automatizadas; Assumption A-02 (índices en BD).
-- **Verification:** Test de integración midiendo el tiempo de respuesta del endpoint `GET /api/cruce/{ingresante}/candidatos` con carga representativa.
+- **Verification:** Test de integración midiendo el tiempo de respuesta del endpoint `GET /api/cruce/ingresantes/{id}/candidatos` con carga representativa.
 
 ### NFR-003: Volumen de Carga de Archivo
 
@@ -260,7 +260,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | EC-005 | Alumno con más de 5 registros históricos de igual similitud | Tomar solo los 5 de mayor similitud; en caso de empate exacto, desempatar por orden alfabético del apellido paterno | US-003 |
 | EC-006 | CSV con codificación distinta de UTF-8 o ISO-8859-1 (ej. UTF-16) | Detectar la codificación al inicio de la carga; si no es soportada, rechazar con error descriptivo de codificación sin insertar ningún registro | US-001 |
 | EC-007 | Timeout o error de conexión a la BD `academia` durante el cruce | Marcar el lote como `paused` (recuperable); conservar los registros ya procesados con su estado actual; los registros no procesados quedan en `pendiente` para reintento manual. Ver CQ-003. | US-002 / NFR-006 |
-| EC-008 | Worker Redis caído o reiniciado durante el procesamiento del job | El job queda en la cola `failed_jobs`; el lote permanece en estado `procesando` hasta que el administrador reintente el job manualmente; no se pierden ni duplican registros ya insertados | US-001 / NFR-006 |
+| EC-008 | Worker Redis caído o reiniciado durante el procesamiento del job | El job queda en la cola `failed_jobs`; el lote permanece en estado `processing` hasta que el administrador reintente el job manualmente; no se pierden ni duplican registros ya insertados | US-001 / NFR-006 |
 
 ---
 

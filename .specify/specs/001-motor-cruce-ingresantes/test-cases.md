@@ -64,7 +64,7 @@
 **Pasos de Prueba:**
 | Paso | Acción | Resultado Esperado |
 |------|--------|-------------------|
-| 1 | Subir el CSV vía `POST /api/cruce/upload` | Respuesta 202 con `lote_id` y estado `procesando` |
+| 1 | Subir el CSV vía `POST /api/cruce/upload` | Respuesta 202 con `lote_id` y estado `processing` |
 | 2 | Esperar a que el `ProcessCsvBatchJob` complete | El lote nuevo se crea solo para `2026-05-17` y la fecha `2026-05-10` es ignorada |
 | 3 | Consultar `lotes_cruce` y logs de lote | Se registran totales de filas procesadas y duplicados eliminados |
 
@@ -194,6 +194,64 @@
 
 ---
 
+#### TC-049: GET /api/cruce/lotes — List all batches
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 (High) |
+| **Automatizado** | Sí |
+| **Trazas a** | US-001, US-004, NFR-005, openapi.yaml `/cruce/lotes` GET, plan.md §4.1 |
+
+**Dado** que existen lotes procesados en el sistema
+**Y** el usuario está autenticado
+**Cuando** realiza GET /api/cruce/lotes
+**Entonces** el response HTTP es 200
+**Y** el body es un array paginado de objetos LoteCruce
+**Y** cada objeto contiene: lote_id, estado (enum: processing|completed|paused|error), fecha_examen, total_rows, rows_procesadas, created_at
+**Y** el schema cumple con openapi.yaml LoteCruce
+
+**Caso negativo:**
+**Dado** que el usuario NO está autenticado
+**Cuando** realiza GET /api/cruce/lotes
+**Entonces** el response HTTP es 401
+
+---
+
+### TC-050: CruceBatchProcessedEvent dispatched on batch success
+
+**ID:** TC-050
+**US:** US-001
+**AC:** (AsyncAPI contract)
+**Trazas a:** asyncapi.yaml CruceBatchProcessedEvent, tasks.md T007
+**Priority:** High
+
+**Dado** que un lote CSV fue procesado exitosamente
+**Y** todos los registros fueron clasificados (ingresantes o no_ingresantes)
+**Cuando** el job ProcessCsvBatchJob finaliza sin errores
+**Entonces** se dispatcha el evento CruceBatchProcessedEvent
+**Y** el payload contiene: lote_id, total_registros, total_ingresantes, total_no_ingresantes
+**Y** verificable via Event::fake() en tests de integración
+
+---
+
+### TC-051: CruceBatchFailedEvent dispatched on batch failure
+
+**ID:** TC-051
+**US:** US-001
+**AC:** (AsyncAPI contract)
+**Trazas a:** asyncapi.yaml CruceBatchFailedEvent, tasks.md T007
+**Priority:** High
+
+**Dado** que un lote CSV está en procesamiento
+**Y** ocurre un error irrecuperable durante el job
+**Cuando** el job ProcessCsvBatchJob falla definitivamente
+**Entonces** se dispatcha el evento CruceBatchFailedEvent
+**Y** el payload contiene: lote_id y detalles del error
+**Y** verificable via Event::fake() en tests de integración
+
+---
+
 ### 2.3 Historia de Usuario: US-003 - Motor de Coincidencia en Dos Fases
 
 #### TC-006: Cruce exacto automático con 2 apellidos y 1 nombre
@@ -225,12 +283,12 @@
 | **Trazas a** | US-003, AC-009, plan.md: CalcularSimilitudesCabosAction |
 
 **Dado:** Un ingresante sin match exacto y una lista de candidatos en `academia`.
-**Cuando:** Se calcula similitud por frecuencia de letras y Levenshtein.
+**Cuando:** Se calcula similitud usando el Dice coefficient sobre bigramas de caracteres y Levenshtein (fórmula: `similitud = Levenshtein × 0.6 + Dice_bigramas × 0.4`).
 **Entonces:** Genera hasta 5 candidatos ordenados de mayor a menor probabilidad de match.
 
 **Datos de Prueba:**
-- Entrada: `NOMBRE=JHON`, `APELLIDO_PATERNO=RAMOS`, `APELLIDO_MATERNO=LOPEZ`
-- Esperado: lista ordenada por puntaje, máximo 5 candidatos.
+- Entrada: `NOMBRE=JHON`, `APELLIDO_PATERNO=RAMOS`, `APELLIDO_MATERNO=LOPEZ` (ingresante) vs `JOHN RAMOS LOPEZ` (academia)
+- Esperado: similitud >= 85% con la fórmula Dice bigramas; lista ordenada por puntaje, máximo 5 candidatos.
 
 ---
 
@@ -451,7 +509,7 @@
 
 **Dado:** Worker Redis reiniciado durante un job activo.
 **Cuando:** El job falla.
-**Entonces:** El job debe aparecer en `failed_jobs`; el lote permanece en estado `procesando` o `error` sin registros duplicados ni perdidos.
+**Entonces:** El job debe aparecer en `failed_jobs`; el lote permanece en estado `processing` sin registros duplicados ni perdidos.
 
 ---
 
@@ -506,7 +564,7 @@
 
 **Dado:** Conexión a `academia` no disponible.
 **Cuando:** Se ejecuta el proceso de cruce.
-**Entonces:** La operación falla limpiamente con mensaje de usuario y el lote queda en estado `error`.
+**Entonces:** La operación falla limpiamente con mensaje de usuario y el lote queda en estado `paused` (fallo recuperable, ver CQ-003).
 
 ---
 
@@ -592,7 +650,7 @@
 | **Trazas a** | NFR-001, plan.md: Redis Queue |
 
 **Escenario:** Despachar un job con un CSV sintético de 27,000 filas.
-**Objetivo:** `lotes_cruce.estado = 'completado'` en < 50 segundos.
+**Objetivo:** `lotes_cruce.estado = 'completed'` en < 50 segundos.
 
 ---
 
@@ -942,19 +1000,28 @@
 |-----------|--------|------------|-----|-------------|
 | US-001/AC-001 |  | TC-001 |  |  |
 | US-001/AC-001a |  | TC-014, TC-021 |  |  |
+| US-001/AC-001b |  | TC-018, TC-022 |  |  |
+| US-001/AC-001c |  | TC-025 |  |  |
+| US-001/AC-001d |  | TC-027 |  |  |
+| US-001/AC-001e |  | TC-033 |  |  |
+| US-001/AC-001f |  |  |  | TC-028 |
 | US-001/AC-002 | TC-002 |  |  |  |
 | US-001/AC-003 | TC-003 |  |  |  |
 | US-001/AC-004 |  | TC-004 |  |  |
+| US-001/AsyncAPI |  | TC-050, TC-051 |  |  |
 | US-002/AC-005 |  | TC-005 |  |  |
 | US-002/AC-005a |  | TC-005 |  |  |
 | US-002/AC-006 |  | TC-005 |  |  |
 | US-002/AC-007 | TC-045 | TC-005 |  |  |
+| US-003/AC-003a |  |  |  | TC-028 (cobertura transitiva via AC-001f) |
 | US-003/AC-008 |  | TC-006 |  |  |
 | US-003/AC-009 | TC-007 |  |  |  |
 | US-003/AC-010 |  | TC-008, TC-015 |  |  |
 | US-004/AC-011 |  |  | TC-009, TC-048 |  |
 | US-004/AC-012 |  |  | TC-009 |  |
 | US-004/AC-013 |  |  | TC-010 |  |
+| US-004/AC-004a |  |  |  | TC-029 |
+| US-004/AC-004b |  | TC-026 |  |  |
 | US-005/AC-014 | TC-034, TC-036, TC-037, TC-038 | TC-011, TC-035 |  |  |
 | US-005/AC-015 |  | TC-012 |  |  |
 | EC-001 |  | TC-013 |  |  |
