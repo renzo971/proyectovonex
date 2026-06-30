@@ -2,55 +2,49 @@
 
 **Feature ID:** 001-motor-cruce-ingresantes
 **Created:** 2026-06-25
-**Author:** Antigravity (Architect Agent)
-**Status:** Ready for Implementation
-**Traces to:** spec.md v2.6.0, plan.md, data-model.md, context-bridge.md, test-cases.md
+**Status:** Planning
 
 ---
 
-## Dependency Graph
+## Summary
 
-```mermaid
-graph TD
-    T01["T-001: Migrations"] --> T02["T-002: Eloquent Models"]
-    T01 --> T03["T-003: Academia DB Config"]
-    T02 --> T04["T-004: NormalizarTextoAction"]
-    T04 --> T05["T-005: ProcesarCargaCsvAction"]
-    T03 --> T06["T-006: RealizarCruceExactoAction"]
-    T02 --> T06
-    T04 --> T06
-    T05 --> T07["T-007: ProcessCsvBatchJob"]
-    T06 --> T07
-    T07 --> T08["T-008: Upload Endpoint"]
-    T06 --> T09["T-009: CalcularSimilitudesCabosAction"]
-    T09 --> T10["T-010: Candidatos Endpoint"]
-    T06 --> T11["T-011: GuardarCruceConfirmadoAction"]
-    T11 --> T12["T-012: Confirmar Endpoint"]
-    T07 --> T13["T-013: Lotes Endpoints"]
-    T11 --> T14["T-014: ExportarExcelCruceAction"]
-    T14 --> T15["T-015: Exportar Endpoint"]
-    T08 --> T16["T-016: FileUpload Component"]
-    T13 --> T16
-    T10 --> T17["T-017: UnmatchedRow Component"]
-    T12 --> T17
-    T16 --> T18["T-018: App.jsx Integration"]
-    T17 --> T18
-    T15 --> T18
-```
+| Phase | Tasks | Estimated Hours | Status |
+|-------|-------|-----------------|--------|
+| Phase 1: Foundation | 4 | 16h | Not Started |
+| Phase 2: Core Implementation | 9 | 46h | Not Started |
+| Phase 3: Frontend & Integration | 3 | 16h | Not Started |
+| Phase 4: Phase 2 / Deferred | 2 | 12h | Not Started |
+| **Total** | **18** | **90h** | |
+
+**Legend:**
+- `[P]` = Parallel-safe (can run with other [P] tasks)
+- `[S]` = Sequential (depends on previous tasks)
+- `[T]` = Test task (can run parallel to feature tasks)
+- `_Boundary:_` = Component/module/layer this task may touch (for review boundary-violation detection)
+- `_Depends:_` = Prerequisite task IDs that must complete first
 
 ---
 
-## Sprint 1: Foundation (Database + Models + Config)
+## Phase 1: Foundation
 
-### T-001: Database Migrations
+### T001 [P] - Database Schema Setup
 
-- [ ] **Status:** Not Started
-- **Priority:** P0
-- **Story Points:** 3
-- **Traces to:** data-model.md §5.1, INV-02, INV-03
+_Boundary: Database, Migrations_
+_Depends: —_
+
+**Priority:** P0
+**Estimated:** 6h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Create Laravel migrations for the 4 new tables in the Vonex analytics DB.
+
+**Files to Create/Modify:**
+- `database/migrations/xxxx_create_lotes_cruce_table.php` [NEW]
+- `database/migrations/xxxx_create_ingresantes_table.php` [NEW]
+- `database/migrations/xxxx_create_no_ingresantes_table.php` [NEW]
+- `database/migrations/xxxx_create_ingresante_candidatos_table.php` [NEW]
 
 **Acceptance Criteria:**
 - [ ] Migration `create_lotes_cruce_table`: BIGSERIAL PK, `fecha_examen DATE NOT NULL UNIQUE`, 7 integer counters, `estado VARCHAR(50) DEFAULT 'processing'`, timestamps `started_at`, `completed_at`, `created_at`, `updated_at`.
@@ -58,30 +52,31 @@ Create Laravel migrations for the 4 new tables in the Vonex analytics DB.
 - [ ] Migration `create_no_ingresantes_table`: Same 12 CSV columns as `ingresantes` + FK `lote_cruce_id` (CASCADE). **NO `updated_at` column** — this table is append-only per INV-02. Only `created_at`.
 - [ ] Migration `create_ingresante_candidatos_table`: FK `ingresante_id` (CASCADE), `alumno_id BIGINT NOT NULL` (logical ref, no FK), `porcentaje_similitud DECIMAL(5,2) CHECK >= 30.00`, `ranking SMALLINT CHECK 1-5`, `UNIQUE(ingresante_id, ranking)`, only `created_at`.
 - [ ] All migrations use `BIGSERIAL` (PostgreSQL) and `declare(strict_types=1)`.
-- [ ] Migration `no_ingresantes`: incluir la creación del trigger `trg_no_ingresantes_readonly` que enforce INV-02 a nivel de base de datos (ver data-model.md §5.1 para el SQL del trigger). Este enforcement es independiente del modelo Eloquent.
+- [ ] Migration `no_ingresantes`: incluir la creación del trigger `trg_no_ingresantes_readonly` que enforce INV-02 a nivel de base de datos.
+- [ ] Verified via `php artisan migrate` on clean DB.
 
-**Files:**
-```
-database/migrations/
-├── xxxx_create_lotes_cruce_table.php
-├── xxxx_create_ingresantes_table.php
-├── xxxx_create_no_ingresantes_table.php
-└── xxxx_create_ingresante_candidatos_table.php
-```
-
-**Tests:** Run `php artisan migrate` on clean DB. Verify with `\d+ <table>` in psql.
+**Traces To:** data-model.md §5.1, INV-02, INV-03
 
 ---
 
-### T-002: Eloquent Models
+### T002 [P] - Eloquent Models
 
-- [ ] **Status:** Not Started
-- **Priority:** P0
-- **Story Points:** 2
-- **Traces to:** data-model.md §2, context-bridge.md Bounded Contexts
+_Boundary: EloquentModels_
+_Depends: T001_
+
+**Priority:** P0
+**Estimated:** 4h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Create Eloquent models with relationships, casts, fillables, and enums.
+
+**Files to Create/Modify:**
+- `app/Models/LoteCruce.php` [NEW]
+- `app/Models/Ingresante.php` [NEW]
+- `app/Models/NoIngresante.php` [NEW]
+- `app/Models/IngresanteCandidato.php` [NEW]
 
 **Acceptance Criteria:**
 - [ ] `LoteCruce` model: `hasMany(Ingresante)`, `hasMany(NoIngresante)`. Cast `fecha_examen` to date, `started_at`/`completed_at` to datetime. Enum constants for `BatchStatus` (`processing`, `completed`, `paused`, `error`).
@@ -89,29 +84,28 @@ Create Eloquent models with relationships, casts, fillables, and enums.
 - [ ] `NoIngresante` model: `belongsTo(LoteCruce)`. Cast same fields. **No `updated_at`** — set `const UPDATED_AT = null;` per INV-02.
 - [ ] `IngresanteCandidato` model: `belongsTo(Ingresante)`. Cast `porcentaje_similitud` to decimal. **No `updated_at`** — set `const UPDATED_AT = null;`.
 - [ ] All models: `declare(strict_types=1)`, explicit `$fillable`, `$table` property set.
+- [ ] Verify model relationships and casts via factory/tests.
 
-**Files:**
-```
-app/Models/
-├── LoteCruce.php
-├── Ingresante.php
-├── NoIngresante.php
-└── IngresanteCandidato.php
-```
-
-**Tests:** TC-032 (verify model relationships and casts via factory).
+**Traces To:** data-model.md §2, context-bridge.md Bounded Contexts
 
 ---
 
-### T-003: Academia Database Connection Config
+### T003 [P] - Academia Database Connection Config
 
-- [ ] **Status:** Not Started
-- **Priority:** P0
-- **Story Points:** 1
-- **Traces to:** US-002 AC-005, INV-07, INV-08, NFR-004
+_Boundary: DatabaseConfig_
+_Depends: —_
+
+**Priority:** P0
+**Estimated:** 2h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Configure the secondary PostgreSQL connection for the read-only Academia database.
+
+**Files to Create/Modify:**
+- `config/database.php` [MODIFY]
+- `.env.example` [MODIFY]
 
 **Acceptance Criteria:**
 - [ ] Add `academia` connection to `config/database.php` using env vars: `DB_ACADEMIA_HOST`, `DB_ACADEMIA_PORT`, `DB_ACADEMIA_DATABASE`, `DB_ACADEMIA_USERNAME`, `DB_ACADEMIA_PASSWORD`.
@@ -119,27 +113,25 @@ Configure the secondary PostgreSQL connection for the read-only Academia databas
 - [ ] Verify no hardcoded credentials exist (INV-08).
 - [ ] Connection is read-only: no Eloquent model with `$connection = 'academia'` may have write operations.
 
-**Files:**
-```
-config/database.php
-.env.example
-```
-
-**Tests:** TC-031 (credentials not in repo), TC-005 (connection validation).
+**Traces To:** US-002 AC-005, INV-07, INV-08, NFR-004
 
 ---
 
-## Sprint 2: Core Actions (Normalize + CSV Processing)
+### T004 [P] - NormalizarTextoAction
 
-### T-004: NormalizarTextoAction
+_Boundary: Actions_
+_Depends: —_
 
-- [ ] **Status:** Not Started
-- **Priority:** P0
-- **Story Points:** 2
-- **Traces to:** US-001 AC-002, AC-003, INV-05, context-bridge.md ACL
+**Priority:** P0
+**Estimated:** 4h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Implement the text normalization action that serves as the Anti-Corruption Layer.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/NormalizarTextoAction.php` [NEW]
 
 **Acceptance Criteria:**
 - [ ] Converts all text to UPPERCASE.
@@ -149,24 +141,27 @@ Implement the text normalization action that serves as the Anti-Corruption Layer
 - [ ] Returns a DTO or array with: `apellido_paterno`, `apellido_materno`, `nombres` (logically separated from single `APELLIDOS` input).
 - [ ] `declare(strict_types=1)`.
 
-**Files:**
-```
-app/Actions/Cruce/NormalizarTextoAction.php
-```
-
-**Tests:** TC-002 (normalization), TC-003 (compound surname parsing).
+**Traces To:** US-001 AC-002, AC-003, INV-05, context-bridge.md ACL
 
 ---
 
-### T-005: ProcesarCargaCsvAction
+## Phase 2: Core Implementation
 
-- [ ] **Status:** Not Started
-- **Priority:** P0
-- **Story Points:** 5
-- **Traces to:** US-001 AC-001, AC-001a, AC-004, CQ-001, CQ-002, INV-03, INV-04, INV-05
+### T005 [P] - ProcesarCargaCsvAction
+
+_Boundary: Actions_
+_Depends: T002, T004_
+
+**Priority:** P0
+**Estimated:** 10h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Parse, validate, deduplicate, and split the uploaded CSV by exam date.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/ProcesarCargaCsvAction.php` [NEW]
 
 **Acceptance Criteria:**
 - [ ] Validate CSV encoding (UTF-8 or ISO-8859-1 only, reject others with ERR-002).
@@ -181,26 +176,25 @@ Parse, validate, deduplicate, and split the uploaded CSV by exam date.
 - [ ] Use bulk inserts (performance for ~27k rows).
 - [ ] `declare(strict_types=1)`.
 
-**Files:**
-```
-app/Actions/Cruce/ProcesarCargaCsvAction.php
-```
-
-**Tests:** TC-001 (multi-date + dedup), TC-004 (OBSERVACION filter), TC-013 (empty name), TC-014/TC-021 (missing columns), TC-016 (date already processed), TC-018/TC-022 (encoding), TC-024 (empty after filter).
+**Traces To:** US-001 AC-001, AC-001a, AC-004, CQ-001, CQ-002, INV-03, INV-04, INV-05
 
 ---
 
-## Sprint 3: Match Engine
+### T006 [S] - RealizarCruceExactoAction
 
-### T-006: RealizarCruceExactoAction
+_Boundary: Actions_
+_Depends: T002, T003, T004_
 
-- [ ] **Status:** Not Started
-- **Priority:** P0
-- **Story Points:** 5
-- **Traces to:** US-002 AC-005/AC-005a/AC-006/AC-007, US-003 AC-008, INV-01, INV-06, INV-07
+**Priority:** P0
+**Estimated:** 10h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Perform exact matching (2 surnames + 1 name) against the Academia database.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/RealizarCruceExactoAction.php` [NEW]
 
 **Acceptance Criteria:**
 - [ ] Validate connection to `academia` DB before any query (AC-005). Abort with ERR-003 if fails.
@@ -214,24 +208,25 @@ Perform exact matching (2 surnames + 1 name) against the Academia database.
 - [ ] Zero write operations to `academia` connection (INV-07).
 - [ ] `declare(strict_types=1)`.
 
-**Files:**
-```
-app/Actions/Cruce/RealizarCruceExactoAction.php
-```
-
-**Tests:** TC-005 (connection + hierarchy), TC-006 (exact match), TC-019/TC-023 (connection failure).
+**Traces To:** US-002 AC-005/AC-005a/AC-006/AC-007, US-003 AC-008, INV-01, INV-06, INV-07
 
 ---
 
-### T-007: ProcessCsvBatchJob
+### T007 [S] - ProcessCsvBatchJob
 
-- [ ] **Status:** Not Started
-- **Priority:** P0
-- **Story Points:** 3
-- **Traces to:** US-001 Technical Notes, NFR-001, NFR-006, AD-001
+_Boundary: Jobs_
+_Depends: T005, T006_
+
+**Priority:** P0
+**Estimated:** 6h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Laravel Queue Job that orchestrates the CSV processing pipeline.
+
+**Files to Create/Modify:**
+- `app/Jobs/ProcessCsvBatchJob.php` [NEW]
 
 **Acceptance Criteria:**
 - [ ] Dispatched to `cruce` queue on Redis (`QUEUE_CONNECTION=redis`).
@@ -245,24 +240,55 @@ Laravel Queue Job that orchestrates the CSV processing pipeline.
 - [ ] Performance: process ~27k rows in ≤ 50 seconds (NFR-001).
 - [ ] `declare(strict_types=1)`.
 
-**Files:**
-```
-app/Jobs/ProcessCsvBatchJob.php
-```
-
-**Tests:** TC-020/TC-027 (job failure), TC-028 (performance ≤ 50s), TC-033 (Redis resilience).
+**Traces To:** US-001 Technical Notes, NFR-001, NFR-006, AD-001
 
 ---
 
-### T-009: CalcularSimilitudesCabosAction
+### T008 [S] - Upload Endpoint
 
-- [ ] **Status:** Not Started
-- **Priority:** P1
-- **Story Points:** 5
-- **Traces to:** US-003 AC-009, AC-010, AD-001, EC-005
+_Boundary: Controllers_
+_Depends: T007_
+
+**Priority:** P0
+**Estimated:** 4h
+**Assignee:** Developer
+**Status:** Not Started
+
+**Description:**
+Controller method to receive CSV upload and dispatch queue job.
+
+**Files to Create/Modify:**
+- `app/Http/Controllers/CruceIngresantesController.php` [NEW]
+- `routes/api.php` [MODIFY]
+
+**Acceptance Criteria:**
+- [ ] `POST /api/cruce/upload` — accepts multipart file upload.
+- [ ] Validate file size ≤ 20 MB (ERR-005 → HTTP 413).
+- [ ] Validate file is CSV (Content-Type or extension check).
+- [ ] Dispatch `ProcessCsvBatchJob` to Redis queue.
+- [ ] Return immediately with HTTP 202: `{ lote_id, estado: "procesando" }`.
+- [ ] Auth: roles `admin` or `admisiones`.
+- [ ] `declare(strict_types=1)`.
+
+**Traces To:** US-001, plan.md §4.1 `POST /api/cruce/upload`, NFR-003, ERR-005
+
+---
+
+### T009 [P] - CalcularSimilitudesCabosAction
+
+_Boundary: Actions_
+_Depends: T002, T004, T006_
+
+**Priority:** P1
+**Estimated:** 10h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Compute fuzzy match candidates lazily on first API call for a `pendiente` ingresante.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/CalcularSimilitudesCabosAction.php` [NEW]
 
 **Acceptance Criteria:**
 - [ ] Compute Levenshtein distance + letter frequency similarity against academia alumni.
@@ -275,82 +301,25 @@ Compute fuzzy match candidates lazily on first API call for a `pendiente` ingres
 - [ ] Response time ≤ 300ms p95 for cached calls (NFR-002).
 - [ ] `declare(strict_types=1)`.
 
-**Files:**
-```
-app/Actions/Cruce/CalcularSimilitudesCabosAction.php
-```
-
-**Tests:** TC-007 (fuzzy candidates), TC-008/TC-015 (no candidates above threshold), TC-017 (tie-break), TC-029 (p95 ≤ 300ms).
+**Traces To:** US-003 AC-009, AC-010, AD-001, EC-005
 
 ---
 
-### T-011: GuardarCruceConfirmadoAction
+### T010 [S] - Candidatos Endpoint
 
-- [ ] **Status:** Not Started
-- **Priority:** P1
-- **Story Points:** 2
-- **Traces to:** US-004 AC-012, AC-013, ERR-006
+_Boundary: Controllers_
+_Depends: T009_
 
-**Description:**
-Save manual match confirmation or mark as `no_ingresado`.
-
-**Acceptance Criteria:**
-- [ ] Accept `ingresante_id` and optional `alumno_id`.
-- [ ] If `alumno_id` provided: validate it exists in `academia` DB. If not, return ERR-006 (HTTP 404).
-- [ ] On valid match: set `estado_match = 'confirmado_manual'`, `alumno_id`, and update `porcentaje_similitud` from selected candidate.
-- [ ] On `no_ingresado`: set `estado_match = 'no_ingresado'`, `alumno_id = null`.
-- [ ] Update `lotes_cruce` counters (`total_pendientes`, `total_no_ingresado`).
-- [ ] `declare(strict_types=1)`.
-
-**Files:**
-```
-app/Actions/Cruce/GuardarCruceConfirmadoAction.php
-```
-
-**Tests:** TC-009 (manual confirm), TC-010 (no_ingresado), TC-026 (invalid alumno_id).
-
----
-
-## Sprint 4: API Layer — Core Endpoints (MVP)
-
-### T-008: Upload Endpoint
-
-- [ ] **Status:** Not Started
-- **Priority:** P0
-- **Story Points:** 2
-- **Traces to:** US-001, plan.md §4.1 `POST /api/cruce/upload`, NFR-003, ERR-005
-
-**Description:**
-Controller method to receive CSV upload and dispatch queue job.
-
-**Acceptance Criteria:**
-- [ ] `POST /api/cruce/upload` — accepts multipart file upload.
-- [ ] Validate file size ≤ 20 MB (ERR-005 → HTTP 413).
-- [ ] Validate file is CSV (Content-Type or extension check).
-- [ ] Dispatch `ProcessCsvBatchJob` to Redis queue.
-- [ ] Return immediately with HTTP 202: `{ lote_id, estado: "procesando" }`.
-- [ ] Auth: roles `admin` or `admisiones`.
-- [ ] `declare(strict_types=1)`.
-
-**Files:**
-```
-app/Http/Controllers/CruceIngresantesController.php (store method)
-routes/api.php
-```
-
-**Tests:** TC-025 (file too large), TC-001 (successful upload).
-
----
-
-### T-010: Candidatos Endpoint
-
-- [ ] **Status:** Not Started
-- **Priority:** P1
-- **Story Points:** 2
-- **Traces to:** US-003 AC-009, AD-001, NFR-002
+**Priority:** P1
+**Estimated:** 4h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Endpoint to retrieve (or lazily compute) fuzzy match candidates.
+
+**Files to Create/Modify:**
+- `app/Http/Controllers/CruceIngresantesController.php` [MODIFY]
 
 **Acceptance Criteria:**
 - [ ] `GET /api/cruce/ingresantes/{id}/candidatos`.
@@ -360,24 +329,53 @@ Endpoint to retrieve (or lazily compute) fuzzy match candidates.
 - [ ] Auth: roles `admin` or `admisiones`.
 - [ ] `declare(strict_types=1)`.
 
-**Files:**
-```
-app/Http/Controllers/CruceIngresantesController.php (candidatos method)
-```
-
-**Tests:** TC-007 (candidates list), TC-029 (response time).
+**Traces To:** US-003 AC-009, AD-001, NFR-002
 
 ---
 
-### T-012: Confirmar Endpoint
+### T011 [P] - GuardarCruceConfirmadoAction
 
-- [ ] **Status:** Not Started
-- **Priority:** P1
-- **Story Points:** 1
-- **Traces to:** US-004 AC-012, AC-013
+_Boundary: Actions_
+_Depends: T002, T006_
+
+**Priority:** P1
+**Estimated:** 4h
+**Assignee:** Developer
+**Status:** Not Started
+
+**Description:**
+Save manual match confirmation or mark as `no_ingresado`.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/GuardarCruceConfirmadoAction.php` [NEW]
+
+**Acceptance Criteria:**
+- [ ] Accept `ingresante_id` and optional `alumno_id`.
+- [ ] If `alumno_id` provided: validate it exists in `academia` DB. If not, return ERR-006 (HTTP 404).
+- [ ] On valid match: set `estado_match = 'confirmado_manual'`, `alumno_id`, and update `porcentaje_similitud` from selected candidate.
+- [ ] On `no_ingresado`: set `estado_match = 'no_ingresado'`, `alumno_id = null`.
+- [ ] Update `lotes_cruce` counters (`total_pendientes`, `total_no_ingresado`).
+- [ ] `declare(strict_types=1)`.
+
+**Traces To:** US-004 AC-012, AC-013, ERR-006
+
+---
+
+### T012 [S] - Confirmar Endpoint
+
+_Boundary: Controllers_
+_Depends: T011_
+
+**Priority:** P1
+**Estimated:** 2h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Endpoint to confirm a manual match or mark as no_ingresado.
+
+**Files to Create/Modify:**
+- `app/Http/Controllers/CruceIngresantesController.php` [MODIFY]
 
 **Acceptance Criteria:**
 - [ ] `POST /api/cruce/ingresantes/{id}/confirmar`.
@@ -386,24 +384,25 @@ Endpoint to confirm a manual match or mark as no_ingresado.
 - [ ] Return HTTP 200 with updated ingresante state.
 - [ ] Auth: roles `admin` or `admisiones`.
 
-**Files:**
-```
-app/Http/Controllers/CruceIngresantesController.php (confirmar method)
-```
-
-**Tests:** TC-009, TC-010, TC-026.
+**Traces To:** US-004 AC-012, AC-013
 
 ---
 
-### T-013: Lotes Endpoints
+### T013 [S] - Lotes Endpoints
 
-- [ ] **Status:** Not Started
-- **Priority:** P1
-- **Story Points:** 2
-- **Traces to:** plan.md §4.1, NFR-005
+_Boundary: Controllers_
+_Depends: T007_
+
+**Priority:** P1
+**Estimated:** 4h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 CRUD-like endpoints for batch listing, status, and pending ingresantes.
+
+**Files to Create/Modify:**
+- `app/Http/Controllers/CruceIngresantesController.php` [MODIFY]
 
 **Acceptance Criteria:**
 - [ ] `GET /api/cruce/lotes` — paginated list of batches with counters.
@@ -411,26 +410,28 @@ CRUD-like endpoints for batch listing, status, and pending ingresantes.
 - [ ] `GET /api/cruce/lotes/{lote_id}/pendientes` — paginated list of `estado_match = 'pendiente'` ingresantes.
 - [ ] Auth: roles `admin`, `admisiones`, `marketing` (read-only endpoints).
 
-**Files:**
-```
-app/Http/Controllers/CruceIngresantesController.php (index, show, pendientes methods)
-```
-
-**Tests:** TC-032 (lote metadata).
+**Traces To:** plan.md §4.1, NFR-005
 
 ---
 
-## Sprint 5: Frontend (React) — Core MVP
+## Phase 3: Frontend & Integration
 
-### T-016: FileUpload Component
+### T016 [P] - FileUpload Component
 
-- [ ] **Status:** Not Started
-- **Priority:** P1
-- **Story Points:** 3
-- **Traces to:** US-001 UI/UX Notes, US-004
+_Boundary: ReactComponents_
+_Depends: T008, T013_
+
+**Priority:** P1
+**Estimated:** 6h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 React component for CSV file upload with progress indicator.
+
+**Files to Create/Modify:**
+- `frontend/src/components/FileUpload.jsx` [NEW]
+- `frontend/src/services/api.js` [NEW]
 
 **Acceptance Criteria:**
 - [ ] File input accepting only `.csv` files.
@@ -438,23 +439,25 @@ React component for CSV file upload with progress indicator.
 - [ ] Post-processing summary: total records, filtered by OBSERVACION, loaded into batch, skipped dates.
 - [ ] Error display for ERR-001 through ERR-005.
 
-**Files:**
-```
-frontend/src/components/FileUpload.jsx
-frontend/src/services/api.js
-```
+**Traces To:** US-001 UI/UX Notes, US-004
 
 ---
 
-### T-017: UnmatchedRow Component
+### T017 [P] - UnmatchedRow Component
 
-- [ ] **Status:** Not Started
-- **Priority:** P1
-- **Story Points:** 3
-- **Traces to:** US-004 AC-011, AC-012, AC-013
+_Boundary: ReactComponents_
+_Depends: T010, T012_
+
+**Priority:** P1
+**Estimated:** 6h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 React component for resolving pending ingresantes.
+
+**Files to Create/Modify:**
+- `frontend/src/components/UnmatchedRow.jsx` [NEW]
 
 **Acceptance Criteria:**
 - [ ] Display ingresante data (apellidos, nombres, fecha de examen).
@@ -464,50 +467,52 @@ React component for resolving pending ingresantes.
 - [ ] "Confirmar Match" button with spinner + success/error feedback, no page reload.
 - [ ] After confirmation: row visually updates to reflect new state.
 
-**Files:**
-```
-frontend/src/components/UnmatchedRow.jsx
-```
-
-**Tests:** TC-009 (E2E confirm), TC-010 (E2E no_ingresado).
+**Traces To:** US-004 AC-011, AC-012, AC-013
 
 ---
 
-### T-018: App.jsx Integration
+### T018 [S] - App.jsx Integration
 
-- [ ] **Status:** Not Started
-- **Priority:** P2
-- **Story Points:** 2
-- **Traces to:** plan.md §2.3
+_Boundary: ReactComponents_
+_Depends: T016, T017, T015_
+
+**Priority:** P2
+**Estimated:** 4h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Orchestrate the full frontend flow: upload → status → pending list → resolution.
+
+**Files to Create/Modify:**
+- `frontend/src/App.jsx` [MODIFY]
 
 **Acceptance Criteria:**
 - [ ] Integrates `FileUpload` and `UnmatchedRow` components.
 - [ ] Polling or WebSocket for batch status after upload.
 - [ ] Paginated list of pending ingresantes per batch.
 
-**Files:**
-```
-frontend/src/App.jsx
-```
+**Traces To:** plan.md §2.3
 
 ---
 
-## Sprint 6: Phase 2 — Deferred (FR-05 Nice to Have)
+## Phase 4: Phase 2 / Deferred (FR-05 Nice to Have)
 
-> **Nota de prioridad:** Las tareas de este sprint corresponden a FR-05 (Nice to Have) del `business-context.md §5.1`. Son independientes del MVP y no deben bloquear el lanzamiento de Sprints 1–5. Se implementan en una iteración posterior según disponibilidad del equipo y validación de la necesidad del stakeholder.
+### T014 [S] - ExportarExcelCruceAction
 
-### T-014: ExportarExcelCruceAction
+_Boundary: Actions_
+_Depends: T011_
 
-- [ ] **Status:** Deferred (Phase 2)
-- **Priority:** P2 (Nice to Have — FR-05)
-- **Story Points:** 5
-- **Traces to:** US-005 AC-014, AC-015, plan.md §2.4
+**Priority:** P2
+**Estimated:** 10h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Generate the consolidated Excel report with 24 columns and analytics charts.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/ExportarExcelCruceAction.php` [NEW]
 
 **Acceptance Criteria:**
 - [ ] **Sheet 1:** Exactly 24 columns (A–X) in strict order per AC-014:
@@ -522,56 +527,86 @@ Generate the consolidated Excel report with 24 columns and analytics charts.
 - [ ] Sanitize CSV fields for formula injection (`=`, `+`, `-`, `@`).
 - [ ] `declare(strict_types=1)`.
 
-**Files:**
-```
-app/Actions/Cruce/ExportarExcelCruceAction.php
-```
-
-**Tests:** TC-011 (Sheet 1 structure), TC-012 (Sheet 2 charts), TC-034 (AREA mapping), TC-035 (24 columns validation), TC-036 (L1), TC-037 (L2), TC-038 (L3).
+**Traces To:** US-005 AC-014, AC-015, plan.md §2.4
 
 ---
 
-### T-015: Exportar Endpoint
+### T015 [S] - Exportar Endpoint
 
-- [ ] **Status:** Deferred (Phase 2)
-- **Priority:** P2 (Nice to Have — FR-05)
-- **Story Points:** 1
-- **Traces to:** plan.md §4.1 `GET /api/cruce/lotes/{lote_id}/exportar`
+_Boundary: Controllers_
+_Depends: T014_
+
+**Priority:** P2
+**Estimated:** 2h
+**Assignee:** Developer
+**Status:** Not Started
 
 **Description:**
 Endpoint to download the generated Excel file.
+
+**Files to Create/Modify:**
+- `app/Http/Controllers/CruceIngresantesController.php` [MODIFY]
 
 **Acceptance Criteria:**
 - [ ] `GET /api/cruce/lotes/{lote_id}/exportar`.
 - [ ] Returns binary Excel download (Content-Type: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).
 - [ ] Auth: roles `admin`, `admisiones`, `marketing`.
 
-**Files:**
-```
-app/Http/Controllers/CruceIngresantesController.php (exportar method)
-```
-
-**Tests:** TC-011.
+**Traces To:** plan.md §4.1 `GET /api/cruce/lotes/{lote_id}/exportar`
 
 ---
 
-## Summary
+## Dependencies Graph
 
-| Sprint | Tasks | Total SP | Dependencies | Scope |
-|--------|-------|----------|-------------|-------|
-| 1: Foundation | T-001, T-002, T-003 | 6 | None | MVP |
-| 2: Core Actions | T-004, T-005 | 7 | Sprint 1 | MVP |
-| 3: Match Engine | T-006, T-007, T-009, T-011 | 15 | Sprint 2 | MVP |
-| 4: API Layer (Core) | T-008, T-010, T-012, T-013 | 7 | Sprint 3 | MVP |
-| 5: Frontend | T-016, T-017, T-018 | 8 | Sprint 4 | MVP |
-| 6: Phase 2 (Deferred) | T-014, T-015 | 6 | Sprint 3 | FR-05 Nice to Have |
-| **Total MVP** | **15 tasks** | **43 SP** | | |
-| **Total con Phase 2** | **17 tasks** | **49 SP** | | |
+```mermaid
+graph TD
+    T001[T001: Migrations] --> T002[T002: Eloquent Models]
+    T001 --> T003[T003: Academia DB Config]
+    T002 --> T004[T004: NormalizarTextoAction]
+    T004 --> T005[T005: ProcesarCargaCsvAction]
+    T003 --> T006[T006: RealizarCruceExactoAction]
+    T002 --> T006
+    T004 --> T006
+    T005 --> T007[T007: ProcessCsvBatchJob]
+    T006 --> T007
+    T007 --> T008[T008: Upload Endpoint]
+    T006 --> T009[T009: CalcularSimilitudesCabosAction]
+    T009 --> T010[T010: Candidatos Endpoint]
+    T006 --> T011[T011: GuardarCruceConfirmadoAction]
+    T011 --> T012[T012: Confirmar Endpoint]
+    T007 --> T013[T013: Lotes Endpoints]
+    T011 --> T014[T014: ExportarExcelCruceAction]
+    T014 --> T015[T015: Exportar Endpoint]
+    T008 --> T016[T016: FileUpload Component]
+    T013 --> T016
+    T010 --> T017[T017: UnmatchedRow Component]
+    T012 --> T017
+    T016 --> T018[T018: App.jsx Integration]
+    T017 --> T018
+    T015 --> T018
+```
 
 ---
 
-## Sign-off
+## Progress Tracking
 
-- [x] Tech Lead: Renzo Santos - Date: 2026-06-25
-- [x] Dev Lead: Renzo Santos - Date: 2026-06-25
-- [x] QA Lead: Diego Castillo y Yerson - Date: 2026-06-25
+| Task | Status | Started | Completed | Notes |
+|------|--------|---------|-----------|-------|
+| T001 | Not Started | | | |
+| T002 | Not Started | | | |
+| T003 | Not Started | | | |
+| T004 | Not Started | | | |
+| T005 | Not Started | | | |
+| T006 | Not Started | | | |
+| T007 | Not Started | | | |
+| T008 | Not Started | | | |
+| T009 | Not Started | | | |
+| T010 | Not Started | | | |
+| T011 | Not Started | | | |
+| T012 | Not Started | | | |
+| T013 | Not Started | | | |
+| T016 | Not Started | | | |
+| T017 | Not Started | | | |
+| T018 | Not Started | | | |
+| T014 | Not Started | | | |
+| T015 | Not Started | | | |
