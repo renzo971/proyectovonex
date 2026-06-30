@@ -99,6 +99,8 @@ graph TB
 
 **Impacto:** El `lote_id` es el único identificador de correlación en logs y eventos.
 
+**Applied:** correlation_id removed from asyncapi.yaml (ProcessCsvBatchJob, CruceBatchProcessedEvent, CruceBatchFailedEvent) — 2026-06-30.
+
 ---
 
 ## 2. Component Design
@@ -202,6 +204,7 @@ See: [data-model.md](./data-model.md)
 | `GET` | `/api/cruce/lotes` | Retrieve list of upload batches | Yes |
 | `GET` | `/api/cruce/lotes/{lote_id}/status` | Retrieve status & stats of job | Yes |
 | `GET` | `/api/cruce/lotes/{lote_id}/pendientes` | List unmatched applicants (paginated) | Yes |
+| `GET` | `/api/cruce/ingresantes/{id}/candidatos` | Get fuzzy match candidates for a specific ingresante | Yes |
 | `POST` | `/api/cruce/ingresantes/{id}/confirmar` | Save manual match or mark as no_ingresado | Yes |
 | `GET` | `/api/cruce/lotes/{lote_id}/exportar` | Export final Excel spreadsheet | Yes |
 
@@ -328,7 +331,7 @@ See: [data-model.md](./data-model.md)
 
 | ID | Issue | Resolution Path | Owner |
 |----|-------|-----------------|-------|
-| 1. | Optimal Levenshtein threshold | Verify performance and relevance with PO during initial staging tests. | Tech Lead |
+| 1. | ~~Optimal Levenshtein threshold~~ | **RESOLVED:** Threshold confirmed at 30% minimum similarity (AC-009, confirmed by PO). No action required. | Tech Lead |
 
 ---
 

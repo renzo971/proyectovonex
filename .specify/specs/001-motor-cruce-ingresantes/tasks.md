@@ -14,7 +14,8 @@
 | Phase 2: Core Implementation | 9 | 46h | Not Started |
 | Phase 3: Frontend & Integration | 3 | 16h | Not Started |
 | Phase 4: Phase 2 / Deferred | 2 | 12h | Not Started |
-| **Total** | **18** | **90h** | |
+| Test Tasks [T] | 3 | 24h | Not Started |
+| **Total** | **21** | **114h** | |
 
 **Legend:**
 - `[P]` = Parallel-safe (can run with other [P] tasks)
@@ -237,6 +238,8 @@ Laravel Queue Job that orchestrates the CSV processing pipeline.
 - [ ] Updates all counter fields in `lotes_cruce` (`total_registros`, `total_ingresantes`, etc.).
 - [ ] On failure: job moves to `failed_jobs`; lote stays in `processing` or moves to `error`; no data loss of already-inserted records (EC-008).
 - [ ] On connection failure to Academia mid-process: pause batch, mark `estado = 'paused'`, alert admin (EC-007).
+- [ ] On batch processing success: dispatches `CruceBatchProcessedEvent` with `lote_id`, `total_registros`, `total_ingresantes`, `total_no_ingresantes`. Verifiable via `Event::fake()` in tests. References: asyncapi.yaml CruceBatchProcessedEvent, TC-050.
+- [ ] On batch processing failure: dispatches `CruceBatchFailedEvent` with `lote_id` and error details. Verifiable via `Event::fake()` in tests. References: asyncapi.yaml CruceBatchFailedEvent, TC-051.
 - [ ] Performance: process ~27k rows in ≤ 50 seconds (NFR-001).
 - [ ] `declare(strict_types=1)`.
 
@@ -266,7 +269,7 @@ Controller method to receive CSV upload and dispatch queue job.
 - [ ] Validate file size ≤ 20 MB (ERR-005 → HTTP 413).
 - [ ] Validate file is CSV (Content-Type or extension check).
 - [ ] Dispatch `ProcessCsvBatchJob` to Redis queue.
-- [ ] Return immediately with HTTP 202: `{ lote_id, estado: "procesando" }`.
+- [ ] Return immediately with HTTP 202: `{ lote_id, estado: "processing" }`.
 - [ ] Auth: roles `admin` or `admisiones`.
 - [ ] `declare(strict_types=1)`.
 
@@ -291,7 +294,7 @@ Compute fuzzy match candidates lazily on first API call for a `pendiente` ingres
 - `app/Actions/Cruce/CalcularSimilitudesCabosAction.php` [NEW]
 
 **Acceptance Criteria:**
-- [ ] Compute Levenshtein distance + letter frequency similarity against academia alumni.
+- [ ] Compute similarity against academia alumni using Dice coefficient sobre bigramas de caracteres + Levenshtein distance. Formula: `similitud = Levenshtein × 0.6 + Dice_bigramas × 0.4`.
 - [ ] Return up to 5 candidates sorted by descending similarity (AC-009).
 - [ ] Only include candidates with similarity ≥ 30% (AC-010). If none, return empty array.
 - [ ] On tie (equal similarity): break tie by alphabetical order of `apellidos` (EC-005).
@@ -325,7 +328,7 @@ Endpoint to retrieve (or lazily compute) fuzzy match candidates.
 - [ ] `GET /api/cruce/ingresantes/{id}/candidatos`.
 - [ ] If candidates already computed (rows in `ingresante_candidatos`): return cached data.
 - [ ] If not computed: invoke `CalcularSimilitudesCabosAction`, persist, return.
-- [ ] Response format: array of `{ alumno_id, nombre_completo, porcentaje_similitud, ranking }`.
+- [ ] Response format: array of `{ alumno_id, nombre_completo, porcentaje_similitud, estado_academia }`. Schema: openapi.yaml CandidatoMatch
 - [ ] Auth: roles `admin` or `admisiones`.
 - [ ] `declare(strict_types=1)`.
 
@@ -474,7 +477,8 @@ React component for resolving pending ingresantes.
 ### T018 [S] - App.jsx Integration
 
 _Boundary: ReactComponents_
-_Depends: T016, T017, T015_
+_Depends: T016, T017_
+_Note: T015 (exportar endpoint) removed from deps — Phase 3 UI does not require export integration to close._
 
 **Priority:** P2
 **Estimated:** 4h
@@ -556,23 +560,90 @@ Endpoint to download the generated Excel file.
 
 ---
 
+## T019 [T] Unit Tests — Core Domain Actions
+
+_Boundary: Tests_
+_Depends: T004, T005, T006, T007, T009_
+
+**Phase:** 1 (parallel to feature tasks)
+**Priority:** P1
+**Estimated:** 8h
+**Assignee:** Developer
+**Status:** Not Started
+
+**Traces To:** US-001, US-002, US-003 — all unit-testable actions
+
+**Scope:** Unit tests for: NormalizarTextoAction, ProcesarCargaCsvAction, RealizarCruceExactoAction, CalcularSimilitudesCabosAction
+
+**Coverage:** TC-002, TC-003, TC-006, TC-007, TC-008
+
+**Type:** PHPUnit unit tests, no DB
+
+---
+
+## T020 [T] Integration Tests — API Endpoints + Queue
+
+_Boundary: Tests_
+_Depends: T008, T011, T013_
+
+**Phase:** 2 (after T008, T011, T013)
+**Priority:** P1
+**Estimated:** 10h
+**Assignee:** Developer
+**Status:** Not Started
+
+**Traces To:** US-001, US-002, US-004, NFR-005, NFR-006
+
+**Scope:** Feature tests for all HTTP endpoints + Redis queue job dispatch/processing
+
+**Coverage:** TC-001, TC-004, TC-005, TC-009, TC-010, TC-015, TC-023, TC-025, TC-026, TC-027, TC-028, TC-029, TC-030, TC-031, TC-032, TC-033, TC-047, TC-048, TC-049, TC-050, TC-051
+
+**Type:** Laravel feature tests with RefreshDatabase + Redis fake
+
+---
+
+## T021 [T] Performance + Security Tests
+
+_Boundary: Tests_
+_Depends: T020_
+
+**Phase:** 3 (after T020)
+**Priority:** P1
+**Estimated:** 6h
+**Assignee:** Developer
+**Status:** Not Started
+
+**Traces To:** NFR-001, NFR-002, NFR-003, NFR-004, NFR-006, INV-07, INV-08
+
+**Scope:** Load tests for NFR-001/NFR-002, credential scan, 20 MB upload validation
+
+**Coverage:** TC-028, TC-029, TC-030, TC-031, TC-041, TC-046
+
+**Type:** k6 / Artillery for load; truffleHog/gitleaks for credential scan
+
+---
+
 ## Dependencies Graph
 
 ```mermaid
 graph TD
     T001[T001: Migrations] --> T002[T002: Eloquent Models]
-    T001 --> T003[T003: Academia DB Config]
-    T002 --> T004[T004: NormalizarTextoAction]
-    T004 --> T005[T005: ProcesarCargaCsvAction]
+    T003[T003: Academia DB Config]
+    T004[T004: NormalizarTextoAction]
+    T002 --> T005[T005: ProcesarCargaCsvAction]
+    T004 --> T005
     T003 --> T006[T006: RealizarCruceExactoAction]
     T002 --> T006
     T004 --> T006
     T005 --> T007[T007: ProcessCsvBatchJob]
     T006 --> T007
     T007 --> T008[T008: Upload Endpoint]
-    T006 --> T009[T009: CalcularSimilitudesCabosAction]
+    T002 --> T009[T009: CalcularSimilitudesCabosAction]
+    T004 --> T009
+    T006 --> T009
     T009 --> T010[T010: Candidatos Endpoint]
-    T006 --> T011[T011: GuardarCruceConfirmadoAction]
+    T002 --> T011[T011: GuardarCruceConfirmadoAction]
+    T006 --> T011
     T011 --> T012[T012: Confirmar Endpoint]
     T007 --> T013[T013: Lotes Endpoints]
     T011 --> T014[T014: ExportarExcelCruceAction]
@@ -583,7 +654,15 @@ graph TD
     T012 --> T017
     T016 --> T018[T018: App.jsx Integration]
     T017 --> T018
-    T015 --> T018
+    T004 --> T019[T019 Unit Tests]
+    T005 --> T019
+    T006 --> T019
+    T007 --> T019
+    T009 --> T019
+    T008 --> T020[T020 Integration Tests]
+    T011 --> T020
+    T013 --> T020
+    T020 --> T021[T021 Performance Tests]
 ```
 
 ---
@@ -610,3 +689,6 @@ graph TD
 | T018 | Not Started | | | |
 | T014 | Not Started | | | |
 | T015 | Not Started | | | |
+| T019 | Not Started | | | |
+| T020 | Not Started | | | |
+| T021 | Not Started | | | |
