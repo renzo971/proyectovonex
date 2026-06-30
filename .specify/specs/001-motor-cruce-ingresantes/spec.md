@@ -31,6 +31,11 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 - [ ] **AC-001:** Dado un archivo CSV con múltiples fechas de examen, cuando se sube al sistema, entonces se divide en lotes independientes por fecha de examen, se eliminan automáticamente las filas idénticas duplicadas dentro del lote, y se ignoran silenciosamente las fechas que ya fueron procesadas previamente, registrando el salto en el log del lote.
 - [ ] **AC-001a:** El archivo CSV debe contener exactamente las siguientes 12 columnas: `CODIGO`, `APELLIDOS`, `NOMBRES`, `EAP`, `PUNTAJE`, `MERITO`, `OBSERVACION`, `TIPO`, `MODALIDAD`, `UNIVERSIDAD`, `PERIODO`, `FECHA`. Si falta alguna columna o tiene nombres incorrectos, se aborta la importación.
+- [ ] **AC-001b:** El sistema valida la codificación del archivo CSV y acepta únicamente UTF-8 o ISO-8859-1; en caso contrario la importación se aborta con error descriptivo.
+- [ ] **AC-001c:** El endpoint de carga rechaza archivos mayores a 20 MB con HTTP 413 y registra el motivo en el log del lote.
+- [ ] **AC-001d:** Si `ProcessCsvBatchJob` falla de forma no recuperable, el job se registra en `failed_jobs`, el `lote_cruce` se marca con estado `error`, y no se duplican registros ya persistidos.
+- [ ] **AC-001e:** El procesamiento en cola (Redis) tolera reinicios del worker: jobs fallidos quedan en `failed_jobs` y el lote mantiene consistencia para reintentos posteriores.
+- [ ] **AC-001f:** El procesamiento completo de un lote en entorno de producción sintético (≈27,000 filas × 12 columnas) debe completarse en menos de 50 segundos desde `Job::dispatch()` hasta `lotes_cruce.estado = 'completado'.`
 - [ ] **AC-002:** Dado un registro del CSV, cuando se aplica la normalización, entonces el texto se convierte íntegramente a MAYÚSCULAS, se eliminan todas las tildes (á→A, é→E, í→I, ó→O, ú→U) y se reemplaza estrictamente la "Ñ" por "N" sin excepción alguna.
 - [ ] **AC-003:** Dado un nombre normalizado, cuando se procesa la cadena de texto, entonces el sistema separa lógicamente el apellido paterno, el apellido materno y los nombres, reconociendo correctamente apellidos compuestos de dos o más palabras (ej. "DE LA CRUZ", "DEL AGUILA").
 - [ ] **AC-004:** Dado el archivo CSV, cuando se importa el lote, entonces el sistema normaliza primero el campo `OBSERVACION` (mayúsculas, sin tildes) y luego aplica el filtro: los registros cuyo valor normalizado sea exactamente `ALCANZO VACANTE` se persisten en la tabla `ingresantes`; todos los demás registros se persisten en la tabla `no_ingresantes` para trazabilidad. Ambas inserciones quedan vinculadas al mismo `lote_cruce_id` y se registran los totales de cada grupo en el log del lote.
@@ -91,6 +96,8 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 - [ ] **AC-009:** Dado un ingresante que no obtiene match exacto, cuando el motor calcula la similitud comparando la frecuencia de letras y la distancia de Levenshtein contra los alumnos de la academia, entonces genera una lista ordenada de mayor a menor probabilidad con hasta 5 candidatos potenciales y marca al ingresante como `pendiente`.
 - [ ] **AC-010:** Dado un ingresante en estado `pendiente`, cuando ningún alumno supera el umbral de similitud del 30%, entonces la lista de candidatos estará vacía y el sistema expondrá la opción "Sin coincidencias encontradas — Marcar como No Ingresado" en la interfaz.
 
+- [ ] **AC-003a:** El sistema debe procesar lotes grandes con tiempos de ejecución medibles; ver AC-001f para el objetivo de rendimiento de procesamiento por lote.
+
 #### Technical Notes
 
 - El cruce exacto (AC-008) es responsabilidad de `RealizarCruceExactoAction.php`.
@@ -125,6 +132,9 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 - [ ] **AC-011:** Dado un ingresante en estado `pendiente`, cuando se visualiza en la interfaz React, entonces se muestra una fila con sus datos del CSV (apellido paterno, materno, nombres, fecha de examen) y un selector `<select>` con los candidatos ordenados de mayor a menor probabilidad, mostrando para cada uno el nombre completo y el porcentaje de similitud.
 - [ ] **AC-012:** Dado que el administrador selecciona un candidato del menú y presiona "Confirmar Match", cuando el sistema procesa la acción, entonces guarda la asociación invocando `GuardarCruceConfirmadoAction`, cambia el estado del ingresante a `confirmado_manual` y actualiza los datos enriquecidos en la base de datos analítica.
 - [ ] **AC-013:** Dado que ningún candidato corresponde al ingresante, cuando el administrador selecciona "Sin coincidencias encontradas — Marcar como No Ingresado" y confirma, entonces el estado del ingresante se actualiza a `no_ingresado` en la base de datos analítica.
+
+- [ ] **AC-004a:** El endpoint `GET /api/cruce/ingresantes/{id}/candidatos` debe responder con latencia p95 < 300 ms en condiciones representativas.
+- [ ] **AC-004b:** Cuando la confirmación se envía con un `alumno_id` inexistente, el endpoint retorna HTTP 404 y el estado del ingresante no cambia.
 
 #### UI/UX Notes
 

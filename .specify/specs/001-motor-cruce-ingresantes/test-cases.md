@@ -164,6 +164,36 @@
 
 ---
 
+#### TC-047: Consultar estado del lote vía API
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | plan.md: `/api/cruce/lotes/{lote_id}/status`, NFR-005 |
+
+**Dado:** Un lote en proceso o completado.
+**Cuando:** Se llama `GET /api/cruce/lotes/{lote_id}/status`.
+**Entonces:** La respuesta contiene el `lote_id`, estado actual, totales de registros, totales de ingresantes, no_ingresantes, match exacto, pendientes, no_ingresados y timestamps de inicio/fin.
+
+---
+
+#### TC-048: Consultar ingresantes pendientes vía API
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | plan.md: `/api/cruce/lotes/{lote_id}/pendientes`, US-004 AC-011 |
+
+**Dado:** Un lote con ingresantes en estado `pendiente`.
+**Cuando:** Se llama `GET /api/cruce/lotes/{lote_id}/pendientes`.
+**Entonces:** La respuesta devuelve una lista paginada de ingresantes `pendiente` con sus datos CSV normalizados y un total de páginas disponible.
+
+---
+
 ### 2.3 Historia de Usuario: US-003 - Motor de Coincidencia en Dos Fases
 
 #### TC-006: Cruce exacto automático con 2 apellidos y 1 nombre
@@ -317,7 +347,7 @@
 | **Automatizado** | Sí |
 | **Trazas a** | EC-002, ERR-001 |
 
-**Dado:** Un CSV faltando `NOMBRES`, `OBSERVACION` o `FECHA_EXAMEN`.
+**Dado:** Un CSV faltando `NOMBRES`, `OBSERVACION` o `FECHA`.
 **Cuando:** Se intenta subir el archivo.
 **Entonces:** La carga se rechaza con HTTP 422 y mensaje que indica las columnas faltantes.
 
@@ -577,7 +607,7 @@
 | **Automatizado** | Sí |
 | **Trazas a** | NFR-002, plan.md: API endpoint de candidatos |
 
-**Escenario:** Consultar `GET /api/cruce/{ingresante}/candidatos` con carga representativa.
+**Escenario:** Consultar `GET /api/cruce/ingresantes/{ingresante_id}/candidatos` con carga representativa.
 **Objetivo:** p95 < 300 ms.
 
 ---
@@ -922,7 +952,7 @@
 | US-003/AC-008 |  | TC-006 |  |  |
 | US-003/AC-009 | TC-007 |  |  |  |
 | US-003/AC-010 |  | TC-008, TC-015 |  |  |
-| US-004/AC-011 |  |  | TC-009 |  |
+| US-004/AC-011 |  |  | TC-009, TC-048 |  |
 | US-004/AC-012 |  |  | TC-009 |  |
 | US-004/AC-013 |  |  | TC-010 |  |
 | US-005/AC-014 | TC-034, TC-036, TC-037, TC-038 | TC-011, TC-035 |  |  |
@@ -946,7 +976,7 @@
 | NFR-002 |  |  |  | TC-029 |
 | NFR-003 |  |  |  | TC-030 |
 | NFR-004 |  | TC-031 |  |  |
-| NFR-005 |  | TC-032 |  |  |
+| NFR-005 |  | TC-032, TC-047 |  |  |
 | NFR-006 |  | TC-033 |  |  |
 | INV-01 | TC-039 |  |  |  |
 | INV-02 |  | TC-040 |  |  |
