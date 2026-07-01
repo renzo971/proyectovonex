@@ -331,7 +331,7 @@ See: [data-model.md](./data-model.md)
 
 | ID | Issue | Resolution Path | Owner |
 |----|-------|-----------------|-------|
-| 1. | ~~Optimal Levenshtein threshold~~ | **RESOLVED:** Threshold confirmed at 30% minimum similarity (AC-009, confirmed by PO). No action required. | Tech Lead |
+| 1. | ~~Optimal Levenshtein threshold~~ | **RESOLVED:** Threshold confirmed at 70% minimum similarity (AC-009, confirmed by PO). No action required. | Tech Lead |
 
 ---
 
