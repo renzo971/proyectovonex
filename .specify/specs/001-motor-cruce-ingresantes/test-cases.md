@@ -364,6 +364,25 @@ VALUES (100, 'ALU001', 1, 2, 1, NOW());
 
 ---
 
+#### TC-052: CSV con BOM UTF-8 es procesado correctamente
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | US-001, AC-001a |
+
+**Dado:** Un archivo CSV con BOM UTF-8 (`\xEF\xBB\xBF`) al inicio (común en exportaciones de Excel).
+**Cuando:** Se sube el archivo vía `POST /api/cruce/upload`.
+**Entonces:** El sistema detecta y remueve el BOM antes de validar los headers. Los headers se reconocen correctamente y el lote se crea sin errores de "Formato de columnas incorrecto".
+
+**Datos de Prueba:**
+- Input: CSV file con `\xEF\xBB\xBF` + `CODIGO,APELLIDOS,...`
+- Esperado: HTTP 202 con `lote_id` (no HTTP 400 por headers inválidos).
+
+---
+
 ### 2.5 Historia de Usuario: US-005 - Exportación de Reporte Consolidado en Excel
 
 #### TC-011: Generar Excel con datos crudos y enriquecidos en Hoja 1
@@ -531,6 +550,23 @@ VALUES (100, 'ALU001', 1, 2, 1, NOW());
 **Dado:** Worker Redis reiniciado durante un job activo.
 **Cuando:** El job falla.
 **Entonces:** El job debe aparecer en `failed_jobs`; el lote permanece en estado `processing` sin registros duplicados ni perdidos.
+
+---
+
+### EC-009: CSV exportado desde Excel con BOM UTF-8
+
+#### TC-053: BOM al inicio del archivo no impide el reconocimiento de headers
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | EC-009, US-001 AC-001a |
+
+**Dado:** Un archivo CSV exportado desde Excel que incluye BOM UTF-8 (`\xEF\xBB\xBF`) antes del header `CODIGO`.
+**Cuando:** Se sube el archivo vía `POST /api/cruce/upload`.
+**Entonces:** El BOM se remueve automáticamente, los headers se reconocen como `CODIGO, APELLIDOS, NOMBRES...` y el lote se crea exitosamente. Sin el stripping del BOM, el primer header se leería como `\xEF\xBB\xBFCODIGO` y la validación fallaría.
 
 ---
 
