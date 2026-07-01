@@ -266,7 +266,7 @@ See: [data-model.md](./data-model.md)
 
 | Service | Purpose | Integration Method | Error Handling |
 |---------|---------|-------------------|----------------|
-| **Academia DB** | Lookup student enrollment records | Database Connection (Secondary PostgreSQL schema) | Retry with exponential backoff; pause batch if database is unreachable. |
+| **Academia DB** | Lookup student enrollment records | Database Connection (Secondary PostgreSQL schema) via 3-table join (`alumno_matricula` → `alumnos` → `personas`). Ver `context-bridge.md` para el schema detallado. | Retry with exponential backoff; pause batch if database is unreachable. |
 
 ---
 

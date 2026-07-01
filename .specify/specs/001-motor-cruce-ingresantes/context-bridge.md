@@ -57,21 +57,80 @@ Automatizar la validación y emparejamiento de identidades de ingresantes UNMSM 
 
 **Contrato mínimo esperado del schema de academia:**
 
-| Campo | Tipo | Notas |
+El schema real de la base `academia` usa claves primarias varchar y nombres de tablas en plural. Las relaciones entre tablas son:
+
+```
+alumno_matricula.alumno_codigo → alumnos.codigo
+alumnos.persona_dni → personas.dni
+alumno_matricula.aula_id → aulas.id
+aulas.matricula_id → matriculas.id
+matriculas.id → ciclos.matricula_id
+```
+
+### Tabla: `personas`
+
+| Campo | Tipo | PK | Notas |
+|---|---|---|---|
+| `dni` | VARCHAR | PK | DNI del alumno |
+| `nombres` | VARCHAR | | Nombres — se normaliza antes de comparar |
+| `apellido_paterno` | VARCHAR | | Apellido paterno (separado) |
+| `apellido_materno` | VARCHAR | | Apellido materno (separado) |
+| `telefono` | VARCHAR | | Celular del alumno |
+
+### Tabla: `alumnos`
+
+| Campo | Tipo | PK/FK | Notas |
+|---|---|---|---|
+| `codigo` | VARCHAR | PK | Código interno del alumno |
+| `persona_dni` | VARCHAR | FK → personas.dni | DNI de la persona |
+| `email` | VARCHAR | | Email del alumno |
+
+### Tabla: `alumno_matricula`
+
+| Campo | Tipo | PK/FK | Notas |
+|---|---|---|---|
+| `id` | BIGINT | PK | ID autoincremental |
+| `alumno_codigo` | VARCHAR | FK → alumnos.codigo | Código del alumno |
+| `aula_id` | BIGINT | FK → aulas.id | Aula asignada |
+| `estado` | SMALLINT | | 2=MATRICULADO, 3=PAGADO, 9=SUSPENDIDO, 13=STAND BY |
+| `estado_aula` | SMALLINT | | 1 = aula activa |
+| `fecha` | TIMESTAMP | | Fecha de matrícula |
+| `matricularegular_id` | BIGINT | NULLABLE | Si tiene valor, es un duplicado regular |
+
+### Tablas auxiliares
+
+| Tabla | Campos clave |
+|---|---|
+| `aulas` | `id`, `matricula_id`, `hora_inicio`, `codigo_aula` |
+| `matriculas` | `id` |
+| `ciclos` | `id`, `matricula_id`, `fecha_inicio`, `fecha_fin` |
+
+### Filtros para alumnos activos (usados en el matching)
+
+```sql
+WHERE alumno_matricula.estado IN (2, 3, 9, 13)   -- MATRICULADO, PAGADO, SUSPENDIDO, STAND BY
+  AND alumno_matricula.estado_aula = 1            -- aula activa
+  AND EXISTS (SELECT 1 FROM ciclos                -- ciclo activo
+              WHERE ciclos.matricula_id = matriculas.id
+              AND ciclos.fecha_fin >= CURRENT_DATE)
+  AND alumno_matricula.id NOT IN (                -- excluir duplicados regulares
+      SELECT matricularegular_id FROM alumno_matricula
+      WHERE matricularegular_id IS NOT NULL
+  )
+```
+
+### Jerarquía de estados (INV-06 actualizado)
+
+El campo `alumno_matricula.estado` es numérico. La jerarquía se mapea como:
+
+| Valor | Estado | Prioridad |
 |---|---|---|
-| `dni_alumno` | VARCHAR | DNI del alumno |
-| `apellidos` | VARCHAR | Apellidos — se normaliza antes de comparar |
-| `nombres` | VARCHAR | Nombres — se normaliza antes de comparar |
-| `anio` | VARCHAR | Año del ciclo académico |
-| `local` | VARCHAR | Sede / campus |
-| `periodo` | VARCHAR | Ciclo académico |
-| `aula` | VARCHAR | Aula asignada |
-| `fecha` | DATE | Fecha de matrícula o registro |
-| `cel_alumno` | VARCHAR | Celular del alumno |
-| `dni_responsable` | VARCHAR | DNI del apoderado |
-| `cel_responsable` | VARCHAR | Celular del apoderado |
-| `estado_matricula` | VARCHAR | Uno de los 8 estados válidos (ver INV-06) |
-| `fecha_registro` | TIMESTAMP | Timestamp de registro completo |
+| 2 | MATRICULADO | 1 (más alto) |
+| 3 | PAGADO | 2 |
+| 9 | SUSPENDIDO | 3 |
+| 13 | STAND BY | 4 (más bajo) |
+
+Los estados FINALIZADO, RETIRADO, TRASLADADO y ANULADO no existen en esta base como estados activos de `alumno_matricula.estado`.
 
 **Anti-Corruption Layer:** La normalización (`NormalizarTextoAction`) se aplica a los datos de Academia antes de cualquier comparación. El dominio nunca almacena strings crudos de Academia — solo formas normalizadas.
 
@@ -110,7 +169,7 @@ Reglas que el diseño técnico DEBE preservar. Cualquier implementación que las
 | INV-03 | Una `fecha_examen` se procesa exactamente una vez — re-subir el mismo CSV es idempotente | Forzado por constraint UNIQUE en `lotes_cruce.fecha_examen` |
 | INV-04 | Las filas idénticas dentro del mismo CSV se de-duplican antes de persistir | La de-duplicación ocurre en `ProcesarCargaCsvAction` ANTES de cualquier INSERT |
 | INV-05 | El filtro de OBSERVACION se aplica SOLO sobre el valor normalizado, nunca sobre el string crudo del CSV | La normalización precede al filtrado en el pipeline del job |
-| INV-06 | La jerarquía de estados de alumno es fija e inmutable: MATRICULADO > PAGADO > FINALIZADO > SUSPENDIDO > RETIRADO > TRASLADADO > STAND BY > ANULADO | Todo código que resuelva alumni con múltiples registros debe usar este orden exacto |
+| INV-06 | La jerarquía de estados de alumno es fija e inmutable. En el schema real de academia los estados son numéricos: 2 (MATRICULADO) > 3 (PAGADO) > 9 (SUSPENDIDO) > 13 (STAND BY). Los estados FINALIZADO, RETIRADO, TRASLADADO y ANULADO no existen como valores activos en `alumno_matricula.estado`. | Todo código que resuelva alumni con múltiples registros debe usar este orden exacto por valor numérico |
 | INV-07 | La base `academia` es estrictamente de solo lectura para este sistema | Cero operaciones INSERT, UPDATE o DELETE sobre la conexión `academia` |
 | INV-08 | Las credenciales de `academia` nunca se hardcodean | La configuración de conexión se toma exclusivamente de variables de entorno `DB_ACADEMIA_*` |
 

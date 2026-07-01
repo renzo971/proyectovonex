@@ -82,21 +82,29 @@ erDiagram
     }
 
     Alumno {
-        bigint id PK "Academia DB"
-        string dni_alumno
-        string apellidos
-        string nombres
-        string anio
-        string local
-        string periodo
-        string aula
-        date fecha
-        string cel_alumno
-        string dni_responsable
-        string cel_responsable
-        string estado_matricula
-        timestamp fecha_registro
+        string codigo PK "Academia DB - alumnos.codigo"
+        string persona_dni "FK -> personas.dni"
+        string email
     }
+
+    Persona {
+        string dni PK "Academia DB - personas.dni"
+        string apellido_paterno
+        string apellido_materno
+        string nombres
+        string telefono
+    }
+
+    AlumnoMatricula {
+        bigint id PK "Academia DB - alumno_matricula.id (usado como alumno_id)"
+        string alumno_codigo "FK -> alumnos.codigo"
+        smallint estado "2=MATRICULADO, 3=PAGADO, 9=SUSPENDIDO, 13=STAND BY"
+        smallint estado_aula "1=activo"
+        timestamp fecha
+    }
+```
+
+> **Nota sobre el schema de academia:** La base `academia` no tiene una entidad `Alumnos` plana con todos los campos. En su lugar, los datos se distribuyen en 3 tablas relacionadas: `personas` (datos personales, PK = `dni`), `alumnos` (registro académico, PK = `codigo`, FK = `persona_dni`), y `alumno_matricula` (matrícula activa, PK = `id`, FK = `alumno_codigo`). El `alumno_id` que se almacena en la tabla `ingresantes` corresponde a `alumno_matricula.id`. Ver `context-bridge.md` para el detalle completo de tablas auxiliares (aulas, matriculas, ciclos).
 ```
 
 ---
@@ -227,25 +235,43 @@ erDiagram
 
 ### 2.5 Entity: Alumno (Base de Datos Academia)
 
-**Description:** Represents logical student records in the secondary Academia DB, queried during matching.
+**Description:** Represents student enrollment records in the secondary Academia DB, queried during matching. El schema real usa 3 tablas principales en lugar de una sola tabla `alumnos`.
 
-**Logical Structure:**
+**Estructura real (3 tablas):**
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `dni_alumno` | VARCHAR | Student's national identity card number |
-| `apellidos` | VARCHAR | Student's surnames |
-| `nombres` | VARCHAR | Student's given names |
-| `anio` | VARCHAR | Year of academic cycle |
-| `local` | VARCHAR | Sede / branch campus (e.g. Presencial Lima) |
-| `periodo` | VARCHAR | Ciclo / academic period (e.g. Verano 2026) |
-| `aula` | VARCHAR | Assigned classroom |
-| `fecha` | DATE | Enrollment or registration date |
-| `cel_alumno` | VARCHAR | Student's cell phone number |
-| `dni_responsable` | VARCHAR | Responsible person's DNI |
-| `cel_responsable` | VARCHAR | Responsible person's cell phone number |
-| `estado_matricula` | VARCHAR | Matriculation status (MATRICULADO, RETIRADO, etc.) |
-| `fecha_registro` | TIMESTAMP | Full registration timestamp |
+#### `personas` — datos personales
+
+| Column | Type | PK | Description |
+|--------|------|----|-------------|
+| `dni` | VARCHAR | PK | Student's national identity card number |
+| `nombres` | VARCHAR | | Student's given names |
+| `apellido_paterno` | VARCHAR | | Student's first surname |
+| `apellido_materno` | VARCHAR | | Student's second surname |
+| `telefono` | VARCHAR | | Student's phone number |
+
+#### `alumnos` — registro académico
+
+| Column | Type | PK/FK | Description |
+|--------|------|-------|-------------|
+| `codigo` | VARCHAR | PK | Internal student code |
+| `persona_dni` | VARCHAR | FK → personas.dni | Link to personal data |
+| `email` | VARCHAR | | Student email |
+
+#### `alumno_matricula` — matrícula activa
+
+| Column | Type | PK/FK | Description |
+|--------|------|-------|-------------|
+| `id` | BIGINT | PK | Enrollment ID (usado como `alumno_id` en el cruce) |
+| `alumno_codigo` | VARCHAR | FK → alumnos.codigo | Link to academic record |
+| `aula_id` | BIGINT | FK → aulas.id | Assigned classroom |
+| `estado` | SMALLINT | | Enrollment state: 2=MATRICULADO, 3=PAGADO, 9=SUSPENDIDO, 13=STAND BY |
+| `estado_aula` | SMALLINT | | 1 = active classroom |
+| `fecha` | TIMESTAMP | | Enrollment date |
+| `matricularegular_id` | BIGINT | NULLABLE | If set, this is a regular duplicate |
+
+**Nota sobre la jerarquía de estados (INV-06):**
+La jerarquía original (MATRICULADO > PAGADO > FINALIZADO > SUSPENDIDO > RETIRADO > TRASLADADO > STAND BY > ANULADO) fue reducida a los 4 estados activos que existen en `alumno_matricula.estado`:
+- 2 (MATRICULADO) > 3 (PAGADO) > 9 (SUSPENDIDO) > 13 (STAND BY)
 
 ---
 
@@ -428,7 +454,7 @@ No database seeds are required for production, as the engine dynamically process
 | `no_ingresantes` | `codigo` | PII — identificador oficial de postulante UNMSM | Read-only; acceso restringido a rol `admisiones` para auditoría |
 | `ingresante_candidatos` | `alumno_id` | PII reference — apunta a registro en BD `academia` | No exponer sin validación de rol; solo accesible en contexto de resolución asistida |
 
-> **Nota:** Los campos `dni_alumno`, `cel_alumno`, `cel_responsable` y `dni_responsable` provenientes de la BD `academia` NO se persisten en las tablas propias de este sistema. Solo se incluyen en el reporte Excel (columnas R y S de AC-014), cuyo acceso está restringido a roles `admin`, `admisiones` y `marketing`. Si en el futuro se decide persistir estos campos, deberán clasificarse como PII Sensible y requerir cifrado en reposo.
+> **Nota:** Los campos de la BD `academia` (nombres, apellidos, DNI, teléfonos) NO se persisten en las tablas propias de este sistema. Solo se incluyen en el reporte Excel (columnas B, R y S de AC-014), cuyo acceso está restringido a roles `admin`, `admisiones` y `marketing`. Si en el futuro se decide persistir estos campos, deberán clasificarse como PII Sensible y requerir cifrado en reposo.
 
 ---
 
