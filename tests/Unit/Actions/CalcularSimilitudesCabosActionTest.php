@@ -112,4 +112,30 @@ class CalcularSimilitudesCabosActionTest extends TestCase
         sort($sortedSurnames);
         expect($surnames)->toBe($sortedSurnames);
     }
+
+    /**
+     * TC-009: Cálculo y ranking de candidatos difusos para GONZALES DE LA FLOR PEDRO
+     * Traces to: US-003, AC-009, test-cases.md TC-9
+     * Type: Integration
+     * Priority: P1
+     */
+    #[Test]
+    public function tc009_fuzzy_ranking_gonzales_de_la_flor(): void
+    {
+        $lote = LoteCruce::factory()->create(['fecha_examen' => '2026-05-17']);
+        $ingresante = Ingresante::factory()->create([
+            'lote_cruce_id' => $lote->id,
+            'apellido_paterno' => 'GONZALES',
+            'apellido_materno' => 'DE LA FLOR',
+            'nombres' => 'PEDRO',
+            'estado_match' => 'pendiente',
+        ]);
+
+        $result = $this->action->execute($ingresante->id);
+
+        expect($result['success'])->toBeTrue();
+        expect($result['data']['candidates'])->toHaveCount(5);
+        expect($result['data']['candidates'][0]['porcentaje_similitud'])->toBeGreaterThanOrEqual(90);
+        expect($result['data']['candidates'][4]['porcentaje_similitud'])->toBeGreaterThanOrEqual(30);
+    }
 }

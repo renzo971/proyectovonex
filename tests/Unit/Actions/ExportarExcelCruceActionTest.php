@@ -135,4 +135,30 @@ class ExportarExcelCruceActionTest extends TestCase
             expect($result)->toBe($case['expected']);
         }
     }
+
+    /**
+     * TC-007: Integridad estructural del Excel - Hoja 1 y Hoja 2
+     * Traces to: US-005, AC-014, AC-015, test-cases.md TC-7
+     * Type: Integration
+     * Priority: P1
+     */
+    #[Test]
+    public function tc007_excel_contains_dual_sheet_structure(): void
+    {
+        $lote = LoteCruce::factory()->create(['fecha_examen' => '2026-05-17']);
+        Ingresante::factory()->count(20)->create([
+            'lote_cruce_id' => $lote->id,
+        ]);
+
+        $result = $this->action->execute($lote->id);
+
+        expect($result['success'])->toBeTrue();
+        expect($result['data']['sheets'])->toContain('Hoja 1');
+        expect($result['data']['sheets'])->toContain('Hoja 2');
+        expect($result['data']['columnas_csv'])->toHaveCount(13); // A-M
+        expect($result['data']['columnas_enriquecidas'])->toContain('Sede');
+        expect($result['data']['columnas_enriquecidas'])->toContain('Ciclo');
+        expect($result['data']['columnas_enriquecidas'])->toContain('Estado');
+        expect($result['data']['has_dashboard'])->toBeTrue();
+    }
 }

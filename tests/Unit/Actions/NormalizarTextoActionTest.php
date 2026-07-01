@@ -71,6 +71,24 @@ class NormalizarTextoActionTest extends TestCase
     }
 
     /**
+     * TC-002: Separación de apellidos compuestos y nombres con normalización
+     * Traces to: US-001, AC-002, AC-003, test-cases.md TC-2
+     * Type: Unit
+     * Priority: P1
+     */
+    #[Test]
+    public function tc002_separates_compound_surname_and_normalizes(): void
+    {
+        $input = 'De la Cruz Muñoz, María-José';
+        $result = $this->action->separar($input);
+
+        expect($result)->toHaveKeys(['apellido_paterno', 'apellido_materno', 'nombres']);
+        expect($result['apellido_paterno'])->toBe('DE LA CRUZ');
+        expect($result['apellido_materno'])->toBe('MUNOZ');
+        expect($result['nombres'])->toBe('MARIA-JOSE');
+    }
+
+    /**
      * TC-044: Valor crudo de OBSERVACION nunca es evaluado — solo el normalizado (INV-05)
      * Traces to: INV-05, CQ-001, US-001 AC-004
      * Type: Unit

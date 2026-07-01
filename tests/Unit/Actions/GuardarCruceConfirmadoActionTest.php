@@ -48,4 +48,36 @@ class GuardarCruceConfirmadoActionTest extends TestCase
         expect($result['data']['estado_match'])->toBe('confirmado_manual');
         expect($result['data']['alumno_id'])->toBe($alumnoId);
     }
+
+    /**
+     * TC-010: Validación asistida - confirmar match manual desde UI React
+     * Traces to: US-004, AC-011, AC-012, test-cases.md TC-10
+     * Type: Integration
+     * Priority: P1
+     */
+    #[Test]
+    public function tc010_confirms_manual_match_via_api_endpoint(): void
+    {
+        $lote = LoteCruce::factory()->create(['fecha_examen' => '2026-05-17']);
+        $ingresante = Ingresante::factory()->create([
+            'lote_cruce_id' => $lote->id,
+            'apellido_paterno' => 'GONZALES',
+            'apellido_materno' => 'DE LA FLOR',
+            'nombres' => 'PEDRO',
+            'estado_match' => 'pendiente',
+        ]);
+        $alumnoId = 999;
+
+        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+            'alumno_id' => $alumnoId,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'data' => [
+                'estado_match' => 'confirmado_manual',
+            ],
+        ]);
+    }
 }

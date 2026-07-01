@@ -73,4 +73,29 @@ class RealizarCruceExactoActionTest extends TestCase
         expect($result)->toBeFalse();
         expect($ingresante->fresh()->estado_match)->toBe('pendiente');
     }
+
+    /**
+     * TC-003: Coincidencia estricta de CASTILLO TORIBIO DIEGO
+     * Traces to: US-003, AC-008, test-cases.md TC-3
+     * Type: Integration
+     * Priority: P1
+     */
+    #[Test]
+    public function tc003_strict_match_with_extra_middle_name(): void
+    {
+        $lote = LoteCruce::factory()->create(['fecha_examen' => '2026-05-17']);
+        $ingresante = Ingresante::factory()->create([
+            'lote_cruce_id' => $lote->id,
+            'apellido_paterno' => 'CASTILLO',
+            'apellido_materno' => 'TORIBIO',
+            'nombres' => 'DIEGO',
+            'estado_match' => 'pendiente',
+        ]);
+
+        $result = $this->action->execute($ingresante->id);
+
+        expect($result['success'])->toBeTrue();
+        expect($result['data']['estado_match'])->toBe('confirmado_automatico');
+        expect($result['data']['alumno_nombre_completo'])->toContain('CASTILLO TORIBIO DIEGO');
+    }
 }
