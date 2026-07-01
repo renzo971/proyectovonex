@@ -205,7 +205,7 @@ Perform exact matching (2 surnames + 1 name) against the Academia database.
 - [ ] Match criteria: 2 exact surnames + at least 1 exact first name (AC-008).
 - [ ] On match: set `alumno_id`, `estado_match = 'confirmado_automatico'`, `porcentaje_similitud = 100.00`.
 - [ ] **INVARIANT INV-01:** This action is the ONLY code path that may assign `confirmado_automatico`. No other action, job, or controller may set this value.
-- [ ] For alumni with multiple historical records: resolve state using hierarchy INV-06 (MATRICULADO > PAGADO > FINALIZADO > SUSPENDIDO > RETIRADO > TRASLADADO > STAND BY > ANULADO).
+- [ ] For alumni with multiple historical records: resolve state using hierarchy INV-06 (MATRICULADO (2) > PAGADO (3) > FINALIZADO (14) > SUSPENDIDO (9) > RETIRADO (0) > TRASLADADO (12) > STAND BY (13) > ANULADO (11)).
 - [ ] Zero write operations to `academia` connection (INV-07).
 - [ ] `declare(strict_types=1)`.
 
@@ -296,7 +296,7 @@ Compute fuzzy match candidates lazily on first API call for a `pendiente` ingres
 **Acceptance Criteria:**
 - [ ] Compute similarity against academia alumni using Dice coefficient sobre bigramas de caracteres + Levenshtein distance. Formula: `similitud = Levenshtein × 0.6 + Dice_bigramas × 0.4`.
 - [ ] Return up to 5 candidates sorted by descending similarity (AC-009).
-- [ ] Only include candidates with similarity ≥ 30% (AC-010). If none, return empty array.
+- [ ] Only include candidates with similarity ≥ 70% (AC-010). If none, return empty array.
 - [ ] On tie (equal similarity): break tie by alphabetical order of `apellidos` (EC-005).
 - [ ] Persist computed candidates to `ingresante_candidatos` table (lazy persistence per AD-001).
 - [ ] Subsequent calls: return cached data from `ingresante_candidatos` (no re-computation).
@@ -410,10 +410,10 @@ CRUD-like endpoints for batch listing, status, and pending ingresantes.
 **Acceptance Criteria:**
 - [ ] `GET /api/cruce/lotes` — paginated list of batches with counters.
 - [ ] `GET /api/cruce/lotes/{lote_id}/status` — batch status with all counter fields.
-- [ ] `GET /api/cruce/lotes/{lote_id}/pendientes` — paginated list of `estado_match = 'pendiente'` ingresantes.
+- [ ] `GET /api/cruce/lotes/{lote_id}/pendientes` — paginated list of `estado_match = 'pendiente'` ingresantes. Los registros deben venir ordenados: primero los que **tienen candidatos sugeridos** en `ingresante_candidatos` (ordenados por el porcentaje de similitud más alto de sus candidatos de mayor a menor) y, finalmente, al final de la paginación, los que **no tienen ningún candidato/referencia** (lista de candidatos vacía).
 - [ ] Auth: roles `admin`, `admisiones`, `marketing` (read-only endpoints).
 
-**Traces To:** plan.md §4.1, NFR-005
+**Traces To:** plan.md §4.1, NFR-005, spec.md US-004 UI/UX Notes
 
 ---
 

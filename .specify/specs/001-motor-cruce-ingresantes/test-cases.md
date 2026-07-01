@@ -212,6 +212,8 @@ VALUES (100, 'ALU001', 1, 2, 1, NOW());
 **Dado:** Un lote con ingresantes en estado `pendiente`.
 **Cuando:** Se llama `GET /api/cruce/lotes/{lote_id}/pendientes`.
 **Entonces:** La respuesta devuelve una lista paginada de ingresantes `pendiente` con sus datos CSV normalizados y un total de páginas disponible.
+**Y:** El orden de la lista prioriza a aquellos ingresantes que poseen candidatos sugeridos con similitud >= 70%, dejando al final de la paginación a los ingresantes que no poseen ningún candidato.
+
 
 ---
 
@@ -322,9 +324,10 @@ VALUES (100, 'ALU001', 1, 2, 1, NOW());
 | **Automatizado** | Sí |
 | **Trazas a** | US-003, AC-010, plan.md: CalcularSimilitudesCabosAction |
 
-**Dado:** Un ingresante con similitud máxima < 30% frente a alumnos de academia.
+**Dado:** Un ingresante con similitud máxima < 70% frente a alumnos de academia.
 **Cuando:** Se calcula la lista de candidatos.
 **Entonces:** La lista está vacía y el sistema marca al ingresante como `pendiente` con opción de `no_ingresado` en la interfaz.
+
 
 ---
 
@@ -462,9 +465,10 @@ VALUES (100, 'ALU001', 1, 2, 1, NOW());
 | **Automatizado** | Sí |
 | **Trazas a** | EC-003 |
 
-**Dado:** Un ingresante cuya similitud máxima es < 30%.
+**Dado:** Un ingresante cuya similitud máxima es < 70%.
 **Cuando:** Se genera la lista de candidatos.
 **Entonces:** La lista está vacía y la opción `no_ingresado` es accesible en la interfaz.
+
 
 ---
 
@@ -1006,18 +1010,18 @@ VALUES (100, 'ALU001', 1, 2, 1, NOW());
 
 **Dado:** Un alumno con múltiples registros históricos en `academia` en diferentes combinaciones de estado.
 **Cuando:** Se resuelve el estado mediante la jerarquía de INV-06.
-**Entonces:** El estado resuelto es siempre el de mayor prioridad según el orden: `MATRICULADO > PAGADO > FINALIZADO > SUSPENDIDO > RETIRADO > TRASLADADO > STAND BY > ANULADO`.
+**Entonces:** El estado resuelto es siempre el de mayor prioridad según el orden: `MATRICULADO (2) > PAGADO (3) > FINALIZADO (14) > SUSPENDIDO (9) > RETIRADO (0) > TRASLADADO (12) > STAND BY (13) > ANULADO (11)`.
 
-**Datos de prueba — casos de borde obligatorios:**
+**Datos de prueba — casos de borde obligatorios (valores numéricos en la DB real):**
 
-| Estados presentes | Estado resuelto esperado |
+| Estados presentes (DB values) | Estado resuelto esperado |
 |---|---|
-| `ANULADO`, `STAND BY` | `STAND BY` |
-| `RETIRADO`, `TRASLADADO`, `ANULADO` | `RETIRADO` |
-| `SUSPENDIDO`, `FINALIZADO` | `FINALIZADO` |
-| `MATRICULADO`, `ANULADO`, `RETIRADO` | `MATRICULADO` |
-| Solo `ANULADO` | `ANULADO` |
-| Solo `STAND BY` | `STAND BY` |
+| `ANULADO (11)`, `STAND BY (13)` | `STAND BY` |
+| `RETIRADO (0)`, `TRASLADADO (12)`, `ANULADO (11)` | `RETIRADO` |
+| `SUSPENDIDO (9)`, `FINALIZADO (14)` | `FINALIZADO` |
+| `MATRICULADO (2)`, `ANULADO (11)`, `RETIRADO (0)` | `MATRICULADO` |
+| Solo `ANULADO (11)` | `ANULADO` |
+| Solo `STAND BY (13)` | `STAND BY` |
 
 ---
 
@@ -1056,7 +1060,7 @@ VALUES (100, 'ALU001', 1, 2, 1, NOW());
 | Requisito | Unidad | Integración | E2E | Rendimiento |
 |-----------|--------|------------|-----|-------------|
 | US-001/AC-001 |  | TC-001 |  |  |
-| US-001/AC-001a |  | TC-014, TC-021 |  |  |
+| US-001/AC-001a |  | TC-014, TC-021, TC-052, TC-053 |  |  |
 | US-001/AC-001b |  | TC-018, TC-022 |  |  |
 | US-001/AC-001c |  | TC-025 |  |  |
 | US-001/AC-001d |  | TC-027 |  |  |
