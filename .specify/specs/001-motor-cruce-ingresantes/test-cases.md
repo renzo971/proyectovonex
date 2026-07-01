@@ -156,11 +156,32 @@
 
 **Dado:** La conexión a la BD `academia` está configurada.
 **Cuando:** `RealizarCruceExactoAction` inicia el proceso.
-**Entonces:** Se valida la conexión antes de consultar; si la conexión es exitosa, se obtienen registros en todos los estados válidos y se resuelve el estado de mayor prioridad según la jerarquía.
+**Entonces:** Se valida la conexión antes de consultar; si la conexión es exitosa, se obtienen solo alumnos con `estado IN (2, 3, 9, 13)` (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY), `estado_aula = 1`, ciclo activo, y se resuelve el estado de mayor prioridad según la jerarquía numérica.
 
-**Datos de Prueba:**
-- Entrada: alumno con estados `ANULADO`, `PAGADO`, `MATRICULADO`.
-- Esperado: elegir `MATRICULADO` para el reporte.
+**Datos de Prueba (schema real — 3 tablas):**
+
+```sql
+-- Insertar en personas (PK: dni)
+INSERT INTO personas (dni, nombres, apellido_paterno, apellido_materno) 
+VALUES ('12345678', 'JUAN', 'LOPEZ', 'GARCIA');
+
+-- Insertar en alumnos (PK: codigo, FK: persona_dni)
+INSERT INTO alumnos (codigo, persona_dni) 
+VALUES ('ALU001', '12345678');
+
+-- Insertar aula, matricula, ciclo
+INSERT INTO aulas (id, matricula_id) VALUES (1, 1);
+INSERT INTO matriculas (id) VALUES (1);
+INSERT INTO ciclos (id, matricula_id, fecha_inicio, fecha_fin) 
+VALUES (1, 1, '2026-01-01', '2026-12-31');
+
+-- Insertar en alumno_matricula con estado 2 (MATRICULADO)
+INSERT INTO alumno_matricula (id, alumno_codigo, aula_id, estado, estado_aula, fecha)
+VALUES (100, 'ALU001', 1, 2, 1, NOW());
+```
+
+- Entrada: alumno con `alumno_matricula.estado = 2` (MATRICULADO).
+- Esperado: `getActivosConNombres()` devuelve 1 resultado con `estado = 2`.
 
 ---
 

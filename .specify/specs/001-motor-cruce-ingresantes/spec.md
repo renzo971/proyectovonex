@@ -68,15 +68,36 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 #### Acceptance Criteria
 
 - [ ] **AC-005:** Dado un lote de ingresantes importados, cuando se inicia el proceso de cruce, entonces el sistema valida la conexión con la base de datos `academia` en PostgreSQL antes de ejecutar cualquier consulta, abortando limpiamente con alerta si la conexión falla.
-- [ ] **AC-005a:** La consulta a la base de datos `academia` debe recuperar exactamente los campos de matrícula: `dni_alumno`, `apellidos`, `nombres`, `anio`, `local`, `periodo`, `aula`, `fecha`, `cel_alumno`, `dni_responsable`, `cel_responsable`, `estado_matricula`, `fecha_registro`.
-- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema trae registros en todos los estados válidos: MATRICULADO, PAGADO, FINALIZADO, SUSPENDIDO, RETIRADO, TRASLADADO, STAND BY, ANULADO — sin filtrar ningún estado en la consulta de extracción (obtenido del campo `estado_matricula`).
-- [ ] **AC-007:** Dado un alumno con múltiples registros históricos en la base de datos `academia`, cuando se determina su estado para el reporte, entonces se resuelve eligiendo el estado de mayor prioridad según la jerarquía inmutable: 1. MATRICULADO → 2. PAGADO → 3. FINALIZADO → 4. SUSPENDIDO → 5. RETIRADO → 6. TRASLADADO → 7. STAND BY → 8. ANULADO.
+- [ ] **AC-005a:** La consulta a la base de datos `academia` debe recuperar los datos del alumno mediante el join de 3 tablas: `alumno_matricula` → `alumnos` → `personas`. Los campos obtenidos son:
+  - De `personas`: `dni`, `nombres`, `apellido_paterno`, `apellido_materno`
+  - De `alumno_matricula`: `id` (usado como `alumno_id`), `estado`, `fecha`
+- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema filtra solo los estados activos: `estado IN (2, 3, 9, 13)` que corresponden a MATRICULADO, PAGADO, SUSPENDIDO y STAND BY respectivamente. Además aplica los filtros: `estado_aula = 1`, ciclo activo (`ciclos.fecha_fin >= hoy`), y excluye duplicados regulares (`matricularegular_id IS NOT NULL`).
+- [ ] **AC-007:** Dado un alumno con múltiples registros históricos en la base de datos `academia`, cuando se determina su estado para el reporte, entonces se resuelve eligiendo el estado de mayor prioridad según la jerarquía inmutable numérica: 2 (MATRICULADO) → 3 (PAGADO) → 9 (SUSPENDIDO) → 13 (STAND BY). Los estados FINALIZADO, RETIRADO, TRASLADADO y ANULADO no existen como valores activos en `alumno_matricula.estado`.
+
+> **Nota sobre el schema de academia:** La base `academia` no tiene una tabla `alumnos` plana con todos los campos. El schema real usa 3 tablas relacionadas: `personas` (PK: `dni`), `alumnos` (PK: `codigo`, FK: `persona_dni`), y `alumno_matricula` (PK: `id`, FK: `alumno_codigo` → `alumnos.codigo`). Ver `context-bridge.md` para el detalle completo.
 
 #### Technical Notes
 
 - La validación de conexión (AC-005) se ejecuta al inicio de `RealizarCruceExactoAction.php`.
-- **Extracción de Alumnos (AC-005a):** La consulta SQL/Eloquent debe seleccionar explícitamente las columnas `dni_alumno`, `apellidos`, `nombres`, `anio`, `local`, `periodo`, `aula`, `fecha`, `cel_alumno`, `dni_responsable`, `cel_responsable`, `estado_matricula`, `fecha_registro` de la base de datos `academia`.
-- La jerarquía de estados (AC-007) es inmutable según INV-06 del Context Bridge (constitution.md Art. IV §4.7); cualquier cambio requiere enmienda constitucional documentada.
+- **Extracción de Alumnos (AC-005a):** La consulta se realiza mediante el modelo `AlumnoMatricula::getActivosConNombres()` que ejecuta un join de 3 tablas:
+  ```sql
+  SELECT alumno_matricula.id, personas.apellido_paterno, personas.apellido_materno,
+         personas.nombres, alumno_matricula.estado
+  FROM alumno_matricula
+  JOIN alumnos ON alumno_matricula.alumno_codigo = alumnos.codigo
+  JOIN personas ON alumnos.persona_dni = personas.dni
+  LEFT JOIN aulas ON alumno_matricula.aula_id = aulas.id
+  LEFT JOIN matriculas ON aulas.matricula_id = matriculas.id
+  LEFT JOIN ciclos ON matriculas.id = ciclos.matricula_id AND ciclos.fecha_fin >= CURRENT_DATE
+  WHERE alumno_matricula.estado IN (2, 3, 9, 13)
+    AND alumno_matricula.estado_aula = 1
+    AND ciclos.id IS NOT NULL
+    AND alumno_matricula.id NOT IN (
+      SELECT matricularegular_id FROM alumno_matricula WHERE matricularegular_id IS NOT NULL
+    )
+  ```
+- Para optimizar el matching exacto, los 6,000+ alumnos activos se cargan en un hash map por `apellido_paterno|apellido_materno` para lookup O(1), en vez de iterar todos contra todos (O(N×M)).
+- La jerarquía de estados (AC-007) es inmutable según INV-06 del Context Bridge (constitution.md Art. IV §4.7); cualquier cambio requiere enmienda constitucional documentada. La jerarquía real usa valores numéricos: 2 (MATRICULADO) → 3 (PAGADO) → 9 (SUSPENDIDO) → 13 (STAND BY).
 - Las credenciales de conexión se gestionan exclusivamente mediante variables de entorno (`.env`) — Art. 4 de la Constitución.
 
 ---
@@ -101,6 +122,14 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 #### Technical Notes
 
 - El cruce exacto (AC-008) es responsabilidad de `RealizarCruceExactoAction.php`.
+- **Optimización de matching exacto:** Para evitar iterar 6,000+ alumnos por cada uno de los 5,000+ ingresantes (O(N×M) = 30 millones de iteraciones), se construye un **hash map** indexado por `apellido_paterno|apellido_materno` normalizados. El lookup es O(1) por ingresante.
+- **Flujo del matching exacto:**
+  1. Cargar todos los alumnos activos de academia via `AlumnoMatricula::getActivosConNombres()` (aprox. 6,000 registros)
+  2. Indexarlos en un hash map por clave `"{apellido_paterno_normalizado}|{apellido_materno_normalizado}"`
+  3. Para cada ingresante, normalizar sus `apellidos` vía `NormalizarTextoAction.execute()` que separa el string compuesto en paterno + materno
+  4. Hacer lookup O(1) en el hash map
+  5. Si hay candidatos, filtrar por al menos 1 nombre coincidente
+  6. Si hay múltiples matches, resolver por jerarquía de estado (2 > 3 > 9 > 13)
 - El cálculo de similitud (AC-009) es responsabilidad de `CalcularSimilitudesCabosAction.php`. La similitud compuesta se calcula como:
 
   ```
@@ -165,7 +194,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 - [ ] **AC-014:** Dado un lote procesado (con matches confirmados), cuando el usuario descarga el reporte Excel, entonces la **Hoja 1** contiene exactamente 24 columnas en el siguiente orden estricto (de la A a la X):
   - **A: CODIGO** (del CSV `CODIGO`)
-  - **B: DNI** (de la BD `dni_alumno`)
+  - **B: DNI** (de `personas.dni` en BD academia)
   - **C: APELLIDOS** (del CSV `APELLIDOS`)
   - **D: NOMBRES** (del CSV `NOMBRES`)
   - **E: EAP** (del CSV `EAP`)
@@ -181,9 +210,9 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
   - **O: SEDE** (de la BD `local`)
   - **P: CICLO** (de la BD `periodo`)
   - **Q: F-MATRICULA** (de la BD `fecha_registro`)
-  - **R: CEL-ALUMNO** (de la BD `cel_alumno`)
-  - **S: CEL-APODERADO** (de la BD `cel_responsable`)
-  - **T: ESTADO** (de la BD `estado_matricula` resuelto por jerarquía)
+  - **R: CEL-ALUMNO** (de `personas.telefono` en BD academia)
+  - **S: CEL-APODERADO** (de `padres.telefono` vía `alumno_matricula.padre_id` — requiere join adicional)
+  - **T: ESTADO** (resuelto de `alumno_matricula.estado` según jerarquía numérica: 2=MATRICULADO, 3=PAGADO, 9=SUSPENDIDO, 13=STAND BY)
   - **U: LISTA - 1** (L1: `1` si el alumno está matriculado desde el ciclo Verano 2024 hasta la actualidad, presencial y virtual; `0` si no)
   - **V: LISTA - 2** (L2: `1` si el alumno está matriculado en cualquier ciclo activo a febrero 2026, verano 2026 (verano/repaso) o ciclos OCTUBRE 2025, incluyendo retirados/suspendidos, presencial y virtual; `0` si no)
   - **W: LISTA - 3** (L3: `1` si el alumno está activo al 27 de febrero de 2026 en ciclos presenciales y virtuales; `0` si no)

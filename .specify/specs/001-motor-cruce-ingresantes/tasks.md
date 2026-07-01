@@ -199,8 +199,8 @@ Perform exact matching (2 surnames + 1 name) against the Academia database.
 
 **Acceptance Criteria:**
 - [ ] Validate connection to `academia` DB before any query (AC-005). Abort with ERR-003 if fails.
-- [ ] Query exactly the 13 fields specified in AC-005a: `dni_alumno`, `apellidos`, `nombres`, `anio`, `local`, `periodo`, `aula`, `fecha`, `cel_alumno`, `dni_responsable`, `cel_responsable`, `estado_matricula`, `fecha_registro`.
-- [ ] Fetch alumni in ALL 8 valid states — no filtering on `estado_matricula` during extraction (AC-006).
+- [ ] Query the 3-table join (`alumno_matricula` → `alumnos` → `personas`) para obtener los campos de matching: `alumno_matricula.id` (usado como `alumno_id`), `personas.apellido_paterno`, `personas.apellido_materno`, `personas.nombres`, `alumno_matricula.estado` (numérico). Los campos adicionales para el reporte Excel (DNI, teléfonos, etc.) se obtienen bajo demanda.
+- [ ] Fetch only active enrolled students: `estado IN (2, 3, 9, 13)`, `estado_aula = 1`, active ciclo (`ciclos.fecha_fin >= hoy`), exclude regular duplicates (`matricularegular_id IS NOT NULL`).
 - [ ] Normalize academia data via `NormalizarTextoAction` before comparison (context-bridge ACL).
 - [ ] Match criteria: 2 exact surnames + at least 1 exact first name (AC-008).
 - [ ] On match: set `alumno_id`, `estado_match = 'confirmado_automatico'`, `porcentaje_similitud = 100.00`.
