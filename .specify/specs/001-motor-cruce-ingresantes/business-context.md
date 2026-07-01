@@ -50,7 +50,8 @@ Este feature es exitoso cuando:
 
 1. El motor procesa un CSV completo de ingresantes de forma asíncrona mediante Redis en menos de 50 segundos sin causar timeouts HTTP.
 2. Todos los ingresantes se normalizan correctamente y se persisten de manera trazable en `ingresantes` (si alcanzaron vacante) o `no_ingresantes`.
-3. El 100% de las coincidencias exactas se asocia y confirma automáticamente, y los cabos sueltos (similitud ≥ 30%) son expuestos y resueltos mediante la UI interactiva en React sin requerir herramientas externas.
+3. El 100% de las coincidencias exactas se asocia y confirma automáticamente, y los cabos sueltos (similitud ≥ 70%) son expuestos y resueltos mediante la UI interactiva en React sin requerir herramientas externas.
+
 
 ---
 
@@ -105,7 +106,7 @@ Este feature es exitoso cuando:
 
 - ✅ Carga de CSV y persistencia dual en tablas `ingresantes` (cumplen filtro) y `no_ingresantes` (para trazabilidad).
 - ✅ Normalización estricta (conversión a MAYÚSCULAS, remoción de tildes y conversión obligatoria de Ñ a N).
-- ✅ Algoritmo de coincidencia exacta por apellidos y primer nombre, y coincidencia difusa (Levenshtein) con umbral del 30%.
+- ✅ Algoritmo de coincidencia exacta por apellidos y primer nombre, y coincidencia difusa (Levenshtein) con umbral del 70%.
 - ✅ Interfaz en React para la resolución manual de cabos sueltos.
 - ✅ Exportación a Excel con dos hojas (data enriquecida y gráficos analíticos).
 
@@ -138,7 +139,7 @@ Este feature es exitoso cuando:
 |----|------------|-------------------|
 | A-01 | El formato y codificación del CSV es siempre UTF-8 o ISO-8859-1. | El procesamiento fallará antes de la importación para evitar datos corruptos. |
 | A-02 | La base de datos `academia` cuenta con índices sobre nombres y apellidos. | Degradación severa del performance del motor de cruce, incumpliendo los SLAs. |
-| A-03 | El umbral del 30% de Levenshtein es óptimo para cabos sueltos. | Si es muy alto se omiten candidatos; si es muy bajo se genera ruido visual en la UI. |
+| A-03 | El umbral del 70% de Levenshtein es óptimo para cabos sueltos. | Si es muy alto se omiten candidatos; si es muy bajo se genera ruido visual en la UI. |
 | A-04 | Un máximo de 5 candidatos potenciales es suficiente para la revisión humana. | Homónimos correctos podrían no mostrarse en la UI interactiva. |
 | A-05 | El servicio Redis está disponible y activo en el entorno de producción. | El job no se encolará y el procesamiento masivo fallará. |
 

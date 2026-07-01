@@ -504,11 +504,12 @@ components:
         porcentaje_similitud:
           type: number
           format: float
-          minimum: 30.0
+          minimum: 70.0
           maximum: 100.0
           example: 87.50
         estado_academia:
           type: string
+          description: Estado académico resuelto según la jerarquía de prioridad INV-06 (2=MATRICULADO, 3=PAGADO, 14=FINALIZADO, 9=SUSPENDIDO, 0=RETIRADO, 12=TRASLADADO, 13=STAND BY, 11=ANULADO).
           enum: [MATRICULADO, PAGADO, FINALIZADO, SUSPENDIDO, RETIRADO, TRASLADADO, STAND BY, ANULADO]
           example: MATRICULADO
       required:

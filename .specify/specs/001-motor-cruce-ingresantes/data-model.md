@@ -214,7 +214,7 @@ erDiagram
 | `id` | BIGINT | PK, AUTO_INCREMENT | Unique identifier |
 | `ingresante_id` | BIGINT | FK, NOT NULL | Reference to `ingresantes` |
 | `alumno_id` | BIGINT | NOT NULL | Reference to `alumnos` in Academia DB (not a FK — cross-DB) |
-| `porcentaje_similitud` | DECIMAL(5,2) | NOT NULL | Computed Levenshtein similarity percentage (≥ 30.00) |
+| `porcentaje_similitud` | DECIMAL(5,2) | NOT NULL | Computed Levenshtein similarity percentage (≥ 70.00) |
 | `ranking` | SMALLINT | NOT NULL, CHECK (1–5) | Position in the ordered candidate list for this ingresante |
 | `created_at` | TIMESTAMP | NOT NULL, DEFAULT NOW() | Record creation (when first computed) |
 
@@ -228,8 +228,9 @@ erDiagram
 
 **Notes:**
 - A given `ingresante_id` will have at most 5 rows (one per ranking position).
-- If no candidates exceed the 30% threshold, zero rows are inserted and the endpoint returns an empty array.
+- If no candidates exceed the 70% threshold, zero rows are inserted and the endpoint returns an empty array.
 - Rows are never updated — if a re-computation is needed, delete and re-insert.
+
 
 ---
 
@@ -264,14 +265,16 @@ erDiagram
 | `id` | BIGINT | PK | Enrollment ID (usado como `alumno_id` en el cruce) |
 | `alumno_codigo` | VARCHAR | FK → alumnos.codigo | Link to academic record |
 | `aula_id` | BIGINT | FK → aulas.id | Assigned classroom |
-| `estado` | SMALLINT | | Enrollment state: 2=MATRICULADO, 3=PAGADO, 9=SUSPENDIDO, 13=STAND BY |
+| `estado` | SMALLINT | | Enrollment state (numeric in DB: 2=MATRICULADO, 3=PAGADO, 14=FINALIZADO, 9=SUSPENDIDO, 0=RETIRADO, 12=TRASLADADO, 13=STAND BY, 11=ANULADO) |
 | `estado_aula` | SMALLINT | | 1 = active classroom |
 | `fecha` | TIMESTAMP | | Enrollment date |
 | `matricularegular_id` | BIGINT | NULLABLE | If set, this is a regular duplicate |
 
 **Nota sobre la jerarquía de estados (INV-06):**
-La jerarquía original (MATRICULADO > PAGADO > FINALIZADO > SUSPENDIDO > RETIRADO > TRASLADADO > STAND BY > ANULADO) fue reducida a los 4 estados activos que existen en `alumno_matricula.estado`:
-- 2 (MATRICULADO) > 3 (PAGADO) > 9 (SUSPENDIDO) > 13 (STAND BY)
+La jerarquía de estados completa en el schema de `academia` es:
+- MATRICULADO (2) > PAGADO (3) > FINALIZADO (14) > SUSPENDIDO (9) > RETIRADO (0) > TRASLADADO (12) > STAND BY (13) > ANULADO (11)
+
+El motor filtra solo los estados activos `estado IN (2, 3, 9, 13)` para el pool inicial del cruce, pero debe resolver la jerarquía completa al consolidar registros históricos.
 
 ---
 
@@ -399,7 +402,7 @@ CREATE TABLE ingresante_candidatos (
     id BIGSERIAL PRIMARY KEY,
     ingresante_id BIGINT NOT NULL REFERENCES ingresantes(id) ON DELETE CASCADE,
     alumno_id BIGINT NOT NULL,
-    porcentaje_similitud DECIMAL(5,2) NOT NULL CHECK (porcentaje_similitud >= 30.00),
+    porcentaje_similitud DECIMAL(5,2) NOT NULL CHECK (porcentaje_similitud >= 70.00),
     ranking SMALLINT NOT NULL CHECK (ranking BETWEEN 1 AND 5),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE (ingresante_id, ranking)
