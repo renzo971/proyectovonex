@@ -62,6 +62,8 @@ El schema real de la base `academia` usa claves primarias varchar y nombres de t
 ```
 alumno_matricula.alumno_codigo → alumnos.codigo
 alumnos.persona_dni → personas.dni
+alumno_matricula.padre_id → padres.id
+padres.persona_dni → personas.dni
 alumno_matricula.aula_id → aulas.id
 aulas.matricula_id → matriculas.id
 matriculas.id → ciclos.matricula_id
@@ -71,11 +73,11 @@ matriculas.id → ciclos.matricula_id
 
 | Campo | Tipo | PK | Notas |
 |---|---|---|---|
-| `dni` | VARCHAR | PK | DNI del alumno |
+| `dni` | VARCHAR | PK | DNI de la persona |
 | `nombres` | VARCHAR | | Nombres — se normaliza antes de comparar |
 | `apellido_paterno` | VARCHAR | | Apellido paterno (separado) |
 | `apellido_materno` | VARCHAR | | Apellido materno (separado) |
-| `telefono` | VARCHAR | | Celular del alumno |
+| `telefono` | VARCHAR | | Celular o teléfono de contacto |
 
 ### Tabla: `alumnos`
 
@@ -85,12 +87,20 @@ matriculas.id → ciclos.matricula_id
 | `persona_dni` | VARCHAR | FK → personas.dni | DNI de la persona |
 | `email` | VARCHAR | | Email del alumno |
 
+### Tabla: `padres`
+
+| Campo | Tipo | PK/FK | Notas |
+|---|---|---|---|
+| `id` | BIGINT | PK | ID autoincremental del padre/apoderado |
+| `persona_dni` | VARCHAR | FK → personas.dni | DNI del padre en la tabla personas |
+
 ### Tabla: `alumno_matricula`
 
 | Campo | Tipo | PK/FK | Notas |
 |---|---|---|---|
 | `id` | BIGINT | PK | ID autoincremental |
 | `alumno_codigo` | VARCHAR | FK → alumnos.codigo | Código del alumno |
+| `padre_id` | BIGINT | FK → padres.id (NULLABLE) | ID del padre/apoderado relacionado |
 | `aula_id` | BIGINT | FK → aulas.id | Aula asignada |
 | `estado` | SMALLINT | | 2=MATRICULADO, 3=PAGADO, 9=SUSPENDIDO, 13=STAND BY |
 | `estado_aula` | SMALLINT | | 1 = aula activa |
@@ -104,6 +114,7 @@ matriculas.id → ciclos.matricula_id
 | `aulas` | `id`, `matricula_id`, `hora_inicio`, `codigo_aula` |
 | `matriculas` | `id` |
 | `ciclos` | `id`, `matricula_id`, `fecha_inicio`, `fecha_fin` |
+
 
 ### Filtros para alumnos activos (usados en el matching)
 
@@ -121,16 +132,22 @@ WHERE alumno_matricula.estado IN (2, 3, 9, 13)   -- MATRICULADO, PAGADO, SUSPEND
 
 ### Jerarquía de estados (INV-06 actualizado)
 
-El campo `alumno_matricula.estado` es numérico. La jerarquía se mapea como:
+El campo `alumno_matricula.estado` es numérico. En la base de datos real de `academia` existen los siguientes valores numéricos:
 
-| Valor | Estado | Prioridad |
+| Valor | Estado | Prioridad en Jerarquía |
 |---|---|---|
 | 2 | MATRICULADO | 1 (más alto) |
 | 3 | PAGADO | 2 |
-| 9 | SUSPENDIDO | 3 |
-| 13 | STAND BY | 4 (más bajo) |
+| 14 | FINALIZADO | 3 |
+| 9 | SUSPENDIDO | 4 |
+| 0 | RETIRADO | 5 |
+| 12 | TRASLADADO | 6 |
+| 13 | STAND BY | 7 |
+| 11 | ANULADO | 8 (más bajo) |
 
-Los estados FINALIZADO, RETIRADO, TRASLADADO y ANULADO no existen en esta base como estados activos de `alumno_matricula.estado`.
+*Nota:* Los valores `1` (PENDIENTE) y `4` (PRE-INSCRITO) también existen en la base de datos, pero no participan en esta jerarquía de resolución de estados para el cruce.
+
+Para la extracción inicial de la base de datos de Academia, el motor aplica un filtro de estados activos: `estado IN (2, 3, 9, 13)` (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY), según se detalla en el filtro de la query. Sin embargo, al resolver alumnos con múltiples registros históricos en la base de datos, se debe utilizar la jerarquía completa descrita arriba.
 
 **Anti-Corruption Layer:** La normalización (`NormalizarTextoAction`) se aplica a los datos de Academia antes de cualquier comparación. El dominio nunca almacena strings crudos de Academia — solo formas normalizadas.
 
@@ -148,7 +165,7 @@ Tabla autoritativa de traducción entre lenguaje de negocio (reuniones, requisit
 | No ingresante | Postulante que NO cumplió el filtro de OBSERVACION | Tabla `no_ingresantes` |
 | Lote | Conjunto de registros del CSV agrupados por una misma `FECHA_EXAMEN` | Tabla `lotes_cruce`, model `LoteCruce` |
 | Fecha de examen | Fecha que identifica y agrupa un lote | `lotes_cruce.fecha_examen` (DATE, UNIQUE) |
-| Cabo suelto | Ingresante sin match exacto, con similitud ≥ 30% con al menos un alumno | `ingresantes.estado_match = 'pendiente'` |
+| Cabo suelto | Ingresante sin match exacto, con similitud ≥ 70% con al menos un alumno | `ingresantes.estado_match = 'pendiente'` |
 | Match exacto | Coincidencia de 2 apellidos + 1 nombre post-normalización contra un alumno de academia | `estado_match = 'confirmado_automatico'` |
 | Validación asistida | Resolución manual del administrador desde la UI React | `estado_match = 'confirmado_manual'` |
 | No ingresado | Postulante descartado explícitamente por el administrador (sin alumno asociado) | `estado_match = 'no_ingresado'` |
@@ -169,7 +186,7 @@ Reglas que el diseño técnico DEBE preservar. Cualquier implementación que las
 | INV-03 | Una `fecha_examen` se procesa exactamente una vez — re-subir el mismo CSV es idempotente | Forzado por constraint UNIQUE en `lotes_cruce.fecha_examen` |
 | INV-04 | Las filas idénticas dentro del mismo CSV se de-duplican antes de persistir | La de-duplicación ocurre en `ProcesarCargaCsvAction` ANTES de cualquier INSERT |
 | INV-05 | El filtro de OBSERVACION se aplica SOLO sobre el valor normalizado, nunca sobre el string crudo del CSV | La normalización precede al filtrado en el pipeline del job |
-| INV-06 | La jerarquía de estados de alumno es fija e inmutable. En el schema real de academia los estados son numéricos: 2 (MATRICULADO) > 3 (PAGADO) > 9 (SUSPENDIDO) > 13 (STAND BY). Los estados FINALIZADO, RETIRADO, TRASLADADO y ANULADO no existen como valores activos en `alumno_matricula.estado`. | Todo código que resuelva alumni con múltiples registros debe usar este orden exacto por valor numérico |
+| INV-06 | La jerarquía de estados de alumno es fija e inmutable. El orden de prioridad es: MATRICULADO (2) > PAGADO (3) > FINALIZADO (14) > SUSPENDIDO (9) > RETIRADO (0) > TRASLADADO (12) > STAND BY (13) > ANULADO (11). | Todo código que resuelva alumni con múltiples registros debe usar este orden exacto |
 | INV-07 | La base `academia` es estrictamente de solo lectura para este sistema | Cero operaciones INSERT, UPDATE o DELETE sobre la conexión `academia` |
 | INV-08 | Las credenciales de `academia` nunca se hardcodean | La configuración de conexión se toma exclusivamente de variables de entorno `DB_ACADEMIA_*` |
 
