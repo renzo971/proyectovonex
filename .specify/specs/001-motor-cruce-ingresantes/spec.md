@@ -74,8 +74,8 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 - [ ] **AC-005a:** La consulta a la base de datos `academia` debe recuperar los datos del alumno mediante el join de 3 tablas: `alumno_matricula` → `alumnos` → `personas`. Los campos obtenidos son:
   - De `personas`: `dni`, `nombres`, `apellido_paterno`, `apellido_materno`
   - De `alumno_matricula`: `id` (usado como `alumno_id`), `estado`, `fecha`
-- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema filtra solo los estados activos: `estado IN (2, 3, 9, 13)` que corresponden a MATRICULADO, PAGADO, SUSPENDIDO y STAND BY respectivamente. Además aplica los filtros: `estado_aula = 1`, ciclo activo (`ciclos.fecha_fin >= hoy`), y excluye duplicados regulares (`matricularegular_id IS NOT NULL`).
-- [ ] **AC-007:** Dado un alumno con múltiples registros históricos en la base de datos `academia`, cuando se determina su estado para el reporte, entonces se resuelve eligiendo el estado de mayor prioridad según la jerarquía inmutable numérica: 2 (MATRICULADO) → 3 (PAGADO) → 9 (SUSPENDIDO) → 13 (STAND BY). Los estados FINALIZADO, RETIRADO, TRASLADADO y ANULADO no existen como valores activos en `alumno_matricula.estado`.
+- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema filtra solo los estados activos: `estado IN (2, 3, 9, 13)` que corresponden a MATRICULADO, PAGADO, SUSPENDIDO y STAND BY respectivamente. Además aplica los filtros: `estado_aula = 1`, ciclo activo (`ciclos.fecha_fin >= hoy`), y excluye los registros originales cuyo id aparece como `matricularegular_id` en otra fila (la matrícula regular los supera).
+- [ ] **AC-007:** Dado un alumno con múltiples registros históricos en la base de datos `academia`, cuando se determina su estado para el reporte, entonces se resuelve eligiendo el estado de mayor prioridad según la jerarquía inmutable: MATRICULADO (2) → PAGADO (3) → FINALIZADO (14) → SUSPENDIDO (9) → RETIRADO (0) → TRASLADADO (12) → STAND BY (13) → ANULADO (11).
 
 > **Nota sobre el schema de academia:** La base `academia` no tiene una tabla `alumnos` plana con todos los campos. El schema real usa 3 tablas relacionadas: `personas` (PK: `dni`), `alumnos` (PK: `codigo`, FK: `persona_dni`), y `alumno_matricula` (PK: `id`, FK: `alumno_codigo` → `alumnos.codigo`). Ver `context-bridge.md` para el detalle completo.
 
@@ -100,7 +100,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
     )
   ```
 - Para optimizar el matching exacto, los 6,000+ alumnos activos se cargan en un hash map por `apellido_paterno|apellido_materno` para lookup O(1), en vez de iterar todos contra todos (O(N×M)).
-- La jerarquía de estados (AC-007) es inmutable según INV-06 del Context Bridge (constitution.md Art. IV §4.7); cualquier cambio requiere enmienda constitucional documentada. La jerarquía real usa valores numéricos: 2 (MATRICULADO) → 3 (PAGADO) → 9 (SUSPENDIDO) → 13 (STAND BY).
+- La jerarquía de estados (AC-007) es inmutable según INV-06 del Context Bridge (constitution.md Art. IV §4.7); cualquier cambio requiere enmienda constitucional documentada. La jerarquía real es: MATRICULADO (2) → PAGADO (3) → FINALIZADO (14) → SUSPENDIDO (9) → RETIRADO (0) → TRASLADADO (12) → STAND BY (13) → ANULADO (11).
 - Las credenciales de conexión se gestionan exclusivamente mediante variables de entorno (`.env`) — Art. 4 de la Constitución.
 
 ---
@@ -117,8 +117,8 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 #### Acceptance Criteria
 
 - [ ] **AC-008:** Dado un ingresante en el lote, cuando sus 2 apellidos (paterno y materno) y al menos 1 nombre coinciden exactamente con un alumno de la academia tras la normalización, entonces el sistema asocia automáticamente al ingresante con el `alumno_id` correspondiente, establece el estado `confirmado_automatico` y continúa sin intervención del usuario.
-- [ ] **AC-009:** Dado un ingresante que no obtiene match exacto, cuando el motor calcula la similitud comparando la frecuencia de letras y la distancia de Levenshtein contra los alumnos de la academia, entonces genera una lista ordenada de mayor a menor probabilidad con hasta 5 candidatos potenciales y marca al ingresante como `pendiente`.
-- [ ] **AC-010:** Dado un ingresante en estado `pendiente`, cuando ningún alumno supera el umbral de similitud del 30%, entonces la lista de candidatos estará vacía y el sistema expondrá la opción "Sin coincidencias encontradas — Marcar como No Ingresado" en la interfaz.
+- [ ] **AC-009:** Dado un ingresante que no obtiene match exacto, cuando el motor calcula la similitud comparando la frecuencia de letras y la distancia de Levenshtein contra los alumnos de la academia, entonces genera una lista ordenada de mayor a menor probabilidad con hasta 5 candidatos potenciales y marca al ingresante como `pendiente`. Solo se consideran candidatos con un porcentaje de similitud del **70% para arriba**; los que tengan menos del 70% de similitud son ignorados.
+- [ ] **AC-010:** Dado un ingresante en estado `pendiente`, cuando ningún alumno supera el umbral de similitud del **70%**, entonces la lista de candidatos estará vacía y el sistema expondrá la opción "Sin coincidencias encontradas — Marcar como No Ingresado" en la interfaz.
 
 - [ ] **AC-003a:** El sistema debe procesar lotes grandes con tiempos de ejecución medibles; ver AC-001f para el objetivo de rendimiento de procesamiento por lote.
 
@@ -145,8 +145,6 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
   - **`dice_bigramas(a, b)`** = `(2 × |bigramas_comunes(a, b)|) / (|bigramas(a)| + |bigramas(b)|)` (Dice coefficient sobre bigramas de caracteres) — rango [0.0, 1.0].
   - El resultado final multiplicado por 100 es el **porcentaje de similitud** almacenado en `porcentaje_similitud`.
   - Ejemplo de referencia obligatorio para TC-007: `similitud("JHON RAMOS LOPEZ", "JOHN RAMOS LOPEZ")` debe producir un valor **≥ 85%**; `similitud("GARCIA TORRES LUIS", "PEREZ MENDOZA ANA")` debe producir un valor **< 30%**.
-
-- El umbral del 30% (AC-010) es un supuesto revisable — ver **Assumption A-03**.
 
 ---
 
@@ -287,7 +285,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 |----|----------|-------------------|-----------------:|
 | EC-001 | Fila del CSV con campo de nombre o apellido vacío | Registrar el error en el log del lote con número de fila e identificador del registro; continuar procesando las filas siguientes sin abortar el lote | US-001 |
 | EC-002 | CSV sin las columnas requeridas (`NOMBRES`, `OBSERVACION`, `FECHA_EXAMEN`) | Rechazar la carga inmediatamente con mensaje de error descriptivo indicando qué columnas faltan; no insertar ningún registro | US-001 |
-| EC-003 | Motor de coincidencia difusa sin candidatos con similitud ≥ 30% | Mostrar en el selector React la opción "Sin coincidencias encontradas — Marcar como No Ingresado"; no bloquear el flujo | US-003 / US-004 |
+| EC-003 | Motor de coincidencia difusa sin candidatos con similitud ≥ 70% | Mostrar en el selector React la opción "Sin coincidencias encontradas — Marcar como No Ingresado"; no bloquear el flujo | US-003 / US-004 |
 | EC-004 | Fecha de examen del CSV ya procesada previamente | Ignorar silenciosamente los registros de esa fecha; registrar el salto en el log con la fecha omitida y la razón | US-001 |
 | EC-005 | Alumno con más de 5 registros históricos de igual similitud | Tomar solo los 5 de mayor similitud; en caso de empate exacto, desempatar por orden alfabético del apellido paterno | US-003 |
 | EC-006 | CSV con codificación distinta de UTF-8 o ISO-8859-1 (ej. UTF-16) | Detectar la codificación al inicio de la carga; si no es soportada, rechazar con error descriptivo de codificación sin insertar ningún registro | US-001 |
@@ -328,7 +326,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | Ingresante | Estudiante que alcanzó una vacante en el examen de admisión de la UNMSM | Dominio de negocio |
 | Lote | Conjunto de registros del CSV agrupados por una misma `FECHA_EXAMEN` | Dominio técnico y de negocio |
 | Match exacto | Coincidencia de 2 apellidos + al menos 1 nombre entre un ingresante y un alumno de la academia, tras normalización | Motor de cruce |
-| Cabo suelto | Ingresante sin match exacto pero con similitud ≥ 30% con algún alumno de la academia | Motor de cruce |
+| Cabo suelto | Ingresante sin match exacto pero con similitud ≥ 70% con algún alumno de la academia | Motor de cruce |
 | `confirmado_automatico` | Estado asignado cuando el cruce exacto establece la asociación sin intervención humana | Estado del sistema |
 | `confirmado_manual` | Estado asignado cuando el administrador valida manualmente la asociación en la interfaz React | Estado del sistema |
 | `pendiente` | Estado inicial de un ingresante que no obtuvo match exacto; requiere revisión manual | Estado del sistema |
@@ -353,7 +351,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 |----|------------|-----------------|
 | A-01 | El formato de codificación del CSV es siempre UTF-8 o ISO-8859-1 | Si se sube un CSV con otra codificación (ej. UTF-16), la carga fallará con ERR-002, evitando caracteres corruptos en la BD |
 | A-02 | La base de datos `academia` tiene índices creados sobre los campos de apellidos y nombres | Sin índices, las consultas de cruce exacto y difuso degradarán el rendimiento, incumpliendo NFR-001 y NFR-002 |
-| A-03 | Un umbral de similitud del 30% es el valor óptimo para filtrar candidatos relevantes de coincidencia difusa | Si el umbral óptimo es mayor, se listarán candidatos irrelevantes (ruido en UI); si es menor, se omitirán candidatos con variaciones severas que sí corresponden al ingresante |
+| A-03 | Un umbral de similitud del 70% es el valor óptimo para filtrar candidatos relevantes de coincidencia difusa | Si el umbral óptimo es mayor, se listarán candidatos irrelevantes (ruido en UI); si es menor, se omitirán candidatos con variaciones severas que sí corresponden al ingresante |
 | A-04 | Un máximo de 5 candidatos potenciales es suficiente para cubrir los errores de digitación más frecuentes | Si existen más de 5 homónimos con la misma similitud, el candidato correcto podría quedar excluido de la lista, obligando a búsqueda manual extendida |
 | A-05 | El servicio Redis está disponible y accesible desde el servidor Laravel en el entorno de producción | Si Redis no está disponible, el job no podrá encolarse, el procesamiento del CSV fallará inmediatamente tras la recepción del archivo y el SLA de NFR-001 no podrá cumplirse. Mitigación: configurar un health-check de Redis en el startup de la aplicación |
 
