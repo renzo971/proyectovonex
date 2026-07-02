@@ -2,7 +2,7 @@
 
 **Dueño (QA)**: Diego Fernando
 **Equipo**: Grupo V2 (Vonex)
-**Versión**: 2.2.0
+**Versión**: 2.5.0
 
 ## Resumen ejecutivo (≤150 palabras)
 
@@ -96,4 +96,32 @@ Este documento define los casos de prueba del flujo de trabajo analítico que cr
 **Datos:** Archivo CSV que no posee la columna `OBSERVACION` (contiene columnas `NOMBRES` y `FECHA_EXAMEN` únicamente).
 **Pasos:** Subir el archivo CSV al sistema.
 **Esperado:** El sistema detiene el proceso de inmediato en la subida, rechaza el archivo sin crear lotes ni registros en la base de datos, y muestra al usuario el mensaje de error: "Estructura de CSV inválida. Falta columna requerida: OBSERVACION".
+
+### TC-13 (de AC-2.1 v2.5.0, caso bugfix): Match por DNI de alumno con estado FINALIZADO
+
+**Datos:**
+- CSV ingresante: código=`71178246`, apellidos=`AURIS HUANCA`, nombres=`DARRELL JAASIEL`, EAP=`DERECHO`.
+- BD academia: `personas.dni=71178246`, apellido_paterno=`AURIS HUANCA` (compuesto), apellido_materno=``, nombres=`DARRELL JAASIEL`, estado=14 (FINALIZADO), estado_aula=1 (REGULAR).
+**Pasos:** Ejecutar el job de cruce completo (exacto + difuso).
+**Esperado:** El sistema encuentra al alumno por **DNI** (coincidencia exacta del código 71178246 contra personas.dni), lo asocia automáticamente y marca al ingresante como `confirmado_automatico`. No depende de la correcta separación de apellidos en la BD academia.
+
+### TC-14 (de AD-002 v2.5.0, caso rendimiento): Memoria compartida entre fases exacta y difusa
+
+**Datos:** Lote de 500 ingresantes + 20K alumnos activos en BD academia.
+**Pasos:** Ejecutar `ProcessCsvBatchJob` con `memory_limit=128M` configurado.
+**Esperado:** El job completa sin error `Allowed memory size exhausted`. Los datos de academia se cargan una sola vez y los índices `byDni`/`byName` contienen solo enteros (no copias de registros). El job procesa exact match + fuzzy batch sin duplicar los 20K registros en memoria.
+
+### TC-15 (de AD-003 v2.5.0, caso feliz): Fuzzy pre-check por DNI antes de scan completo
+
+**Datos:**
+- CSV ingresante: código=`12345678`, apellidos=`PEREZ TAPIA`, nombres=`JUAN CARLOS`.
+- BD academia: `personas.dni=12345678`, apellido_paterno=`PEREZ TAPIA` (compuesto), apellido_materno=``, nombres=`JUAN CARLOS`, estado=3 (PAGADO).
+**Pasos:** Ejecutar la fase difusa del job para este ingresante (simular que el exacto no lo encontró por diferencia en apellidos).
+**Esperado:** El pre-check por DNI dentro de `computeFuzzyCandidates` encuentra el match inmediato (100% similitud) y lo confirma como `confirmado_manual`, sin ejecutar el scan Levenshtein contra los 20K alumnos.
+
+### TC-16 (de AC-006 v2.5.0, caso bugfix): Consulta incluye estado FINALIZADO (14)
+
+**Datos:** BD academia con alumno `GARCIA LOPEZ LUIS` con estado=14 (FINALIZADO), estado_aula=1.
+**Pasos:** Ejecutar `getActiveAlumnos()` en `RealizarCruceExactoAction`.
+**Esperado:** El query SQL incluye `estado IN (2,3,9,13,14)` y retorna al alumno FINALIZADO. El alumno está disponible tanto para match exacto como para fuzzy.
 

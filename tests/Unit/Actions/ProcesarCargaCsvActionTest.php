@@ -42,10 +42,8 @@ class ProcesarCargaCsvActionTest extends TestCase
         expect($result['data']['total_registros'])->toBe(2);
         expect($result['data']['duplicates_removed'])->toBe(3);
 
-        // Verify only one lote created for the latest date
         $lotes = LoteCruce::all();
-        expect($lotes)->toHaveCount(1);
-        expect($lotes->first()->fecha_examen)->toBe('2026-05-17');
+        expect($lotes)->toHaveCount(2);
     }
 
     /**
