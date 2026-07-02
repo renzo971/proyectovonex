@@ -156,7 +156,7 @@
 
 **Dado:** La conexión a la BD `academia` está configurada.
 **Cuando:** `RealizarCruceExactoAction` inicia el proceso.
-**Entonces:** Se valida la conexión antes de consultar; si la conexión es exitosa, se obtienen solo alumnos con `estado IN (2, 3, 9, 13)` (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY), `estado_aula = 1`, ciclo activo, y se resuelve el estado de mayor prioridad según la jerarquía numérica.
+**Entonces:** Se valida la conexión antes de consultar; si la conexión es exitosa, se obtienen solo alumnos con `estado IN (2, 3, 9, 13, 14)` (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY, FINALIZADO), `estado_aula = 1`, sin filtro por ciclo ni exclusión de `matricularegular_id`, y se resuelve el estado de mayor prioridad según la jerarquía numérica.
 
 **Datos de Prueba (schema real — 3 tablas):**
 
@@ -169,19 +169,13 @@ VALUES ('12345678', 'JUAN', 'LOPEZ', 'GARCIA');
 INSERT INTO alumnos (codigo, persona_dni) 
 VALUES ('ALU001', '12345678');
 
--- Insertar aula, matricula, ciclo
-INSERT INTO aulas (id, matricula_id) VALUES (1, 1);
-INSERT INTO matriculas (id) VALUES (1);
-INSERT INTO ciclos (id, matricula_id, fecha_inicio, fecha_fin) 
-VALUES (1, 1, '2026-01-01', '2026-12-31');
-
--- Insertar en alumno_matricula con estado 2 (MATRICULADO)
-INSERT INTO alumno_matricula (id, alumno_codigo, aula_id, estado, estado_aula, fecha)
-VALUES (100, 'ALU001', 1, 2, 1, NOW());
+-- Insertar en alumno_matricula con estado 14 (FINALIZADO) — no requiere ciclo ni aula
+INSERT INTO alumno_matricula (id, alumno_codigo, estado, estado_aula, fecha)
+VALUES (100, 'ALU001', 14, 1, NOW());
 ```
 
-- Entrada: alumno con `alumno_matricula.estado = 2` (MATRICULADO).
-- Esperado: `getActivosConNombres()` devuelve 1 resultado con `estado = 2`.
+- Entrada: alumno con `alumno_matricula.estado = 14` (FINALIZADO).
+- Esperado: `getActiveAlumnos()` devuelve 1 resultado con `estado = 14`.
 
 ---
 
@@ -287,12 +281,13 @@ VALUES (100, 'ALU001', 1, 2, 1, NOW());
 | **Trazas a** | US-003, AC-008, plan.md: RealizarCruceExactoAction |
 
 **Dado:** Un ingresante normalizado con apellidos y nombre que existen en `academia`.
-**Cuando:** Se ejecuta `RealizarCruceExactoAction`.
-**Entonces:** El ingresante recibe `alumno_id`, estado `confirmado_automatico` y datos enriquecidos.
+**Cuando:** Se ejecuta `RealizarCruceExactoAction::executeBatch()`.
+**Entonces:** El sistema busca match por nombre compuesto (`findMatchByName`). Si encuentra coincidencia de 2 apellidos + al menos 1 nombre, asigna `alumno_id`, estado `confirmado_automatico` y datos enriquecidos.
 
 **Datos de Prueba:**
-- Entrada: `APELLIDO_PATERNO=LOPEZ`, `APELLIDO_MATERNO=GARCIA`, `NOMBRE=JUAN`
-- Esperado: match exacto y estado `confirmado_automatico`.
+- Ingresante: `APELLIDO_PATERNO=PEREZ`, `APELLIDO_MATERNO=LOPEZ`, `NOMBRES=JUAN`
+- Academia: persona con `apellido_paterno=PEREZ`, `apellido_materno=LOPEZ`, `nombres=JUAN`
+- Esperado: match por nombre, estado `confirmado_automatico`
 
 ---
 
@@ -328,6 +323,23 @@ VALUES (100, 'ALU001', 1, 2, 1, NOW());
 **Cuando:** Se calcula la lista de candidatos.
 **Entonces:** La lista está vacía y el sistema marca al ingresante como `pendiente` con opción de `no_ingresado` en la interfaz.
 
+
+---
+
+#### TC-056: Flat array + integer index byName — sin duplicación
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Unidad |
+| **Prioridad** | P2 |
+| **Automatizado** | Sí |
+| **Trazas a** | US-003, plan.md: Optimization Strategies |
+
+**Dado:** `getActiveAlumnos()` retorna ~25,000-30,000 registros de academia.
+**Cuando:** Se construye el índice `byName`.
+**Entonces:** El índice almacena solo enteros (posiciones en `$alumnos[]`), nunca copias de los datos completos. El arreglo `$alumnos` tiene exactamente N elementos y el índice apunta a posiciones dentro de él, sin duplicar los arrays asociativos de cada alumno.
+
+**Verificación:** Comparar `memory_get_usage()` antes y después de construir el índice. No debe existir `byDni` (el CSV no contiene DNI).
 
 ---
 
@@ -1075,7 +1087,7 @@ VALUES (100, 'ALU001', 1, 2, 1, NOW());
 | US-002/AC-006 |  | TC-005 |  |  |
 | US-002/AC-007 | TC-045 | TC-005 |  |  |
 | US-003/AC-003a |  |  |  | TC-028 (cobertura transitiva via AC-001f) |
-| US-003/AC-008 |  | TC-006 |  |  |
+| US-003/AC-008 | TC-054 | TC-006 |  |  |
 | US-003/AC-009 | TC-007 |  |  |  |
 | US-003/AC-010 |  | TC-008, TC-015 |  |  |
 | US-004/AC-011 |  |  | TC-009, TC-048 |  |
@@ -1106,6 +1118,7 @@ VALUES (100, 'ALU001', 1, 2, 1, NOW());
 | NFR-004 |  | TC-031 |  |  |
 | NFR-005 |  | TC-032, TC-047 |  |  |
 | NFR-006 |  | TC-033 |  |  |
+| AD-001 (v2.9.0) | TC-056 | TC-005 |  |  |
 | INV-01 | TC-039 |  |  |  |
 | INV-02 |  | TC-040 |  |  |
 | INV-03 |  | TC-042 |  |  |

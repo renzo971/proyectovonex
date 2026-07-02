@@ -69,7 +69,8 @@ graph TB
 | **Pattern of Actions** | Service Actions (`app/Actions/Cruce/`) | Promotes SOLID principles, thin controllers, and testability of isolated business units. |
 | **Async Processing** | Redis Queue via Laravel Queue Job | Handles large CSV uploads (~27k records) efficiently without triggering HTTP timeouts. |
 | **Dual-Table Analytics Schema** | Split into `ingresantes` (matched) & `no_ingresantes` (audited) | Maintains high query performance for match resolution while preserving complete audit traceability. |
-| **Two-Phase Matching** | 1. Strict Exact Match<br>2. Fuzzy Match (Levenshtein) | Avoids false positives for obvious matches and limits manual validation workload to ambiguous cases. |
+| **Two-Phase Matching** | 1. Name Exact Match<br>2. Fuzzy Match (Levenshtein + Dice) inline | Nombre compuesto (2 apellidos + 1 nombre) para exact match; fuzzy inline con timeout de 2h. |
+| **Memory Strategy** | Flat array + integer indexes | ~25-30K records loaded as flat array; `byName` stores int positions only, not data copies. Reduces memory ~60%. |
 
 ---
 
@@ -77,17 +78,26 @@ graph TB
 
 > Decisiones de diseño técnico migradas desde `context-bridge.md` — pertenecen aquí según los límites de artefactos SDD-Enterprise.
 
-#### AD-001: Fuzzy match EAGER dentro del batch job
+#### AD-001: Fuzzy match EAGER inline con timeout (actualizado v2.9.0)
 
-**Decisión:** El `ProcessCsvBatchJob` realiza normalize → filter → exact match → **fuzzy match (compute & persist)** → persist candidatos. El fuzzy match **CORRE dentro del job** para todos los ingresantes que quedan en estado `pendiente` después del exact match.
+**Decisión:** El `ProcessCsvBatchJob` realiza normalize → filter → exact match (solo por nombre) → **fuzzy match inline**. Todo corre dentro del mismo job secuencialmente.
 
-**Cuándo corre:** Inmediatamente después del exact match, dentro del mismo `ProcessCsvBatchJob`, como paso final del pipeline batch.
+**Timeout:** `public int $timeout = 7200` (2 horas). Esto evita que el worker de Redis mate el job antes de que termine el fuzzy scan (~41 min con 4209 pendientes × ~580ms c/u).
 
-**Persistencia:** Los candidatos computados se guardan en la tabla `ingresante_candidatos` (ver data-model.md §2.4). El endpoint `GET /api/cruce/ingresantes/{id}/candidatos` solo hace un SELECT — nunca computa en el request HTTP.
+**Flujo:**
+1. Parseo CSV (~15s)
+2. Carga de alumnos de academia vía `getActiveAlumnos()` (~0.3s)
+3. Exact match por nombre vía `executeBatch()` (~1s)
+4. Fuzzy scan inline: para cada ingresante `pendiente`, ejecuta Levenshtein + Dice contra los ~25K alumnos y persiste candidatos en `ingresante_candidatos` (~41 min)
+5. Marca lote como `completed`
 
-**Razón:** El cambio a eager resuelve el NFR-002 de raíz: el endpoint de candidatos nunca necesita computar en caliente. Además, permite que la interfaz React muestre candidatos inmediatamente al listar pendientes, sin esperar a que cada `GET /candidatos` compute por primera vez. Los ~350 registros `pendiente` se procesan en el mismo job batch sin impactar el SLA de NFR-001 porque el bulk loading de alumnos de academia se hace una sola vez para todo el lote (ver T023), y el cómputo por ingresante es O(k) con k pequeño (top 5 candidatos).
+**Memoria:** Los ~25,000-30,000 alumnos se cargan UNA vez como arreglo plano y se comparten entre exact match y fuzzy scan. `memory_limit=512M` como safety net (~174MB pico medido).
 
-**Consecuencia en data model:** Requiere la tabla `ingresante_candidatos` — definida en data-model.md §2.4. No hay cambios estructurales adicionales.
+**Progreso fuzzy:** Antes del scan se setea `total_pendientes` y se incrementa `fuzzy_procesados` cada 50 ingresantes en `lotes_cruce`. El endpoint de status devuelve `fuzzy_progress = (fuzzy_procesados / total_pendientes) * 100`. El frontend React lo usa para mostrar barra de progreso con polling cada 2s.
+
+**Razón:** El enfoque de paralelización (3 chunks) se descartó porque los workers individuales también excedían el timeout de Redis. La solución más simple y robusta es aumentar el timeout del job a 2h, permitiendo que el worker espere el tiempo que sea necesario sin matar el proceso.
+
+**Consecuencia en data model:** Sin cambios en schema. `getActiveAlumnos()` no necesita `byDni` (eliminado). Datos compartidos entre fases vía variable local en `handle()`.
 
 ---
 
@@ -111,7 +121,7 @@ graph TB
 
 **Interfaces:**
 - `POST /api/cruce/upload` - Upload endpoint (returns immediately with lote_id).
-- `ProcessCsvBatchJob` - Queue job that orchestrates full CSV processing (parse, normalize, split, match).
+- `ProcessCsvBatchJob` - Queue job that orchestrates full CSV processing: parse, normalize, exact match, fuzzy match inline (timeout=7200s).
 
 **Dependencies:**
 - Laravel Queue (Redis) for async job dispatch.
@@ -133,11 +143,12 @@ app/
 
 ### 2.2 Backend Component: MatchEngine
 
-**Responsibility:** Performs exact matching using strict filters, and calculates Levenshtein distances for fuzzy candidate matches.
+**Responsibility:** Performs exact matching using name-based strict filters, then fuzzy matching inline within the same job.
 
 **Interfaces:**
-- `RealizarCruceExactoAction` - Processes automatic matches.
-- `CalcularSimilitudesCabosAction` - Computes candidate list.
+- `RealizarCruceExactoAction` - Processes automatic name-based exact matches.
+- `ProcessCsvBatchJob` (inline) - Computes Levenshtein + Dice for all pendientes, persists candidates, and auto-confirms ≥ 99.5%.
+- `CalcularSimilitudesCabosAction` - Reads pre-computed candidates from `ingresante_candidatos` for the API endpoint.
 
 **Dependencies:**
 - PostgreSQL database `academia` connection.
@@ -145,9 +156,12 @@ app/
 
 **Structure:**
 ```
-app/Actions/Cruce/
-├── RealizarCruceExactoAction.php
-└── CalcularSimilitudesCabosAction.php
+app/
+├── Actions/Cruce/
+│   ├── RealizarCruceExactoAction.php
+│   └── CalcularSimilitudesCabosAction.php
+└── Jobs/
+    └── ProcessCsvBatchJob.php
 ```
 
 ### 2.3 Frontend Component: Verification Dashboard
@@ -255,12 +269,19 @@ See: [data-model.md](./data-model.md)
 
 | Metric | Target | Strategy |
 |--------|--------|----------|
-| CSV Processing (27k rows) | ≤ 50 seconds | Queue batching via Redis, bulk DB insertions, and database transactions. |
-| Fuzzy Search API Response (p95) | ≤ 300 ms | PostgreSQL indexes on normalized name columns and limit candidates to top 5. |
+| CSV Processing (27k rows) | ≤ 50 seconds (parse) | Queue batching via Redis, bulk DB insertions, and database transactions. |
+| Fuzzy Processing (~4200 pendientes) | ~41 minutos (1 worker) | Fuzzy scan inline con `timeout=7200s`; datos de academia compartidos entre fases. |
+| Fuzzy Search API Response (p95) | ≤ 300 ms | Candidatos pre-computados y persistidos en `ingresante_candidatos` durante el job; endpoint solo hace SELECT. |
 | CSV File Size Support | Up to 20 MB | Streamed CSV parsing on worker side; web server limit set to 25MB. |
 
 ### 6.2 Optimization Strategies
 
+- **Flat Array + Integer Indexes:** ~25,000-30,000 alumnos de academia se cargan como arreglo plano único. El índice `byName` almacena solo enteros (posiciones). Sin duplicación de datos. Sin `byDni` (el CSV no tiene DNI).
+- **Shared Data Loading:** Los alumnos se cargan UNA vez en `ProcessCsvBatchJob` y se comparten entre exact match y fuzzy scan.
+- **Job Timeout:** `public int $timeout = 7200` (2h) para evitar que Redis mate el job durante el fuzzy scan.
+- **Fuzzy Progress Tracking:** `total_pendientes` y `fuzzy_procesados` (c/50 ingresantes) en `lotes_cruce`. El frontend muestra barra de progreso vía polling cada 2s.
+- **Auto-confirmación ≥ 99.5%:** Reduce los pendientes reales para revisión manual.
+- **Memory Limit:** `memory_limit=512M` en el job como safety net (~174MB pico medido).
 - **Database Indexes:** B-tree composite index on `(apellidos, nombres)` — los campos se almacenan pre-normalizados en MAYÚSCULAS por `NormalizarTextoAction`, por lo que un índice funcional con `LOWER()` es incorrecto e innecesario.
 - **Redis Queue:** Process records asynchronously using Laravel's queue worker infrastructure.
 - **Excel Generation:** Use streaming writer in PhpSpreadsheet to prevent memory exhaustion during export.

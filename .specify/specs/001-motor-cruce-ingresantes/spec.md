@@ -74,7 +74,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 - [ ] **AC-005a:** La consulta a la base de datos `academia` debe recuperar los datos del alumno mediante el join de 3 tablas: `alumno_matricula` → `alumnos` → `personas`. Los campos obtenidos son:
   - De `personas`: `dni`, `nombres`, `apellido_paterno`, `apellido_materno`
   - De `alumno_matricula`: `id` (usado como `alumno_id`), `estado`, `fecha`
-- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema filtra solo los estados activos: `estado IN (2, 3, 9, 13)` que corresponden a MATRICULADO, PAGADO, SUSPENDIDO y STAND BY respectivamente. Además aplica los filtros: `estado_aula = 1`, ciclo activo (`ciclos.fecha_fin >= hoy`), y excluye los registros originales cuyo id aparece como `matricularegular_id` en otra fila (la matrícula regular los supera).
+- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema filtra solo los estados activos: `estado IN (2, 3, 9, 13, 14)` que corresponden a MATRICULADO, PAGADO, SUSPENDIDO, STAND BY y FINALIZADO respectivamente. Además aplica el filtro: `estado_aula = 1`. No se aplica el filtro `matricularegular_id` para evitar excluir registros históricos válidos, ni filtro por ciclo.
 - [ ] **AC-007:** Dado un alumno con múltiples registros históricos en la base de datos `academia`, cuando se determina su estado para el reporte, entonces se resuelve eligiendo el estado de mayor prioridad según la jerarquía inmutable: MATRICULADO (2) → PAGADO (3) → FINALIZADO (14) → SUSPENDIDO (9) → RETIRADO (0) → TRASLADADO (12) → STAND BY (13) → ANULADO (11).
 
 > **Nota sobre el schema de academia:** La base `academia` no tiene una tabla `alumnos` plana con todos los campos. El schema real usa 3 tablas relacionadas: `personas` (PK: `dni`), `alumnos` (PK: `codigo`, FK: `persona_dni`), y `alumno_matricula` (PK: `id`, FK: `alumno_codigo` → `alumnos.codigo`). Ver `context-bridge.md` para el detalle completo.
@@ -84,22 +84,14 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 - La validación de conexión (AC-005) se ejecuta al inicio de `RealizarCruceExactoAction.php`.
 - **Extracción de Alumnos (AC-005a):** La consulta se realiza mediante el modelo `AlumnoMatricula::getActivosConNombres()` que ejecuta un join de 3 tablas:
   ```sql
-  SELECT alumno_matricula.id, personas.apellido_paterno, personas.apellido_materno,
-         personas.nombres, alumno_matricula.estado
-  FROM alumno_matricula
-  JOIN alumnos ON alumno_matricula.alumno_codigo = alumnos.codigo
-  JOIN personas ON alumnos.persona_dni = personas.dni
-  LEFT JOIN aulas ON alumno_matricula.aula_id = aulas.id
-  LEFT JOIN matriculas ON aulas.matricula_id = matriculas.id
-  LEFT JOIN ciclos ON matriculas.id = ciclos.matricula_id AND ciclos.fecha_fin >= CURRENT_DATE
-  WHERE alumno_matricula.estado IN (2, 3, 9, 13)
-    AND alumno_matricula.estado_aula = 1
-    AND ciclos.id IS NOT NULL
-    AND alumno_matricula.id NOT IN (
-      SELECT matricularegular_id FROM alumno_matricula WHERE matricularegular_id IS NOT NULL
-    )
+  SELECT am.id, p.apellido_paterno, p.apellido_materno, p.nombres, p.dni, am.estado
+  FROM alumno_matricula am
+  JOIN alumnos a ON am.alumno_codigo = a.codigo
+  JOIN personas p ON a.persona_dni = p.dni
+  WHERE am.estado IN (2, 3, 9, 13, 14)
+    AND am.estado_aula = 1
   ```
-- Para optimizar el matching exacto, los 6,000+ alumnos activos se cargan en un hash map por `apellido_paterno|apellido_materno` para lookup O(1), en vez de iterar todos contra todos (O(N×M)).
+- Para optimizar el matching exacto, los ~25,000-30,000 alumnos activos se cargan como arreglo plano con índices de enteros paralelos: `byName` (apellido_paterno|apellido_materno → int[]) y `byDni` (dni → int[]). El lookup es O(1) en ambas estrategias.
 - La jerarquía de estados (AC-007) es inmutable según INV-06 del Context Bridge (constitution.md Art. IV §4.7); cualquier cambio requiere enmienda constitucional documentada. La jerarquía real es: MATRICULADO (2) → PAGADO (3) → FINALIZADO (14) → SUSPENDIDO (9) → RETIRADO (0) → TRASLADADO (12) → STAND BY (13) → ANULADO (11).
 - Las credenciales de conexión se gestionan exclusivamente mediante variables de entorno (`.env`) — Art. 4 de la Constitución.
 
@@ -125,15 +117,15 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 #### Technical Notes
 
 - El cruce exacto (AC-008) es responsabilidad de `RealizarCruceExactoAction.php`.
-- **Optimización de matching exacto:** Para evitar iterar 6,000+ alumnos por cada uno de los 5,000+ ingresantes (O(N×M) = 30 millones de iteraciones), se construye un **hash map** indexado por `apellido_paterno|apellido_materno` normalizados. El lookup es O(1) por ingresante.
+- **Estrategia de matching: solo por nombre compuesto.** El campo `codigo` del CSV es el código de postulante UNMSM, NO el DNI. El sistema indexa los alumnos por clave `apellido_paterno|apellido_materno` (hash map con índices de enteros O(1)). Para cada ingresante, busca coincidencia de 2 apellidos + al menos 1 nombre.
+- **Optimización de memoria:** Los ~25,000-30,000 alumnos activos se cargan como arreglo plano (`$alumnos[]`). El índice `byName` almacena solo enteros (posiciones en el arreglo), no duplica datos. Esto reduce el uso de memoria ~60% vs. arrays asociativos duplicados.
 - **Flujo del matching exacto:**
-  1. Cargar todos los alumnos activos de academia via `AlumnoMatricula::getActivosConNombres()` (aprox. 6,000 registros)
-  2. Indexarlos en un hash map por clave `"{apellido_paterno_normalizado}|{apellido_materno_normalizado}"`
-  3. Para cada ingresante, normalizar sus `apellidos` vía `NormalizarTextoAction.execute()` que separa el string compuesto en paterno + materno
-  4. Hacer lookup O(1) en el hash map
-  5. Si hay candidatos, filtrar por al menos 1 nombre coincidente
-  6. Si hay múltiples matches, resolver por jerarquía de estado (2 > 3 > 9 > 13)
-- El cálculo de similitud (AC-009) es responsabilidad de `CalcularSimilitudesCabosAction.php`. La similitud compuesta se calcula como:
+  1. Cargar todos los alumnos activos de academia via `RealizarCruceExactoAction::getActiveAlumnos()` (~25,000-30,000 registros)
+  2. Indexarlos en arreglo plano con índice por nombre: `byName`
+  3. Para cada ingresante, hacer lookup O(1) por clave `"{apellido_paterno_normalizado}|{apellido_materno_normalizado}"`
+  4. Si hay candidatos, filtrar por al menos 1 nombre coincidente
+  5. Si hay múltiples matches, resolver por jerarquía de estado (2 > 3 > 14 > 9 > 13 > 0 > 12 > 11)
+- El cálculo de similitud (AC-009) es responsabilidad de `ProcessFuzzyChunkJob.php`. La similitud compuesta se calcula como:
 
   ```
   similitud(ingresante, alumno) = (levenshtein_normalizado × 0.6) + (dice_bigramas × 0.4)
@@ -145,8 +137,11 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
   - **`dice_bigramas(a, b)`** = `(2 × |bigramas_comunes(a, b)|) / (|bigramas(a)| + |bigramas(b)|)` (Dice coefficient sobre bigramas de caracteres) — rango [0.0, 1.0].
   - El resultado final multiplicado por 100 es el **porcentaje de similitud** almacenado en `porcentaje_similitud`.
   - Ejemplo de referencia obligatorio para TC-007: `similitud("JHON RAMOS LOPEZ", "JOHN RAMOS LOPEZ")` debe producir un valor **≥ 85%**; `similitud("GARCIA TORRES LUIS", "PEREZ MENDOZA ANA")` debe producir un valor **< 30%**.
-- **AD-001 (actualizado):** El fuzzy match se computa **EAGER** dentro de `ProcessCsvBatchJob`, no de forma lazy. `CalcularSimilitudesCabosAction` se invoca para todos los ingresantes `pendiente` inmediatamente después del exact match, dentro del mismo job batch. Los candidatos se persisten en `ingresante_candidatos` durante el job. El endpoint `GET /api/cruce/ingresantes/{id}/candidatos` solo hace SELECT — nunca computa en caliente.
-- **Optimización bulk (T023):** Los alumnos activos de academia se cargan una sola vez en `ProcessCsvBatchJob` (vía `AlumnoMatricula::getActivosConNombres()`) y se pasan como colección tanto a `RealizarCruceExactoAction` como a `CalcularSimilitudesCabosAction`, eliminando consultas N+1 a la BD academia.
+- **Fuzzy inline con timeout (v2.9.0):** Después del exact match, `ProcessCsvBatchJob` ejecuta el fuzzy scan completo (Levenshtein + Dice) inline, dentro del mismo job. Para evitar que el worker de Redis mate el proceso (timeout default 60s), el job declara `public int $timeout = 7200` (2 horas). Los ~25,000-30,000 alumnos de academia se cargan UNA sola vez y se comparten entre exact match y fuzzy scan, eliminando consultas duplicadas. [`memory_limit=512M` aplicado como safety net.]
+- **Auto-confirmación fuzzy ≥ 99.5%:** Si tras el scan Levenshtein el candidato #1 tiene similitud ≥ 99.5%, se auto-confirma como `confirmado_manual` sin intervención humana.
+- **Sin pre-cheques redundantes:** Los pre-cheques de DNI y nombre exacto fueron eliminados porque el exact match (fase 1) ya los ejecuta. Los ingresantes que llegan a fuzzy ya fallaron ambos.
+- **Sin paralelización:** Se descartó el enfoque de múltiples workers por `ProcessFuzzyChunkJob` porque los chunks tomaban ~22 min cada uno y el timeout de Redis mataba los jobs antes de completar.
+- **Tracking de progreso fuzzy:** Antes del fuzzy scan, se registran `total_pendientes` y `fuzzy_procesados` (incrementado cada 50 ingresantes) en la tabla `lotes_cruce`. El endpoint `GET /api/cruce/lotes/{id}/status` devuelve `fuzzy_progress` (porcentaje 0-100) para que el frontend muestre una barra de progreso. El polling del frontend cada 2s actualiza la barra.
 
 ---
 
@@ -382,6 +377,8 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | 2.5.0 | 2026-06-24 | Equipo V2 (revisión elite Antigravity) | Revisión final: Executive Summary actualizado con dual-table + Redis; NFR-001 título y trazabilidad unificados; NFR-003 verificación alineada con arquitectura de colas; EC-008 añadido (worker Redis caído); ERR-007 añadido (job a failed_jobs); Glosario extendido con 4 términos nuevos (ingresantes, no_ingresantes, ProcessCsvBatchJob, Redis Queue); A-05 añadido (disponibilidad Redis); enlace corregido al business-context.md en .specify/specs/ |
 | 2.6.0 | 2026-06-25 | Equipo V2 | Enmienda para incorporar campos DB, CSV y la estructura de reporte Excel final con Listas y Área. |
 | 2.7.0 | 2026-06-25 | Equipo V2 (Auditoría SDD-Enterprise) | Auditoría de cumplimiento: fórmula de similitud formalizada en AC-009 (Levenshtein × 0.6 + Dice bigramas × 0.4); EC-007 y ERR-003 unificados a estado `paused` (CQ-003); NFR-006 corregido de `pausado` a `paused`. |
+| 2.8.0 | 2026-07-02 | Equipo V2 | Correcciones post-pruebas reales: (1) estado FINALIZADO (14) añadido a todos los queries — antes solo se consultaban (2,3,9,13); (2) subquery `matricularegular_id` eliminado — excluía registros válidos; (3) DNI como estrategia primaria de matching (codigo CSV vs personas.dni) con fallback por nombre; (4) datos de academia cargados una vez como arreglo plano + índices de enteros para reducir memoria; (5) memory_limit=512M como safety net; (6) fuzzy con pre-cheques DNI/nombre exacto + auto-confirmación ≥ 99.5% |
+| 2.9.0 | 2026-07-02 | Equipo V2 | Eliminación de DNI como estrategia de matching (codigo CSV no es DNI, es código de postulante); eliminación de pre-cheques redundantes en fuzzy (repetían el exact match ya ejecutado); corrección de timeout del worker: `public int $timeout = 7200` (2h) para evitar que Redis mate el job antes de completar el fuzzy scan (~41 min con datos reales). Tracking de progreso fuzzy: columna `fuzzy_procesados` en `lotes_cruce`, barra de progreso en frontend vía polling cada 2s. Se descartó el enfoque de paralelización por problemas de timeout en workers concurrentes. |
 
 ---
 
