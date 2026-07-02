@@ -151,6 +151,7 @@ class ProcessCsvBatchJob implements ShouldQueue
         }
 
         $alumnos = $alumnosIndex['alumnos'] ?? [];
+        $byInitial = $alumnosIndex['by_initial'] ?? [];
 
         if (empty($alumnos)) {
             return;
@@ -166,7 +167,7 @@ class ProcessCsvBatchJob implements ShouldQueue
         ]);
 
         foreach ($pendientes as $ingresante) {
-            $this->fuzzyMatchAndSave($ingresante, $alumnos, $normalizer);
+            $this->fuzzyMatchAndSave($ingresante, $alumnos, $byInitial, $normalizer);
             $processed++;
 
             if ($processed % 50 === 0 || $processed === $total) {
@@ -181,42 +182,57 @@ class ProcessCsvBatchJob implements ShouldQueue
         ]);
     }
 
-    private function fuzzyMatchAndSave($ingresante, array $alumnos, NormalizarTextoAction $normalizer): void
+    private function fuzzyMatchAndSave($ingresante, array $alumnos, array $byInitial, NormalizarTextoAction $normalizer): void
     {
-        $ingresanteFullName = $normalizer->execute(
-            $ingresante->apellido_paterno . ' ' .
-            $ingresante->apellido_materno . ' ' .
-            $ingresante->nombres
-        );
+        $normPaterno = $normalizer->execute($ingresante->apellido_paterno ?? '');
+        $normMaterno = $normalizer->execute($ingresante->apellido_materno ?? '');
+        $normNombres = $normalizer->execute($ingresante->nombres ?? '');
+        
+        $ingresanteFullName = trim($normPaterno . ' ' . $normMaterno . ' ' . $normNombres);
+
+        $lenA = strlen($ingresanteFullName);
+        $bigramsAHash = [];
+        for ($i = 0; $i < $lenA - 1; $i++) {
+            $bg = $ingresanteFullName[$i] . $ingresanteFullName[$i+1];
+            if (!isset($bigramsAHash[$bg])) {
+                $bigramsAHash[$bg] = 0;
+            }
+            $bigramsAHash[$bg]++;
+        }
+        $countA = max(0, $lenA - 1);
+
+        $initial = $normPaterno !== '' ? $normPaterno[0] : '';
+        $candidateIndices = $initial !== '' && isset($byInitial[$initial]) ? $byInitial[$initial] : array_keys($alumnos);
 
         $scored = [];
 
-        foreach ($alumnos as $alumno) {
-            $alumnoFullName = $normalizer->execute(
-                ($alumno['apellido_paterno'] ?? '') . ' ' .
-                ($alumno['apellido_materno'] ?? '') . ' ' .
-                ($alumno['nombres'] ?? '')
-            );
-
-            $levDistance = levenshtein($ingresanteFullName, $alumnoFullName);
-            $maxLen = max(mb_strlen($ingresanteFullName), mb_strlen($alumnoFullName));
-            $levSimilarity = $maxLen === 0 ? 1.0 : 1.0 - ($levDistance / $maxLen);
-
-            $lenA = mb_strlen($ingresanteFullName);
-            $lenB = mb_strlen($alumnoFullName);
-            $diceCoeff = 0.0;
-            if ($lenA >= 2 && $lenB >= 2) {
-                $bigramsA = [];
-                for ($i = 0; $i < $lenA - 1; $i++) {
-                    $bigramsA[] = mb_substr($ingresanteFullName, $i, 2);
+        foreach ($candidateIndices as $idx) {
+            $alumno = $alumnos[$idx];
+            
+            $countB = $alumno['bigrams_count'];
+            $common = 0;
+            if ($countA > 0 && $countB > 0) {
+                foreach ($bigramsAHash as $bg => $count) {
+                    if (isset($alumno['bigrams_hash'][$bg])) {
+                        $common += min($count, $alumno['bigrams_hash'][$bg]);
+                    }
                 }
-                $bigramsB = [];
-                for ($i = 0; $i < $lenB - 1; $i++) {
-                    $bigramsB[] = mb_substr($alumnoFullName, $i, 2);
-                }
-                $intersection = array_intersect($bigramsA, $bigramsB);
-                $diceCoeff = (2.0 * count($intersection)) / (count($bigramsA) + count($bigramsB));
             }
+            
+            $diceCoeff = ($countA + $countB) > 0 ? (2.0 * $common) / ($countA + $countB) : 0.0;
+            
+            if ($diceCoeff < 0.25) {
+                continue;
+            }
+            
+            if (levenshtein($normPaterno, $alumno['norm_paterno']) > 4) {
+                continue;
+            }
+
+            $alumnoFullName = $alumno['full_name_normalized'];
+            $levDistance = levenshtein($ingresanteFullName, $alumnoFullName);
+            $maxLen = max($lenA, strlen($alumnoFullName));
+            $levSimilarity = $maxLen === 0 ? 1.0 : 1.0 - ($levDistance / $maxLen);
 
             $similarity = ($levSimilarity * 0.6 + $diceCoeff * 0.4) * 100;
 
@@ -224,7 +240,7 @@ class ProcessCsvBatchJob implements ShouldQueue
                 $scored[] = [
                     'alumno_id' => (int) $alumno['id'],
                     'porcentaje_similitud' => round($similarity, 2),
-                    'apellido_paterno' => $normalizer->execute($alumno['apellido_paterno'] ?? ''),
+                    'apellido_paterno' => $alumno['norm_paterno'],
                 ];
             }
         }
@@ -240,13 +256,17 @@ class ProcessCsvBatchJob implements ShouldQueue
 
         IngresanteCandidato::where('ingresante_id', $ingresante->id)->delete();
 
+        $inserts = [];
         foreach ($topCandidates as $idx => $candidate) {
-            IngresanteCandidato::create([
+            $inserts[] = [
                 'ingresante_id' => $ingresante->id,
                 'alumno_id' => $candidate['alumno_id'],
                 'porcentaje_similitud' => $candidate['porcentaje_similitud'],
                 'ranking' => $idx + 1,
-            ]);
+            ];
+        }
+        if (!empty($inserts)) {
+            IngresanteCandidato::insert($inserts);
         }
 
         if (!empty($topCandidates) && $topCandidates[0]['porcentaje_similitud'] >= 99.5) {

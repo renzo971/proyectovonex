@@ -91,22 +91,74 @@ class CalcularSimilitudesCabosAction
             ];
         }
 
+        $normPaterno = $this->normalizador->execute($ingresante->apellido_paterno ?? '');
+        $initial = $normPaterno !== '' ? $normPaterno[0] : '';
+        
+        $lenA = strlen($ingresanteFullName);
+        $bigramsAHash = [];
+        for ($i = 0; $i < $lenA - 1; $i++) {
+            $bg = $ingresanteFullName[$i] . $ingresanteFullName[$i+1];
+            if (!isset($bigramsAHash[$bg])) {
+                $bigramsAHash[$bg] = 0;
+            }
+            $bigramsAHash[$bg]++;
+        }
+        $countA = max(0, $lenA - 1);
+        
         $scored = [];
 
         foreach ($alumnos as $alumno) {
-            $alumnoFullName = $this->normalizador->execute(
-                ($alumno->apellido_paterno ?? '') . ' ' .
-                ($alumno->apellido_materno ?? '') . ' ' .
-                ($alumno->nombres ?? '')
-            );
-
-            $similarity = $this->combinedSimilarity($ingresanteFullName, $alumnoFullName);
+            $aluNormPaterno = $this->normalizador->execute($alumno->apellido_paterno ?? '');
+            
+            if ($initial !== '' && ($aluNormPaterno === '' || $aluNormPaterno[0] !== $initial)) {
+                continue;
+            }
+            
+            $aluNormMaterno = $this->normalizador->execute($alumno->apellido_materno ?? '');
+            $aluNormNombres = $this->normalizador->execute($alumno->nombres ?? '');
+            $alumnoFullName = trim($aluNormPaterno . ' ' . $aluNormMaterno . ' ' . $aluNormNombres);
+            
+            $lenB = strlen($alumnoFullName);
+            $bigramsBHash = [];
+            for ($i = 0; $i < $lenB - 1; $i++) {
+                $bg = $alumnoFullName[$i] . $alumnoFullName[$i+1];
+                if (!isset($bigramsBHash[$bg])) {
+                    $bigramsBHash[$bg] = 0;
+                }
+                $bigramsBHash[$bg]++;
+            }
+            $countB = max(0, $lenB - 1);
+            
+            $common = 0;
+            if ($countA > 0 && $countB > 0) {
+                foreach ($bigramsAHash as $bg => $count) {
+                    if (isset($bigramsBHash[$bg])) {
+                        $common += min($count, $bigramsBHash[$bg]);
+                    }
+                }
+            }
+            
+            $diceCoeff = ($countA + $countB) > 0 ? (2.0 * $common) / ($countA + $countB) : 0.0;
+            
+            if ($diceCoeff < 0.25) {
+                continue;
+            }
+            
+            if (levenshtein($normPaterno, $aluNormPaterno) > 4) {
+                continue;
+            }
+            
+            $levDistance = levenshtein($ingresanteFullName, $alumnoFullName);
+            $maxLen = max($lenA, $lenB);
+            $levSimilarity = $maxLen === 0 ? 1.0 : 1.0 - ($levDistance / $maxLen);
+            
+            $similarity = ($levSimilarity * 0.6 + $diceCoeff * 0.4) * 100;
 
             if ($similarity >= 70.0) {
                 $scored[] = [
                     'alumno_id' => (int) $alumno->id,
                     'porcentaje_similitud' => round($similarity, 2),
-                    'apellido_paterno' => $this->normalizador->execute($alumno->apellido_paterno ?? ''),
+                    'apellido_paterno' => $aluNormPaterno,
                 ];
             }
         }
@@ -147,43 +199,6 @@ class CalcularSimilitudesCabosAction
                 'no_ingresado_option' => empty($data),
             ],
         ];
-    }
-
-    private function levenshteinSimilarity(string $a, string $b): float
-    {
-        $distance = levenshtein($a, $b);
-        $maxLen = max(mb_strlen($a), mb_strlen($b));
-        if ($maxLen === 0) {
-            return 1.0;
-        }
-        return 1.0 - ($distance / $maxLen);
-    }
-
-    private function diceCoefficient(string $a, string $b): float
-    {
-        $lenA = mb_strlen($a);
-        $lenB = mb_strlen($b);
-        if ($lenA < 2 || $lenB < 2) {
-            return 0.0;
-        }
-
-        $bigramsA = [];
-        for ($i = 0; $i < $lenA - 1; $i++) {
-            $bigramsA[] = mb_substr($a, $i, 2);
-        }
-
-        $bigramsB = [];
-        for ($i = 0; $i < $lenB - 1; $i++) {
-            $bigramsB[] = mb_substr($b, $i, 2);
-        }
-
-        $intersection = array_intersect($bigramsA, $bigramsB);
-        return (2.0 * count($intersection)) / (count($bigramsA) + count($bigramsB));
-    }
-
-    private function combinedSimilarity(string $a, string $b): float
-    {
-        return ($this->levenshteinSimilarity($a, $b) * 0.6 + $this->diceCoefficient($a, $b) * 0.4) * 100;
     }
 
     public function resolveArea(string $eap): string

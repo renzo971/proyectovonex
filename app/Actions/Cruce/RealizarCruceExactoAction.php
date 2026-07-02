@@ -178,22 +178,48 @@ class RealizarCruceExactoAction
 
         $alumnos = [];
         $byName = [];
+        $byInitial = [];
 
         foreach ($rows as $row) {
             $idx = count($alumnos);
+            
+            $normPaterno = $this->normalizador->execute($row->apellido_paterno ?? '');
+            $normMaterno = $this->normalizador->execute($row->apellido_materno ?? '');
+            $normNombres = $this->normalizador->execute($row->nombres ?? '');
+            
+            $fullNameNormalized = trim($normPaterno . ' ' . $normMaterno . ' ' . $normNombres);
+            
+            $len = strlen($fullNameNormalized);
+            $bigramsHash = [];
+            for ($i = 0; $i < $len - 1; $i++) {
+                $bg = $fullNameNormalized[$i] . $fullNameNormalized[$i+1];
+                if (!isset($bigramsHash[$bg])) {
+                    $bigramsHash[$bg] = 0;
+                }
+                $bigramsHash[$bg]++;
+            }
+
             $alumnos[] = [
                 'id' => (int) $row->id,
                 'apellido_paterno' => $row->apellido_paterno,
                 'apellido_materno' => $row->apellido_materno,
                 'nombres' => $row->nombres,
                 'estado' => (int) $row->estado,
+                'norm_paterno' => $normPaterno,
+                'full_name_normalized' => $fullNameNormalized,
+                'bigrams_hash' => $bigramsHash,
+                'bigrams_count' => max(0, $len - 1),
             ];
 
-            $nameKey = $this->normalizador->execute($row->apellido_paterno) . '|'
-                     . $this->normalizador->execute($row->apellido_materno);
+            $nameKey = $normPaterno . '|' . $normMaterno;
             $byName[$nameKey][] = $idx;
+            
+            $initial = $normPaterno !== '' ? $normPaterno[0] : '';
+            if ($initial !== '') {
+                $byInitial[$initial][] = $idx;
+            }
         }
 
-        return ['alumnos' => $alumnos, 'by_name' => $byName];
+        return ['alumnos' => $alumnos, 'by_name' => $byName, 'by_initial' => $byInitial];
     }
 }
