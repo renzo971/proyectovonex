@@ -43,14 +43,14 @@ graph TB
     end
     
     UI --> CTRL
-    CTRL --> ACT_CSV
-    ACT_CSV --> Redis
+    CTRL --> Redis
     Redis --> Job
     
+    Job --> ACT_CSV
     Job --> ACT_NORM
     Job --> ACT_EXACT
+    Job --> ACT_FUZZY
     
-    CTRL --> ACT_FUZZY
     CTRL --> ACT_CONFIRM
     CTRL --> ACT_EXCEL
     
@@ -77,17 +77,17 @@ graph TB
 
 > Decisiones de diseño técnico migradas desde `context-bridge.md` — pertenecen aquí según los límites de artefactos SDD-Enterprise.
 
-#### AD-001: Fuzzy match corre on-demand con lazy persistence
+#### AD-001: Fuzzy match EAGER dentro del batch job
 
-**Decisión:** El `ProcessCsvBatchJob` realiza normalize → filter → exact match → persist. El fuzzy match **NO** corre en el job.
+**Decisión:** El `ProcessCsvBatchJob` realiza normalize → filter → exact match → **fuzzy match (compute & persist)** → persist candidatos. El fuzzy match **CORRE dentro del job** para todos los ingresantes que quedan en estado `pendiente` después del exact match.
 
-**Cuándo corre:** La primera vez que el endpoint `GET /cruce/ingresantes/{id}/candidatos` es llamado para un ingresante en estado `pendiente`.
+**Cuándo corre:** Inmediatamente después del exact match, dentro del mismo `ProcessCsvBatchJob`, como paso final del pipeline batch.
 
-**Persistencia:** Los candidatos computados se guardan en la tabla `ingresante_candidatos` (ver data-model.md §2.4). Las llamadas subsiguientes al mismo endpoint hacen un SELECT simple sobre esa tabla.
+**Persistencia:** Los candidatos computados se guardan en la tabla `ingresante_candidatos` (ver data-model.md §2.4). El endpoint `GET /api/cruce/ingresantes/{id}/candidatos` solo hace un SELECT — nunca computa en el request HTTP.
 
-**Razón:** El job debe procesar ~27k filas en ≤ 50s. Solo ~350 registros terminan en estado `pendiente` (estimación basada en datos de ejemplo del openapi.yaml). Computar candidatos para todos en el job es riesgo innecesario para el SLA de NFR-001. El NFR-002 (300ms) aplica al lookup post-compute, no al compute inicial.
+**Razón:** El cambio a eager resuelve el NFR-002 de raíz: el endpoint de candidatos nunca necesita computar en caliente. Además, permite que la interfaz React muestre candidatos inmediatamente al listar pendientes, sin esperar a que cada `GET /candidatos` compute por primera vez. Los ~350 registros `pendiente` se procesan en el mismo job batch sin impactar el SLA de NFR-001 porque el bulk loading de alumnos de academia se hace una sola vez para todo el lote (ver T023), y el cómputo por ingresante es O(k) con k pequeño (top 5 candidatos).
 
-**Consecuencia en data model:** Requiere la tabla `ingresante_candidatos` — definida en data-model.md §2.4.
+**Consecuencia en data model:** Requiere la tabla `ingresante_candidatos` — definida en data-model.md §2.4. No hay cambios estructurales adicionales.
 
 ---
 
@@ -107,12 +107,15 @@ graph TB
 
 ### 2.1 Backend Component: CsvImporter
 
-**Responsibility:** Receives, parses, and enqueues CSV files for processing. Validates headers and limits.
+**Responsibility:** Receives and validates uploaded CSV files, persists the file, and dispatches the async queue job for processing. Does NOT parse or process the CSV inline in the HTTP request.
 
 **Interfaces:**
-- `ProcessCsvBatchJob` - Queue job to process batch import.
+- `POST /api/cruce/upload` - Upload endpoint (returns immediately with lote_id).
+- `ProcessCsvBatchJob` - Queue job that orchestrates full CSV processing (parse, normalize, split, match).
 
 **Dependencies:**
+- Laravel Queue (Redis) for async job dispatch.
+- `ProcesarCargaCsvAction` (invoked by the Job, not the Controller).
 - `NormalizarTextoAction` - Cleans text input.
 - PostgreSQL database connections.
 
@@ -200,13 +203,17 @@ See: [data-model.md](./data-model.md)
 
 | Method | Path | Description | Auth Required |
 |--------|------|-------------|---------------|
+| `GET` | `/api/cruce/health` | Health check endpoint (queue status, DB connections) | No |
 | `POST` | `/api/cruce/upload` | Upload CSV and dispatch queue job | Yes |
 | `GET` | `/api/cruce/lotes` | Retrieve list of upload batches | Yes |
 | `GET` | `/api/cruce/lotes/{lote_id}/status` | Retrieve status & stats of job | Yes |
 | `GET` | `/api/cruce/lotes/{lote_id}/pendientes` | List unmatched applicants (paginated) | Yes |
-| `GET` | `/api/cruce/ingresantes/{id}/candidatos` | Get fuzzy match candidates for a specific ingresante | Yes |
+| `GET` | `/api/cruce/ingresantes/{id}/candidatos` | Get pre-computed fuzzy match candidates for an ingresante | Yes |
 | `POST` | `/api/cruce/ingresantes/{id}/confirmar` | Save manual match or mark as no_ingresado | Yes |
 | `GET` | `/api/cruce/lotes/{lote_id}/exportar` | Export final Excel spreadsheet | Yes |
+| `GET` | `/api/cruce/academia/alumnos` | List active alumnos from academia DB (paginated, searchable) | Yes |
+| `DELETE` | `/api/cruce/limpiar` | Wipe all cruce data (lotes + ingresantes + candidatos) for fresh start | Yes |
+| `POST` | `/api/cruce/lotes/{lote_id}/reprocesar` | Re-process a batch (queue:clear + dispatch new job) | Yes |
 
 ---
 
