@@ -11,9 +11,6 @@ abstract class TestCase extends BaseTestCase
 {
     use RefreshDatabase;
 
-    /**
-     * Get the CSV column headers expected by the application.
-     */
     protected function expectedCsvHeaders(): array
     {
         return [
@@ -32,17 +29,11 @@ abstract class TestCase extends BaseTestCase
         ];
     }
 
-    /**
-     * Build a CSV row string from an array of values.
-     */
     protected function buildCsvRow(array $values): string
     {
         return implode(',', $values) . "\n";
     }
 
-    /**
-     * Build a complete CSV string from rows.
-     */
     protected function buildCsv(array $rows, bool $includeHeaders = true): string
     {
         $csv = '';
@@ -58,9 +49,6 @@ abstract class TestCase extends BaseTestCase
         return $csv;
     }
 
-    /**
-     * Create a temporary CSV file with the given content.
-     */
     protected function createTempCsv(string $content, string $name = 'test.csv'): string
     {
         $path = storage_path('app/' . $name);
@@ -69,9 +57,6 @@ abstract class TestCase extends BaseTestCase
         return $path;
     }
 
-    /**
-     * Get a valid sample CSV row.
-     */
     protected function validCsvRow(array $overrides = []): array
     {
         return array_merge([

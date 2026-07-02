@@ -1,18 +1,12 @@
 <!--
 SYNC IMPACT REPORT:
-- Version change: 1.1.0 -> 2.2.0
+- Version change: 2.2.0 -> 2.5.0
 - List of modified principles:
   * Art. 2 · Preservación de Patrones y Compatibilidad Heredada: Removida regla de Swal.fire.
-  * Art. 3 · Estándares de Calidad: Modificada precisión del cruce incluyendo coincidencia difusa para cabos sueltos.
+  * Art. 3 · Estándares de Calidad: Agregado DNI-based matching como estrategia primaria de cruce; actualizado estado FINALIZADO a valor 14 en BD.
   * Art. 7 · Límites (Las Tres Listas): Agregada regla de ignorar fechas duplicadas en ALWAYS DO y regla de procesar cabos sueltos guiados en NEVER DO. Removida la de Swal.fire.
 - Added sections:
-  * Flujo del Proceso de Cruce
-- Removed sections: None
-- Templates requiring updates:
-  * ✅ .specify/templates/plan-template.md (already aligned)
-  * ✅ .specify/templates/spec-template.md (already aligned)
-  * ✅ .specify/templates/tasks-template.md (already aligned)
-- Follow-up TODOs: None
+  * Flujo del Proceso de Cruce (paso 3 actualizado con DNI matching y paso 4.5 con memoria compartida)
 -->
 
 # Constitución del Proyecto Vonex
@@ -34,10 +28,11 @@ SYNC IMPACT REPORT:
 
 - **Reglas**:
   - **Integridad de Normalización**: Todo texto procesado desde el CSV crudo debe convertirse obligatoriamente a MAYÚSCULAS, sin tildes y con reemplazo estricto de la "Ñ" por "N". No se aceptan excepciones.
-  - **Precisión del Cruce (Match Exacto e Integración Difusa)**:
-    - En el primer paso, la regla de validación de identidad inicial para el cruce automático es estricta: `2 apellidos exactos + 1 nombre exacto` (Cero Falsos Positivos).
+  - **Precisión del Cruce (Match por DNI y Nombre)**:
+    - La estrategia primaria de cruce es por **DNI**: si el `codigo` del CSV coincide con `personas.dni` en la BD academia, la asociación es automática (O(1), cero falsos positivos).
+    - Como fallback, la regla de validación de identidad es estricta: `2 apellidos exactos + 1 nombre exacto` (Cero Falsos Positivos).
     - Los registros que no coincidan de forma exacta (cabos sueltos) deben evaluarse buscando coincidencias o concurrencias similares (match difuso/fuzzy matching) para que el usuario pueda validarlos interactivamente antes de ser guardados.
-  - **Prioridad Histórica Inmutable**: La resolución de estados duplicados debe regirse exclusivamente por la jerarquía definida: 1. MATRICULADO, 2. PAGADO, 3. FINALIZADO, 4. SUSPENDIDO, 5. RETIRADO, 6. TRASLADADO, 7. STAND BY, 8. ANULADO.
+  - **Prioridad Histórica Inmutable**: La resolución de estados duplicados debe regirse exclusivamente por la jerarquía definida: 1. MATRICULADO, 2. PAGADO, 3. FINALIZADO (valor BD: 14), 4. SUSPENDIDO, 5. RETIRADO, 6. TRASLADADO, 7. STAND BY, 8. ANULADO.
   - **Estándares de Codificación**: Los símbolos técnicos (clases, variables, métodos, comentarios de código) deben escribirse en inglés. Los términos de dominio (tablas, columnas de BD, reglas de negocio) e interfaz de usuario visibles deben estar en español.
   - **Reglas de Linting y Formateador**: Cumplimiento estricto del formateador de código del proyecto sin excepciones.
 - **Justificación**: Garantiza precisión analítica absoluta en reportes sin perder la capacidad de capturar coincidencias por ligeras diferencias mediante validación asistida por el usuario.
@@ -89,10 +84,10 @@ SYNC IMPACT REPORT:
 
 ## Flujo del Proceso de Cruce
 
-1. **Conexión y Extracción**: El sistema se conecta a la base de datos `academia` para extraer los datos de los alumnos matriculados vigentes.
+1. **Conexión y Extracción**: El sistema se conecta a la base de datos `academia` para extraer los datos de los alumnos matriculados vigentes (`estado IN (2,3,9,13,14)`, `estado_aula = 1`). Los datos se cargan una sola vez por lote en un arreglo plano con índices de enteros para evitar duplicación de memoria.
 2. **Carga de Archivo**: El usuario sube el archivo CSV de ingresantes a San Marcos.
-3. **Cruce Inicial (Coincidencia Exacta)**: Se realiza el cruce utilizando coincidencia de `2 apellidos exactos + 1 nombre exacto`. Los registros válidos se guardan automáticamente en la DB.
-4. **Tratamiento de Cabos Sueltos (Match Intensivo/Difuso)**: Para los alumnos que no tuvieron match exacto pero muestran similitud, el sistema realiza una búsqueda intensiva y ofrece una interfaz al usuario para seleccionar e integrarlos manualmente de manera asistida.
+3. **Cruce Inicial (Coincidencia Exacta por DNI y Nombre)**: Primero se intenta match por **DNI** (`codigo` CSV vs `personas.dni`). Si no hay coincidencia, se usa el matching por `2 apellidos exactos + 1 nombre exacto`. Los registros válidos se guardan automáticamente en la DB.
+4. **Tratamiento de Cabos Sueltos (Match Intensivo/Difuso)**: Para los alumnos que no tuvieron match exacto, el sistema ejecuta pre-cheques por DNI y nombre exacto. Solo si ambos fallan realiza el scan Levenshtein completo. Los candidatos con ≥ 99.5% de similitud se auto-confirman. El resto se ofrece en interfaz React para validación manual asistida.
 5. **Control de Cargas Futuras**: Al procesar una nueva carga, el sistema ignora las fechas de examen que ya fueron cargadas y procesadas previamente.
 
 ## Flujo de Trabajo Git y Colaboración
@@ -121,4 +116,4 @@ SYNC IMPACT REPORT:
 - **Enmiendas**: Cualquier modificación requiere acuerdo del equipo, documentación de la enmienda, incremento de versión y propagación en plantillas.
 - **Revisión de Cumplimiento**: Se verificará la adherencia en cada Pull Request y revisión de código.
 
-**Versión**: 2.2.0 | **Ratificado**: 2026-06-16 | **Última Enmienda**: 2026-06-16
+**Versión**: 2.5.0 | **Ratificado**: 2026-06-16 | **Última Enmienda**: 2026-07-02

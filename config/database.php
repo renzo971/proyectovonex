@@ -32,6 +32,21 @@ return [
 
     'connections' => [
 
+        'academia' => [
+            'driver' => 'pgsql',
+            'url' => env('DB_ACADEMIA_URL'),
+            'host' => env('DB_ACADEMIA_HOST', '127.0.0.1'),
+            'port' => env('DB_ACADEMIA_PORT', '5432'),
+            'database' => env('DB_ACADEMIA_DATABASE', 'academia'),
+            'username' => env('DB_ACADEMIA_USERNAME', 'root'),
+            'password' => env('DB_ACADEMIA_PASSWORD', ''),
+            'charset' => env('DB_ACADEMIA_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('DB_ACADEMIA_SSLMODE', 'prefer'),
+        ],
+
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),

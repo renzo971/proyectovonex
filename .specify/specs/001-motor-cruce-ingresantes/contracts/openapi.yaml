@@ -501,6 +501,15 @@ components:
         nombre_completo:
           type: string
           example: JUAN CARLOS PEREZ GOMEZ
+        apellido_paterno:
+          type: string
+          example: PEREZ
+        apellido_materno:
+          type: string
+          example: GOMEZ
+        nombres:
+          type: string
+          example: JUAN CARLOS
         porcentaje_similitud:
           type: number
           format: float
@@ -515,6 +524,9 @@ components:
       required:
         - alumno_id
         - nombre_completo
+        - apellido_paterno
+        - apellido_materno
+        - nombres
         - porcentaje_similitud
         - estado_academia
 

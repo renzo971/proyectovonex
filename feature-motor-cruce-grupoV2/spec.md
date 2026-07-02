@@ -6,13 +6,13 @@
 **PO:** Samuel Cisneros
 **Equipo:** Grupo V2 (Vonex)
 **Status:** Under Review
-**Versión:** 2.4.0
+**Versión:** 2.5.0
 
 ---
 
 ## Executive Summary (≤150 palabras)
 
-El motor de cruce automatiza la validación de identidades de los ingresantes de la UNMSM contra la base de datos de la academia Vonex (PostgreSQL). El sistema procesa un CSV (~27,000 filas × 12 columnas) subido por el administrador mediante un job asíncrono en cola Redis. Normaliza los campos y aplica el filtro `ALCANZO VACANTE`: los registros que lo cumplen se persisten en la tabla `ingresantes`; los demás, en `no_ingresantes`. Luego realiza un cruce en dos fases: un match exacto automático (2 apellidos + 1 nombre) y una fase de coincidencia difusa asistida por interfaz React para los cabos sueltos. Finalmente, genera un reporte consolidado en Excel con data enriquecida y un dashboard interactivo de analítica.
+El motor de cruce automatiza la validación de identidades de los ingresantes de la UNMSM contra la base de datos de la academia Vonex (PostgreSQL). El sistema procesa un CSV (~27,000 filas × 12 columnas) subido por el administrador mediante un job asíncrono en cola Redis. Normaliza los campos y aplica el filtro `ALCANZO VACANTE`: los registros que lo cumplen se persisten en la tabla `ingresantes`; los demás, en `no_ingresantes`. Luego realiza un cruce en dos fases: un match exacto automático con búsqueda primaria por DNI y fallback por nombre (2 apellidos + 1 nombre), y una fase de coincidencia difusa asistida por interfaz React para los cabos sueltos. Para evitar duplicación de datos en memoria, los registros de la academia se cargan una sola vez y se indexan mediante arreglos planos con índices de enteros, compartidos entre la fase exacta y la difusa. Finalmente, genera un reporte consolidado en Excel con data enriquecida y un dashboard interactivo de analítica.
 
 ---
 
@@ -61,14 +61,15 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 #### Acceptance Criteria
 
 - [ ] **AC-005:** Dado un lote de ingresantes importados, cuando se inicia el proceso de cruce, entonces el sistema valida la conexión con la base de datos `academia` en PostgreSQL antes de ejecutar cualquier consulta, abortando limpiamente con alerta si la conexión falla.
-- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema trae registros en todos los estados válidos: MATRICULADO, PAGADO, FINALIZADO, SUSPENDIDO, RETIRADO, TRASLADADO, STAND BY, ANULADO — sin filtrar ningún estado en la consulta de extracción.
+- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos para el cruce, entonces el sistema trae registros con `estado_aula = 1` y `estado` en el conjunto activo: MATRICULADO, PAGADO, FINALIZADO, SUSPENDIDO, STAND BY — correspondientes a los valores numéricos 2, 3, 9, 13, 14 en la BD. No se filtra por `matricularegular_id` para incluir todos los registros históricos activos.
 - [ ] **AC-007:** Dado un alumno con múltiples registros históricos en la base de datos `academia`, cuando se determina su estado para el reporte, entonces se resuelve eligiendo el estado de mayor prioridad según la jerarquía inmutable: 1. MATRICULADO → 2. PAGADO → 3. FINALIZADO → 4. SUSPENDIDO → 5. RETIRADO → 6. TRASLADADO → 7. STAND BY → 8. ANULADO.
 
 #### Technical Notes
 
-- La validación de conexión (AC-005) se ejecuta al inicio de `RealizarCruceExactoAction.php`.
+- La validación de conexión (AC-005) se ejecuta al inicio de `RealizarCruceExactoAction.php` y de `ProcessCsvBatchJob.php`.
 - La jerarquía de estados (AC-007) es inmutable según Art. 3 de la Constitución; cualquier cambio requiere enmienda constitucional documentada.
 - Las credenciales de conexión se gestionan exclusivamente mediante variables de entorno (`.env`) — Art. 4 de la Constitución.
+- La consulta filtra por `estado_aula = 1` y `estado IN (2, 3, 9, 13, 14)`, donde 14 corresponde a FINALIZADO (valor real en la BD academia). No se aplica el filtro `matricularegular_id` para evitar excluir registros históricos válidos.
 
 ---
 
@@ -83,14 +84,15 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 #### Acceptance Criteria
 
-- [ ] **AC-008:** Dado un ingresante en el lote, cuando sus 2 apellidos (paterno y materno) y al menos 1 nombre coinciden exactamente con un alumno de la academia tras la normalización, entonces el sistema asocia automáticamente al ingresante con el `alumno_id` correspondiente, establece el estado `confirmado_automatico` y continúa sin intervención del usuario.
-- [ ] **AC-009:** Dado un ingresante que no obtiene match exacto, cuando el motor calcula la similitud comparando la frecuencia de letras y la distancia de Levenshtein contra los alumnos de la academia, entonces genera una lista ordenada de mayor a menor probabilidad con hasta 5 candidatos potenciales y marca al ingresante como `pendiente`.
+- [ ] **AC-008:** Dado un ingresante en el lote, cuando se ejecuta el cruce exacto, entonces el sistema primero busca coincidencia por DNI (campo `codigo` del CSV contra `personas.dni` de la academia). Si no hay match por DNI, cae al matching por nombre: requiere que los 2 apellidos (paterno y materno) y al menos 1 nombre coincidan exactamente tras la normalización. En ambos casos el sistema asocia automáticamente al ingresante con el `alumno_id` correspondiente, establece el estado `confirmado_automatico` y continúa sin intervención del usuario.
+- [ ] **AC-009:** Dado un ingresante que no obtiene match exacto, cuando el motor procesa la fase difusa, entonces primero intenta match por DNI (100% de similitud, match inmediato). Si no hay DNI, prueba coincidencia exacta de apellido compuesto (2 apellidos). Solo si ambos fallan ejecuta el cálculo completo de similitud usando frecuencia de bigramas (Dice coefficient) y distancia de Levenshtein contra los alumnos de la academia. En todos los casos genera una lista ordenada de mayor a menor probabilidad con hasta 5 candidatos potenciales y marca al ingresante como `pendiente`. Los candidatos con similitud ≥ 99.5% se auto-confirman como `confirmado_manual`.
 - [ ] **AC-010:** Dado un ingresante en estado `pendiente`, cuando ningún alumno supera el umbral de similitud del 30%, entonces la lista de candidatos estará vacía y el sistema expondrá la opción "Sin coincidencias encontradas — Marcar como No Ingresado" en la interfaz.
 
 #### Technical Notes
 
-- El cruce exacto (AC-008) es responsabilidad de `RealizarCruceExactoAction.php`.
-- El cálculo de similitud (AC-009) es responsabilidad de `CalcularSimilitudesCabosAction.php`.
+- El cruce exacto (AC-008) es responsabilidad de `RealizarCruceExactoAction.php`. Incluye búsqueda primaria por DNI (`personas.dni` vs `codigo` del CSV) y fallback por nombre.
+- El cálculo de similitud (AC-009) es responsabilidad de `CalcularSimilitudesCabosAction.php` (fuzzy individual) y del método `computeFuzzyCandidates` en `ProcessCsvBatchJob.php` (fuzzy batch). Ambos incluyen pre-cheques por DNI y nombre exacto antes del scan completo.
+- Los datos de la academia se cargan una sola vez por lote en `RealizarCruceExactoAction::getActiveAlumnos()` y se comparten entre las fases exacta y difusa mediante un arreglo plano con índices de enteros, evitando duplicación de memoria. Ver AD-002 en plan.md.
 - El umbral del 30% (AC-010) es un supuesto revisable — ver **Assumption A-03**.
 
 ---
@@ -246,6 +248,8 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | `no_ingresantes` | Tabla de BD que almacena los registros del CSV que **no** cumplen el filtro de `OBSERVACION`; conservados para auditoría y trazabilidad del lote | Schema analítico |
 | `ProcessCsvBatchJob` | Job de Laravel despachado a la cola Redis que orquesta la importación, normalización y enrutamiento dual del CSV | Técnico |
 | Redis Queue | Servicio de cola basado en Redis usado como driver de `QUEUE_CONNECTION` en Laravel para procesar jobs asíncronos fuera del ciclo HTTP | Técnico |
+| DNI-based matching | Estrategia primaria de cruce que compara el campo `codigo` del CSV contra `personas.dni` en la BD academia; si coinciden, el match es inmediato (O(1)) sin depender de la calidad del nombre | Motor de cruce |
+| Flat array indexing | Técnica de optimización de memoria: los registros de alumnos se almacenan una sola vez en un arreglo plano, y los índices (por DNI y por nombre compuesto) guardan solo enteros que referencian posiciones en ese arreglo, evitando duplicar strings | Técnico |
 
 ---
 
@@ -281,6 +285,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | 2.2.0 | 2026-06-16 | Samuel Cisneros / Equipo V2 | Alineación con Constitución v2.2.0; ignorado de fechas duplicadas; supresión de match difuso automático sin revisión |
 | 2.3.0 | 2026-06-24 | Equipo V2 (refactor por Antigravity) | Adaptación completa al modelo Enterprise SDD: US-XXX H3, AC como checkboxes, NFR con trazabilidad, tablas de EC/ERR, Story Linking, Glosario, Assumptions formalizados |
 | 2.4.0 | 2026-06-24 | Samuel Cisneros (PO) | Correcciones post-revisión: NFR-001 ajustado de 5 s → 50 s; NC-1 resuelto (filtro post-normalización); persistencia dual ingresantes/no_ingresantes en AC-004; NFR-006 Redis Queue añadido; volumen real documentado (~27,000 filas × 12 columnas) |
+| 2.5.0 | 2026-07-02 | Equipo V2 (bugfix) | Correcciones críticas: (1) estado 14 (FINALIZADO) añadido a todos los queries — antes solo se consultaban (2,3,9,13), dejando fuera a todos los FINALIZADO. (2) Subquery `matricularegular_id` eliminado de la consulta de extracción — excluía registros con matrícula más reciente. (3) DNI-based matching como estrategia primaria de cruce exacto, con fallback por nombre. (4) Optimización de memoria: datos cargados una sola vez con flat array + índices de enteros, compartidos entre fase exacta y difusa. (5) Pre-cheques por DNI y nombre exacto en fuzzy antes del scan Levenshtein completo. AC-006, AC-008, AC-009 actualizados. AD-002 añadido en plan.md. |
 | 2.5.0 | 2026-06-24 | Equipo V2 (revisión elite Antigravity) | Revisión final: Executive Summary actualizado con dual-table + Redis; NFR-001 título y trazabilidad unificados; NFR-003 verificación alineada con arquitectura de colas; EC-008 añadido (worker Redis caído); ERR-007 añadido (job a failed_jobs); Glosario extendido con 4 términos nuevos (ingresantes, no_ingresantes, ProcessCsvBatchJob, Redis Queue); A-05 añadido (disponibilidad Redis) |
 
 ---
