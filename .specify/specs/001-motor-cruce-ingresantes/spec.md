@@ -145,6 +145,8 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
   - **`dice_bigramas(a, b)`** = `(2 × |bigramas_comunes(a, b)|) / (|bigramas(a)| + |bigramas(b)|)` (Dice coefficient sobre bigramas de caracteres) — rango [0.0, 1.0].
   - El resultado final multiplicado por 100 es el **porcentaje de similitud** almacenado en `porcentaje_similitud`.
   - Ejemplo de referencia obligatorio para TC-007: `similitud("JHON RAMOS LOPEZ", "JOHN RAMOS LOPEZ")` debe producir un valor **≥ 85%**; `similitud("GARCIA TORRES LUIS", "PEREZ MENDOZA ANA")` debe producir un valor **< 30%**.
+- **AD-001 (actualizado):** El fuzzy match se computa **EAGER** dentro de `ProcessCsvBatchJob`, no de forma lazy. `CalcularSimilitudesCabosAction` se invoca para todos los ingresantes `pendiente` inmediatamente después del exact match, dentro del mismo job batch. Los candidatos se persisten en `ingresante_candidatos` durante el job. El endpoint `GET /api/cruce/ingresantes/{id}/candidatos` solo hace SELECT — nunca computa en caliente.
+- **Optimización bulk (T023):** Los alumnos activos de academia se cargan una sola vez en `ProcessCsvBatchJob` (vía `AlumnoMatricula::getActivosConNombres()`) y se pasan como colección tanto a `RealizarCruceExactoAction` como a `CalcularSimilitudesCabosAction`, eliminando consultas N+1 a la BD academia.
 
 ---
 
