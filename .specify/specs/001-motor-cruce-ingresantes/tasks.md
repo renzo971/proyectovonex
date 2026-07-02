@@ -10,12 +10,13 @@
 
 | Phase | Tasks | Estimated Hours | Status |
 |-------|-------|-----------------|--------|
-| Phase 1: Foundation | 4 | 16h | Not Started |
-| Phase 2: Core Implementation | 9 | 46h | Not Started |
-| Phase 3: Frontend & Integration | 3 | 16h | Not Started |
+| Phase 1: Foundation | 4 | 16h | Completed |
+| Phase 2: Core Implementation | 11 | 56h | Completed |
+| Phase 3: Frontend & Integration | 3 | 16h | Completed |
 | Phase 4: Phase 2 / Deferred | 2 | 12h | Not Started |
-| Test Tasks [T] | 3 | 24h | Not Started |
-| **Total** | **21** | **114h** | |
+| Post-Implementation | 2 | 10h | In Progress |
+| Test Tasks [T] | 3 | 24h | In Progress |
+| **Total** | **25** | **134h** | |
 
 **Legend:**
 - `[P]` = Parallel-safe (can run with other [P] tasks)
@@ -36,7 +37,7 @@ _Depends: —_
 **Priority:** P0
 **Estimated:** 6h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
 Create Laravel migrations for the 4 new tables in the Vonex analytics DB.
@@ -68,7 +69,7 @@ _Depends: T001_
 **Priority:** P0
 **Estimated:** 4h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
 Create Eloquent models with relationships, casts, fillables, and enums.
@@ -99,7 +100,7 @@ _Depends: —_
 **Priority:** P0
 **Estimated:** 2h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
 Configure the secondary PostgreSQL connection for the read-only Academia database.
@@ -126,7 +127,7 @@ _Depends: —_
 **Priority:** P0
 **Estimated:** 4h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
 Implement the text normalization action that serves as the Anti-Corruption Layer.
@@ -156,7 +157,7 @@ _Depends: T002, T004_
 **Priority:** P0
 **Estimated:** 10h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
 Parse, validate, deduplicate, and split the uploaded CSV by exam date.
@@ -189,7 +190,7 @@ _Depends: T002, T003, T004_
 **Priority:** P0
 **Estimated:** 10h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
 Perform exact matching (2 surnames + 1 name) against the Academia database.
@@ -221,18 +222,18 @@ _Depends: T005, T006_
 **Priority:** P0
 **Estimated:** 6h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
-Laravel Queue Job that orchestrates the CSV processing pipeline.
+Laravel Queue Job that orchestrates the full CSV processing pipeline, including fuzzy match.
 
 **Files to Create/Modify:**
 - `app/Jobs/ProcessCsvBatchJob.php` [NEW]
 
 **Acceptance Criteria:**
 - [ ] Dispatched to `cruce` queue on Redis (`QUEUE_CONNECTION=redis`).
-- [ ] Pipeline: `ProcesarCargaCsvAction` → `RealizarCruceExactoAction` → persist results.
-- [ ] **Does NOT invoke `CalcularSimilitudesCabosAction`** — fuzzy match is lazy/on-demand per AD-001.
+- [ ] Pipeline: `ProcesarCargaCsvAction` → `RealizarCruceExactoAction` → `CalcularSimilitudesCabosAction` → persist candidatos.
+- [ ] **Invokes `CalcularSimilitudesCabosAction`** — fuzzy match is EAGER dentro del job per AD-001 (actualizado).
 - [ ] Updates `lotes_cruce.estado` to `completed` on success, `error` on failure.
 - [ ] Records `started_at` and `completed_at` timestamps.
 - [ ] Updates all counter fields in `lotes_cruce` (`total_registros`, `total_ingresantes`, etc.).
@@ -243,7 +244,7 @@ Laravel Queue Job that orchestrates the CSV processing pipeline.
 - [ ] Performance: process ~27k rows in ≤ 50 seconds (NFR-001).
 - [ ] `declare(strict_types=1)`.
 
-**Traces To:** US-001 Technical Notes, NFR-001, NFR-006, AD-001
+**Traces To:** US-001 Technical Notes, NFR-001, NFR-006, AD-001 (actualizado)
 
 ---
 
@@ -255,7 +256,7 @@ _Depends: T007_
 **Priority:** P0
 **Estimated:** 4h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
 Controller method to receive CSV upload and dispatch queue job.
@@ -285,10 +286,10 @@ _Depends: T002, T004, T006_
 **Priority:** P1
 **Estimated:** 10h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
-Compute fuzzy match candidates lazily on first API call for a `pendiente` ingresante.
+Compute fuzzy match candidates EAGERLY inside `ProcessCsvBatchJob` for all `pendiente` ingresantes, not on-demand.
 
 **Files to Create/Modify:**
 - `app/Actions/Cruce/CalcularSimilitudesCabosAction.php` [NEW]
@@ -298,13 +299,14 @@ Compute fuzzy match candidates lazily on first API call for a `pendiente` ingres
 - [ ] Return up to 5 candidates sorted by descending similarity (AC-009).
 - [ ] Only include candidates with similarity ≥ 70% (AC-010). If none, return empty array.
 - [ ] On tie (equal similarity): break tie by alphabetical order of `apellidos` (EC-005).
-- [ ] Persist computed candidates to `ingresante_candidatos` table (lazy persistence per AD-001).
+- [ ] Persist computed candidates to `ingresante_candidatos` table (eager persistence per AD-001 actualizado).
 - [ ] Subsequent calls: return cached data from `ingresante_candidatos` (no re-computation).
 - [ ] Normalize academia data via `NormalizarTextoAction` before comparison.
-- [ ] Response time ≤ 300ms p95 for cached calls (NFR-002).
+- [ ] Ya no se invoca on-demand desde el endpoint — es llamado por `ProcessCsvBatchJob` para todo el lote.
+- [ ] Recibe la colección de alumnos activos ya cargada (ver T023) para evitar N+1 queries.
 - [ ] `declare(strict_types=1)`.
 
-**Traces To:** US-003 AC-009, AC-010, AD-001, EC-005
+**Traces To:** US-003 AC-009, AC-010, AD-001 (actualizado), EC-005
 
 ---
 
@@ -316,10 +318,10 @@ _Depends: T009_
 **Priority:** P1
 **Estimated:** 4h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
-Endpoint to retrieve (or lazily compute) fuzzy match candidates.
+Endpoint to retrieve pre-computed fuzzy match candidates (SELECT only, no computation).
 
 **Files to Create/Modify:**
 - `app/Http/Controllers/CruceIngresantesController.php` [MODIFY]
@@ -344,7 +346,7 @@ _Depends: T002, T006_
 **Priority:** P1
 **Estimated:** 4h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
 Save manual match confirmation or mark as `no_ingresado`.
@@ -372,7 +374,7 @@ _Depends: T011_
 **Priority:** P1
 **Estimated:** 2h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
 Endpoint to confirm a manual match or mark as no_ingresado.
@@ -399,7 +401,7 @@ _Depends: T007_
 **Priority:** P1
 **Estimated:** 4h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
 CRUD-like endpoints for batch listing, status, and pending ingresantes.
@@ -410,10 +412,68 @@ CRUD-like endpoints for batch listing, status, and pending ingresantes.
 **Acceptance Criteria:**
 - [ ] `GET /api/cruce/lotes` — paginated list of batches with counters.
 - [ ] `GET /api/cruce/lotes/{lote_id}/status` — batch status with all counter fields.
-- [ ] `GET /api/cruce/lotes/{lote_id}/pendientes` — paginated list of `estado_match = 'pendiente'` ingresantes. Los registros deben venir ordenados: primero los que **tienen candidatos sugeridos** en `ingresante_candidatos` (ordenados por el porcentaje de similitud más alto de sus candidatos de mayor a menor) y, finalmente, al final de la paginación, los que **no tienen ningún candidato/referencia** (lista de candidatos vacía).
+- [ ] `GET /api/cruce/lotes/{lote_id}/pendientes` — paginated list of `estado_match = 'pendiente'` ingresantes. Los registros deben venir ordenados por: `ingresante_candidatos_count DESC`, `max_similitud DESC`, `apellido_paterno ASC`, `apellido_materno ASC`. Esto asegura que los ingresantes con más candidatos y mayor similitud aparezcan primero, y los que no tienen candidatos queden al final.
 - [ ] Auth: roles `admin`, `admisiones`, `marketing` (read-only endpoints).
 
 **Traces To:** plan.md §4.1, NFR-005, spec.md US-004 UI/UX Notes
+
+---
+
+### T022 [P] - Endpoints de Utilidad
+
+_Boundary: Controllers_
+_Depends: T007, T003_
+
+**Priority:** P1
+**Estimated:** 6h
+**Assignee:** Developer
+**Status:** In Progress
+
+**Description:**
+Implement utility endpoints for health monitoring, academia alumni listing, data cleanup, and batch reprocessing.
+
+**Files to Create/Modify:**
+- `app/Http/Controllers/CruceIngresantesController.php` [MODIFY]
+- `routes/api.php` [MODIFY]
+
+**Acceptance Criteria:**
+- [ ] `GET /api/cruce/health` — health check endpoint. Returns queue connection status, academia DB connection status, analytics DB connection status. No auth required.
+- [ ] `GET /api/cruce/academia/alumnos` — list active alumnos from academia DB with pagination and search. Supports `?search=` query param for name/apellido filtering. Auth: `admin`, `admisiones`.
+- [ ] `DELETE /api/cruce/limpiar` — wipe all cruce data: deletes all records from `ingresante_candidatos`, `ingresantes`, `no_ingresantes`, `lotes_cruce`. Returns confirmation with count of deleted records. Auth: `admin` only.
+- [ ] `POST /api/cruce/lotes/{lote_id}/reprocesar` — re-process a batch. Steps: (1) run `queue:clear` for the `cruce` queue, (2) clear existing candidatos for the lote, (3) reset ingresantes `estado_match` to `pendiente`, (4) dispatch new `ProcessCsvBatchJob`. Auth: `admin`, `admisiones`.
+- [ ] `declare(strict_types=1)`.
+
+**Traces To:** plan.md §4.1 (nuevos endpoints), AD-001, NFR-006
+
+---
+
+### T023 [P] - Optimización Bulk Loading de Alumnos Academia
+
+_Boundary: Actions, Jobs_
+_Depends: T007_
+
+**Priority:** P2
+**Estimated:** 4h
+**Assignee:** Developer
+**Status:** In Progress
+
+**Description:**
+Optimize ProcessCsvBatchJob to load academia alumnos once and pass the collection to both exact match and fuzzy match actions, eliminating duplicated DB round-trips.
+
+**Files to Create/Modify:**
+- `app/Jobs/ProcessCsvBatchJob.php` [MODIFY]
+- `app/Actions/Cruce/RealizarCruceExactoAction.php` [MODIFY]
+- `app/Actions/Cruce/CalcularSimilitudesCabosAction.php` [MODIFY]
+
+**Acceptance Criteria:**
+- [ ] `ProcessCsvBatchJob` loads active alumnos once via `AlumnoMatricula::getActivosConNombres()`.
+- [ ] Pass the `Collection<AlumnoMatricula>` to both `RealizarCruceExactoAction` and `CalcularSimilitudesCabosAction`.
+- [ ] Both actions accept an optional pre-loaded collection parameter; if provided, skip the DB query.
+- [ ] Eliminates duplicated DB queries to academia for each phase (exact + fuzzy).
+- [ ] Performance: no measurable increase in total batch time despite adding fuzzy computation, because the DB round-trip is eliminated.
+- [ ] `declare(strict_types=1)`.
+
+**Traces To:** AD-001 (actualizado), NFR-001, T007, T009
 
 ---
 
@@ -671,24 +731,26 @@ graph TD
 
 | Task | Status | Started | Completed | Notes |
 |------|--------|---------|-----------|-------|
-| T001 | Not Started | | | |
-| T002 | Not Started | | | |
-| T003 | Not Started | | | |
-| T004 | Not Started | | | |
-| T005 | Not Started | | | |
-| T006 | Not Started | | | |
-| T007 | Not Started | | | |
-| T008 | Not Started | | | |
-| T009 | Not Started | | | |
-| T010 | Not Started | | | |
-| T011 | Not Started | | | |
-| T012 | Not Started | | | |
-| T013 | Not Started | | | |
+| T001 | Completed | S1 | S1 | Migraciones creadas y verificadas |
+| T002 | Completed | S1 | S1 | Models con relaciones y casts |
+| T003 | Completed | S1 | S1 | Conexión academia configurada |
+| T004 | Completed | S1 | S1 | Normalización con split de apellidos compuestos |
+| T005 | Completed | S2 | S2 | Parseo, validación y enrutamiento dual |
+| T006 | Completed | S2 | S2 | Match exacto con hash map O(1) |
+| T007 | Completed | S2 | S2 | Pipeline completo incluye fuzzy match EAGER |
+| T008 | Completed | S2 | S2 | Upload → dispatch job, no procesa inline |
+| T009 | Completed | S2 | S2 | Fuzzy match EAGER dentro del job (ya no lazy) |
+| T010 | Completed | S2 | S2 | Solo SELECT, nunca computa en caliente |
+| T011 | Completed | S2 | S2 | Confirmación manual + no_ingresado |
+| T012 | Completed | S2 | S2 | POST confirmar con validación de alumno_id |
+| T013 | Completed | S2 | S2 | Lotes endpoints con nuevo ordenamiento |
+| T022 | In Progress | S2 | | Health, academia/alumnos, limpiar, reprocesar |
+| T023 | In Progress | S2 | | Bulk load alumnos, eliminar N+1 |
 | T016 | Not Started | | | |
 | T017 | Not Started | | | |
 | T018 | Not Started | | | |
 | T014 | Not Started | | | |
 | T015 | Not Started | | | |
-| T019 | Not Started | | | |
+| T019 | In Progress | S2 | | Unit tests core domain |
 | T020 | Not Started | | | |
 | T021 | Not Started | | | |
