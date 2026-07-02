@@ -4,6 +4,7 @@
 **Created:** 2026-06-24
 **Architect:** Architect Agent
 **Status:** Under Review
+**Versión:** 2.8.0
 
 ---
 
@@ -18,11 +19,11 @@ graph TB
         Upload[FileUpload.jsx]
         Unmatched[UnmatchedRow.jsx]
     end
-    
+
     subgraph "API Layer (Laravel Routing & Controller)"
         CTRL[CruceIngresantesController]
     end
-    
+
     subgraph "Application Service Layer (Laravel Actions)"
         ACT_NORM[NormalizarTextoAction]
         ACT_CSV[ProcesarCargaCsvAction]
@@ -36,27 +37,27 @@ graph TB
         Redis[(Redis Queue)]
         Job[ProcessCsvBatchJob]
     end
-    
+
     subgraph "Data Layer (PostgreSQL)"
         DB_VONEX[(Vonex Analytics DB)]
         DB_ACADEMIA[(Academia DB)]
     end
-    
+
     UI --> CTRL
     CTRL --> Redis
     Redis --> Job
-    
+
     Job --> ACT_CSV
     Job --> ACT_NORM
     Job --> ACT_EXACT
     Job --> ACT_FUZZY
-    
+
     CTRL --> ACT_CONFIRM
     CTRL --> ACT_EXCEL
-    
+
     ACT_EXACT --> DB_ACADEMIA
     ACT_FUZZY --> DB_ACADEMIA
-    
+
     Job --> DB_VONEX
     ACT_CONFIRM --> DB_VONEX
     ACT_EXCEL --> DB_VONEX
@@ -64,13 +65,12 @@ graph TB
 
 ### 1.2 Architecture Decision Summary
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| **Pattern of Actions** | Service Actions (`app/Actions/Cruce/`) | Promotes SOLID principles, thin controllers, and testability of isolated business units. |
-| **Async Processing** | Redis Queue via Laravel Queue Job | Handles large CSV uploads (~27k records) efficiently without triggering HTTP timeouts. |
-| **Dual-Table Analytics Schema** | Split into `ingresantes` (matched) & `no_ingresantes` (audited) | Maintains high query performance for match resolution while preserving complete audit traceability. |
-| **Two-Phase Matching** | 1. Name Exact Match<br>2. Fuzzy Match (Levenshtein + Dice) inline | Nombre compuesto (2 apellidos + 1 nombre) para exact match; fuzzy inline con timeout de 2h. |
-| **Memory Strategy** | Flat array + integer indexes | ~25-30K records loaded as flat array; `byName` stores int positions only, not data copies. Reduces memory ~60%. |
+| Decision                        | Choice                                                          | Rationale                                                                                            |
+| ------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Pattern of Actions**          | Service Actions (`app/Actions/Cruce/`)                          | Promotes SOLID principles, thin controllers, and testability of isolated business units.             |
+| **Async Processing**            | Redis Queue via Laravel Queue Job                               | Handles large CSV uploads (~27k records) efficiently without triggering HTTP timeouts.               |
+| **Dual-Table Analytics Schema** | Split into `ingresantes` (matched) & `no_ingresantes` (audited) | Maintains high query performance for match resolution while preserving complete audit traceability.  |
+| **Two-Phase Matching**          | 1. Strict Exact Match<br>2. Fuzzy Match (Levenshtein)           | Avoids false positives for obvious matches and limits manual validation workload to ambiguous cases. |
 
 ---
 
@@ -78,26 +78,17 @@ graph TB
 
 > Decisiones de diseño técnico migradas desde `context-bridge.md` — pertenecen aquí según los límites de artefactos SDD-Enterprise.
 
-#### AD-001: Fuzzy match EAGER inline con timeout (actualizado v2.9.0)
+#### AD-001: Fuzzy match EAGER dentro del batch job
 
-**Decisión:** El `ProcessCsvBatchJob` realiza normalize → filter → exact match (solo por nombre) → **fuzzy match inline**. Todo corre dentro del mismo job secuencialmente.
+**Decisión:** El `ProcessCsvBatchJob` realiza normalize → filter → exact match → **fuzzy match (compute & persist)** → persist candidatos. El fuzzy match **CORRE dentro del job** para todos los ingresantes que quedan en estado `pendiente` después del exact match.
 
-**Timeout:** `public int $timeout = 7200` (2 horas). Esto evita que el worker de Redis mate el job antes de que termine el fuzzy scan (~41 min con 4209 pendientes × ~580ms c/u).
+**Cuándo corre:** Inmediatamente después del exact match, dentro del mismo `ProcessCsvBatchJob`, como paso final del pipeline batch.
 
-**Flujo:**
-1. Parseo CSV (~15s)
-2. Carga de alumnos de academia vía `getActiveAlumnos()` (~0.3s)
-3. Exact match por nombre vía `executeBatch()` (~1s)
-4. Fuzzy scan inline: para cada ingresante `pendiente`, ejecuta Levenshtein + Dice contra los ~25K alumnos y persiste candidatos en `ingresante_candidatos` (~41 min)
-5. Marca lote como `completed`
+**Persistencia:** Los candidatos computados se guardan en la tabla `ingresante_candidatos` (ver data-model.md §2.4). El endpoint `GET /api/cruce/ingresantes/{id}/candidatos` solo hace un SELECT — nunca computa en el request HTTP.
 
-**Memoria:** Los ~25,000-30,000 alumnos se cargan UNA vez como arreglo plano y se comparten entre exact match y fuzzy scan. `memory_limit=512M` como safety net (~174MB pico medido).
+**Razón:** El cambio a eager resuelve el NFR-002 de raíz: el endpoint de candidatos nunca necesita computar en caliente. Además, permite que la interfaz React muestre candidatos inmediatamente al listar pendientes, sin esperar a que cada `GET /candidatos` compute por primera vez. Los ~350 registros `pendiente` se procesan en el mismo job batch sin impactar el SLA de NFR-001 porque el bulk loading de alumnos de academia se hace una sola vez para todo el lote (ver T023), y el cómputo por ingresante es O(k) con k pequeño (top 5 candidatos).
 
-**Progreso fuzzy:** Antes del scan se setea `total_pendientes` y se incrementa `fuzzy_procesados` cada 50 ingresantes en `lotes_cruce`. El endpoint de status devuelve `fuzzy_progress = (fuzzy_procesados / total_pendientes) * 100`. El frontend React lo usa para mostrar barra de progreso con polling cada 2s.
-
-**Razón:** El enfoque de paralelización (3 chunks) se descartó porque los workers individuales también excedían el timeout de Redis. La solución más simple y robusta es aumentar el timeout del job a 2h, permitiendo que el worker espere el tiempo que sea necesario sin matar el proceso.
-
-**Consecuencia en data model:** Sin cambios en schema. `getActiveAlumnos()` no necesita `byDni` (eliminado). Datos compartidos entre fases vía variable local en `handle()`.
+**Consecuencia en data model:** Requiere la tabla `ingresante_candidatos` — definida en data-model.md §2.4. No hay cambios estructurales adicionales.
 
 ---
 
@@ -113,6 +104,15 @@ graph TB
 
 ---
 
+#### AD-004: Optimización O(1) en fase Fuzzy mediante Blocking y Pruning Matemático
+
+**Decisión:** El algoritmo Levenshtein + Dice sobre 4200 ingresantes vs 25000 alumnos tomaba ~41 minutos, violando el SLA (NFR-001). Al implementar _blocking_ por la inicial del apellido paterno (reduce candidatos a ~1000), pre-calcular los bigramas en mapas Hash (para hacer intersección O(1) en el coeficiente Dice) y aplicar _fail-fast_ (descartando iteraciones con Dice < 0.25 o Levenshtein de paterno > 4), el motor logra procesar el mismo volumen en ~29 segundos manteniendo el mismo resultado exacto.
+**Cuándo corre:** Durante el cruce de `computeFuzzyCandidates` en el job `ProcessCsvBatchJob`.
+**Impacto:** Permite cumplir religiosamente el SLA de 50 segundos, bajando el tiempo de cruce de ~41 minutos a ~29 segundos (mejora de 98.8%), y procesando insert batch en la tabla `ingresante_candidatos` (eliminando timestamp dependencies si no existiesen en BD).
+**Alternativa Descartada:** Delegar a PostgreSQL (`pg_trgm`) o paralelizar colas falló por concurrencia DB y timeouts Redis.
+
+---
+
 ## 2. Component Design
 
 ### 2.1 Backend Component: CsvImporter
@@ -120,16 +120,19 @@ graph TB
 **Responsibility:** Receives and validates uploaded CSV files, persists the file, and dispatches the async queue job for processing. Does NOT parse or process the CSV inline in the HTTP request.
 
 **Interfaces:**
+
 - `POST /api/cruce/upload` - Upload endpoint (returns immediately with lote_id).
-- `ProcessCsvBatchJob` - Queue job that orchestrates full CSV processing: parse, normalize, exact match, fuzzy match inline (timeout=7200s).
+- `ProcessCsvBatchJob` - Queue job that orchestrates full CSV processing (parse, normalize, split, match).
 
 **Dependencies:**
+
 - Laravel Queue (Redis) for async job dispatch.
 - `ProcesarCargaCsvAction` (invoked by the Job, not the Controller).
 - `NormalizarTextoAction` - Cleans text input.
 - PostgreSQL database connections.
 
 **Structure:**
+
 ```
 app/
 ├── Http/Controllers/
@@ -143,25 +146,24 @@ app/
 
 ### 2.2 Backend Component: MatchEngine
 
-**Responsibility:** Performs exact matching using name-based strict filters, then fuzzy matching inline within the same job.
+**Responsibility:** Performs exact matching using strict filters, and calculates Levenshtein distances for fuzzy candidate matches.
 
 **Interfaces:**
-- `RealizarCruceExactoAction` - Processes automatic name-based exact matches.
-- `ProcessCsvBatchJob` (inline) - Computes Levenshtein + Dice for all pendientes, persists candidates, and auto-confirms ≥ 99.5%.
-- `CalcularSimilitudesCabosAction` - Reads pre-computed candidates from `ingresante_candidatos` for the API endpoint.
+
+- `RealizarCruceExactoAction` - Processes automatic matches.
+- `CalcularSimilitudesCabosAction` - Computes candidate list.
 
 **Dependencies:**
+
 - PostgreSQL database `academia` connection.
 - `NormalizarTextoAction` for query normalization.
 
 **Structure:**
+
 ```
-app/
-├── Actions/Cruce/
-│   ├── RealizarCruceExactoAction.php
-│   └── CalcularSimilitudesCabosAction.php
-└── Jobs/
-    └── ProcessCsvBatchJob.php
+app/Actions/Cruce/
+├── RealizarCruceExactoAction.php
+└── CalcularSimilitudesCabosAction.php
 ```
 
 ### 2.3 Frontend Component: Verification Dashboard
@@ -169,6 +171,7 @@ app/
 **Responsibility:** React interface for uploading files, displaying job progress, listing unmatched students, and resolving matches.
 
 **Structure:**
+
 ```
 frontend/src/
 ├── components/
@@ -184,12 +187,14 @@ frontend/src/
 **Responsibility:** Generates the final Excel report with 24 columns, applying business calculations for Lists (L1, L2, L3) and EAP-to-Area resolution.
 
 **Structure:**
+
 ```
 app/Actions/Cruce/
 └── ExportarExcelCruceAction.php
 ```
 
 **Algorithm Details:**
+
 - **LISTA - 1 (L1):** Check if `periodo` in academic DB starts with or is lexicographically >= "Verano 2024" (e.g. Verano 2024, Anual 2024, Repaso 2025, Verano 2026, etc.). Set cell to `1` if true, otherwise `0`.
 - **LISTA - 2 (L2):** Check if `periodo` matches "Verano 2026", "Repaso 2026", or contains "OCTUBRE 2025", or represents a cycle active in Feb 2026. Includes status `RETIRADO` and `SUSPENDIDO`. Set cell to `1` if true, otherwise `0`.
 - **LISTA - 3 (L3):** Check if the enrollment is active (i.e. status is `MATRICULADO`, `PAGADO`, or `FINALIZADO` and not `RETIRADO`, `SUSPENDIDO`, `ANULADO`) in presencial/virtual cycles as of Feb 27, 2026. Set cell to `1` if true, otherwise `0`.
@@ -203,11 +208,11 @@ See: [data-model.md](./data-model.md)
 
 ### 3.1 Summary
 
-| Entity | Description | Key Relationships |
-|--------|-------------|-------------------|
-| `LoteCruce` | Tracks metadata and statistics of an uploaded CSV batch. | One-to-Many with `Ingresante` and `NoIngresante`. |
-| `Ingresante` | Stores UNMSM applicants who met the `ALCANZO VACANTE` filter. | Belongs to `LoteCruce`. Optionally belongs to `Alumno` (Academia DB). |
-| `NoIngresante` | Stores applicants who did not meet the filter (audit only). | Belongs to `LoteCruce`. |
+| Entity         | Description                                                   | Key Relationships                                                     |
+| -------------- | ------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `LoteCruce`    | Tracks metadata and statistics of an uploaded CSV batch.      | One-to-Many with `Ingresante` and `NoIngresante`.                     |
+| `Ingresante`   | Stores UNMSM applicants who met the `ALCANZO VACANTE` filter. | Belongs to `LoteCruce`. Optionally belongs to `Alumno` (Academia DB). |
+| `NoIngresante` | Stores applicants who did not meet the filter (audit only).   | Belongs to `LoteCruce`.                                               |
 
 ---
 
@@ -215,19 +220,19 @@ See: [data-model.md](./data-model.md)
 
 ### 4.1 Endpoints Summary
 
-| Method | Path | Description | Auth Required |
-|--------|------|-------------|---------------|
-| `GET` | `/api/cruce/health` | Health check endpoint (queue status, DB connections) | No |
-| `POST` | `/api/cruce/upload` | Upload CSV and dispatch queue job | Yes |
-| `GET` | `/api/cruce/lotes` | Retrieve list of upload batches | Yes |
-| `GET` | `/api/cruce/lotes/{lote_id}/status` | Retrieve status & stats of job | Yes |
-| `GET` | `/api/cruce/lotes/{lote_id}/pendientes` | List unmatched applicants (paginated) | Yes |
-| `GET` | `/api/cruce/ingresantes/{id}/candidatos` | Get pre-computed fuzzy match candidates for an ingresante | Yes |
-| `POST` | `/api/cruce/ingresantes/{id}/confirmar` | Save manual match or mark as no_ingresado | Yes |
-| `GET` | `/api/cruce/lotes/{lote_id}/exportar` | Export final Excel spreadsheet | Yes |
-| `GET` | `/api/cruce/academia/alumnos` | List active alumnos from academia DB (paginated, searchable) | Yes |
-| `DELETE` | `/api/cruce/limpiar` | Wipe all cruce data (lotes + ingresantes + candidatos) for fresh start | Yes |
-| `POST` | `/api/cruce/lotes/{lote_id}/reprocesar` | Re-process a batch (queue:clear + dispatch new job) | Yes |
+| Method   | Path                                     | Description                                                            | Auth Required |
+| -------- | ---------------------------------------- | ---------------------------------------------------------------------- | ------------- |
+| `GET`    | `/api/cruce/health`                      | Health check endpoint (queue status, DB connections)                   | No            |
+| `POST`   | `/api/cruce/upload`                      | Upload CSV and dispatch queue job                                      | Yes           |
+| `GET`    | `/api/cruce/lotes`                       | Retrieve list of upload batches                                        | Yes           |
+| `GET`    | `/api/cruce/lotes/{lote_id}/status`      | Retrieve status & stats of job                                         | Yes           |
+| `GET`    | `/api/cruce/lotes/{lote_id}/pendientes`  | List unmatched applicants (paginated)                                  | Yes           |
+| `GET`    | `/api/cruce/ingresantes/{id}/candidatos` | Get pre-computed fuzzy match candidates for an ingresante              | Yes           |
+| `POST`   | `/api/cruce/ingresantes/{id}/confirmar`  | Save manual match or mark as no_ingresado                              | Yes           |
+| `GET`    | `/api/cruce/lotes/{lote_id}/exportar`    | Export final Excel spreadsheet                                         | Yes           |
+| `GET`    | `/api/cruce/academia/alumnos`            | List active alumnos from academia DB (paginated, searchable)           | Yes           |
+| `DELETE` | `/api/cruce/limpiar`                     | Wipe all cruce data (lotes + ingresantes + candidatos) for fresh start | Yes           |
+| `POST`   | `/api/cruce/lotes/{lote_id}/reprocesar`  | Re-process a batch (queue:clear + dispatch new job)                    | Yes           |
 
 ---
 
@@ -241,11 +246,11 @@ See: [data-model.md](./data-model.md)
 
 ### 5.2 Authorization
 
-| Resource | Action | Required Role/Permission |
-|----------|--------|-------------------------|
-| `/api/cruce/upload` | Write | `admin`, `admisiones` |
-| `/api/cruce/ingresantes/*` | Write | `admin`, `admisiones` |
-| `/api/cruce/lotes/*/exportar` | Read | `admin`, `admisiones`, `marketing` |
+| Resource                      | Action | Required Role/Permission           |
+| ----------------------------- | ------ | ---------------------------------- |
+| `/api/cruce/upload`           | Write  | `admin`, `admisiones`              |
+| `/api/cruce/ingresantes/*`    | Write  | `admin`, `admisiones`              |
+| `/api/cruce/lotes/*/exportar` | Read   | `admin`, `admisiones`, `marketing` |
 
 ### 5.3 Data Protection
 
@@ -255,11 +260,11 @@ See: [data-model.md](./data-model.md)
 
 ### 5.4 Security Threats
 
-| Threat | Mitigation |
-|--------|------------|
-| SQL Injection in Fuzzy Search | Use parameterized query parameters and strict Eloquent query builder constraints. |
-| CSV Injection (Formula Injection) | Sanitize CSV fields prior to Excel exporting (escape `=`, `+`, `-`, `@`). |
-| Environment Variable Leakage | Store database passwords strictly in server environment variable configuration, never commit `.env`. |
+| Threat                            | Mitigation                                                                                           |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| SQL Injection in Fuzzy Search     | Use parameterized query parameters and strict Eloquent query builder constraints.                    |
+| CSV Injection (Formula Injection) | Sanitize CSV fields prior to Excel exporting (escape `=`, `+`, `-`, `@`).                            |
+| Environment Variable Leakage      | Store database passwords strictly in server environment variable configuration, never commit `.env`. |
 
 ---
 
@@ -267,21 +272,14 @@ See: [data-model.md](./data-model.md)
 
 ### 6.1 Performance Requirements
 
-| Metric | Target | Strategy |
-|--------|--------|----------|
-| CSV Processing (27k rows) | ≤ 50 seconds (parse) | Queue batching via Redis, bulk DB insertions, and database transactions. |
-| Fuzzy Processing (~4200 pendientes) | ~41 minutos (1 worker) | Fuzzy scan inline con `timeout=7200s`; datos de academia compartidos entre fases. |
-| Fuzzy Search API Response (p95) | ≤ 300 ms | Candidatos pre-computados y persistidos en `ingresante_candidatos` durante el job; endpoint solo hace SELECT. |
-| CSV File Size Support | Up to 20 MB | Streamed CSV parsing on worker side; web server limit set to 25MB. |
+| Metric                          | Target       | Strategy                                                                     |
+| ------------------------------- | ------------ | ---------------------------------------------------------------------------- |
+| CSV Processing (27k rows)       | ≤ 50 seconds | Queue batching via Redis, bulk DB insertions, and database transactions.     |
+| Fuzzy Search API Response (p95) | ≤ 300 ms     | PostgreSQL indexes on normalized name columns and limit candidates to top 5. |
+| CSV File Size Support           | Up to 20 MB  | Streamed CSV parsing on worker side; web server limit set to 25MB.           |
 
 ### 6.2 Optimization Strategies
 
-- **Flat Array + Integer Indexes:** ~25,000-30,000 alumnos de academia se cargan como arreglo plano único. El índice `byName` almacena solo enteros (posiciones). Sin duplicación de datos. Sin `byDni` (el CSV no tiene DNI).
-- **Shared Data Loading:** Los alumnos se cargan UNA vez en `ProcessCsvBatchJob` y se comparten entre exact match y fuzzy scan.
-- **Job Timeout:** `public int $timeout = 7200` (2h) para evitar que Redis mate el job durante el fuzzy scan.
-- **Fuzzy Progress Tracking:** `total_pendientes` y `fuzzy_procesados` (c/50 ingresantes) en `lotes_cruce`. El frontend muestra barra de progreso vía polling cada 2s.
-- **Auto-confirmación ≥ 99.5%:** Reduce los pendientes reales para revisión manual.
-- **Memory Limit:** `memory_limit=512M` en el job como safety net (~174MB pico medido).
 - **Database Indexes:** B-tree composite index on `(apellidos, nombres)` — los campos se almacenan pre-normalizados en MAYÚSCULAS por `NormalizarTextoAction`, por lo que un índice funcional con `LOWER()` es incorrecto e innecesario.
 - **Redis Queue:** Process records asynchronously using Laravel's queue worker infrastructure.
 - **Excel Generation:** Use streaming writer in PhpSpreadsheet to prevent memory exhaustion during export.
@@ -292,8 +290,8 @@ See: [data-model.md](./data-model.md)
 
 ### 7.1 External Services
 
-| Service | Purpose | Integration Method | Error Handling |
-|---------|---------|-------------------|----------------|
+| Service         | Purpose                           | Integration Method                                                                                                                                                  | Error Handling                                                          |
+| --------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | **Academia DB** | Lookup student enrollment records | Database Connection (Secondary PostgreSQL schema) via 3-table join (`alumno_matricula` → `alumnos` → `personas`). Ver `context-bridge.md` para el schema detallado. | Retry with exponential backoff; pause batch if database is unreachable. |
 
 ---
@@ -304,13 +302,13 @@ See: [data-model.md](./data-model.md)
 
 > **Distinción semántica de estados de lote (CQ-003):** `paused` = fallo recuperable (puede reintentarse sin duplicar datos); `error` = fallo catastrófico (requiere diagnóstico antes de reintentar).
 
-| Category | HTTP Code | Lote Estado | Handling |
-|----------|-----------|-------------|----------|
-| Validation | 400 | — (sin lote creado) | Return CSV schema / column errors |
-| File Size | 413 | — (sin lote creado) | Web server level rejection |
-| Unprocessable | 422 | — (sin lote creado) | Empty CSV after filtering |
-| Academia Connection Failure | — (async) | `paused` | Pause job, preserve already-processed records, log connection error, notify administrator. Retryable. |
-| Unexpected Job Exception | — (async) | `error` | Move job to `failed_jobs`, log full stack trace, notify administrator. Requires diagnosis before retry. |
+| Category                    | HTTP Code | Lote Estado         | Handling                                                                                                |
+| --------------------------- | --------- | ------------------- | ------------------------------------------------------------------------------------------------------- |
+| Validation                  | 400       | — (sin lote creado) | Return CSV schema / column errors                                                                       |
+| File Size                   | 413       | — (sin lote creado) | Web server level rejection                                                                              |
+| Unprocessable               | 422       | — (sin lote creado) | Empty CSV after filtering                                                                               |
+| Academia Connection Failure | — (async) | `paused`            | Pause job, preserve already-processed records, log connection error, notify administrator. Retryable.   |
+| Unexpected Job Exception    | — (async) | `error`             | Move job to `failed_jobs`, log full stack trace, notify administrator. Requires diagnosis before retry. |
 
 ---
 
@@ -318,11 +316,11 @@ See: [data-model.md](./data-model.md)
 
 ### 9.1 Test Levels
 
-| Level | Scope | Coverage Target |
-|-------|-------|-----------------|
-| Unit | Actions (`NormalizarTextoAction`, `RealizarCruceExactoAction`) | 100% |
-| Integration | Queue Job batch workflow & API endpoints | 90% |
-| E2E | React verification interface using Playwright | Happy path and edge case resolution |
+| Level       | Scope                                                          | Coverage Target                     |
+| ----------- | -------------------------------------------------------------- | ----------------------------------- |
+| Unit        | Actions (`NormalizarTextoAction`, `RealizarCruceExactoAction`) | 100%                                |
+| Integration | Queue Job batch workflow & API endpoints                       | 90%                                 |
+| E2E         | React verification interface using Playwright                  | Happy path and edge case resolution |
 
 ### 9.2 Test Data
 
@@ -335,11 +333,11 @@ See: [data-model.md](./data-model.md)
 
 ### 10.1 Environment Variables
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DB_ACADEMIA_HOST` | Host address for academia database | Yes |
-| `DB_ACADEMIA_DATABASE` | Database name for academia | Yes |
-| `QUEUE_CONNECTION` | Must be set to `redis` | Yes |
+| Variable               | Description                        | Required |
+| ---------------------- | ---------------------------------- | -------- |
+| `DB_ACADEMIA_HOST`     | Host address for academia database | Yes      |
+| `DB_ACADEMIA_DATABASE` | Database name for academia         | Yes      |
+| `QUEUE_CONNECTION`     | Must be set to `redis`             | Yes      |
 
 ---
 
@@ -347,31 +345,34 @@ See: [data-model.md](./data-model.md)
 
 ### 11.1 Logging
 
-| Event | Level | Data |
-|-------|-------|------|
-| Batch Started | INFO | `lote_cruce_id`, `filename` |
-| Row Process Error | WARNING | `lote_cruce_id`, `row_number`, `error` |
-| Connection Failure | ERROR | `db_name`, `error_message` |
+| Event              | Level   | Data                                   |
+| ------------------ | ------- | -------------------------------------- |
+| Batch Started      | INFO    | `lote_cruce_id`, `filename`            |
+| Row Process Error  | WARNING | `lote_cruce_id`, `row_number`, `error` |
+| Connection Failure | ERROR   | `db_name`, `error_message`             |
 
 ---
 
 ## 12. Open Issues
 
-| ID | Issue | Resolution Path | Owner |
-|----|-------|-----------------|-------|
-| 1. | ~~Optimal Levenshtein threshold~~ | **RESOLVED:** Threshold confirmed at 70% minimum similarity (AC-009, confirmed by PO). No action required. | Tech Lead |
+| ID  | Issue                             | Resolution Path                                                                                            | Owner     |
+| --- | --------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------- |
+| 1.  | ~~Optimal Levenshtein threshold~~ | **RESOLVED:** Threshold confirmed at 70% minimum similarity (AC-009, confirmed by PO). No action required. | Tech Lead |
 
 ---
 
 ## 13. Synthesis Assessment
 
 ### Generalization
+
 > Reusable text normalization pattern from `NormalizarTextoAction` can be extracted as a generic string helper/trait for other analytical pipelines in the Vonex project.
 
 ### Build-vs-Adopt
+
 > Build custom SQL-based matching engine to leverage database index optimizations, but adopt PhpSpreadsheet for Excel report production to save development costs.
 
 ### Simplification
+
 > Maintain dual-table structure strictly at database level instead of caching intermediate results in Redis, ensuring transaction safety and simple queries.
 
 ---
@@ -386,6 +387,6 @@ See: [data-model.md](./data-model.md)
 
 ## External References
 
-| Source | Access Date | Relevant Section | Notes |
-|--------|:-----------:|-----------------|-------|
-| [constitution.md](../../memory/constitution.md) | 2026-06-24 | Art. 2-7 | Stack standards, quality metrics, and matching principles |
+| Source                                          | Access Date | Relevant Section | Notes                                                     |
+| ----------------------------------------------- | :---------: | ---------------- | --------------------------------------------------------- |
+| [constitution.md](../../memory/constitution.md) | 2026-06-24  | Art. 2-7         | Stack standards, quality metrics, and matching principles |
