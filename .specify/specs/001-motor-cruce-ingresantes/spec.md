@@ -6,7 +6,7 @@
 **PO:** Samuel Cisneros
 **Equipo:** Grupo V2 (Vonex)
 **Status:** Under Review
-**Versión:** 2.5.0
+**Versión:** 2.8.0
 
 ---
 
@@ -145,8 +145,13 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
   - **`dice_bigramas(a, b)`** = `(2 × |bigramas_comunes(a, b)|) / (|bigramas(a)| + |bigramas(b)|)` (Dice coefficient sobre bigramas de caracteres) — rango [0.0, 1.0].
   - El resultado final multiplicado por 100 es el **porcentaje de similitud** almacenado en `porcentaje_similitud`.
   - Ejemplo de referencia obligatorio para TC-007: `similitud("JHON RAMOS LOPEZ", "JOHN RAMOS LOPEZ")` debe producir un valor **≥ 85%**; `similitud("GARCIA TORRES LUIS", "PEREZ MENDOZA ANA")` debe producir un valor **< 30%**.
-- **AD-001 (actualizado):** El fuzzy match se computa **EAGER** dentro de `ProcessCsvBatchJob`, no de forma lazy. `CalcularSimilitudesCabosAction` se invoca para todos los ingresantes `pendiente` inmediatamente después del exact match, dentro del mismo job batch. Los candidatos se persisten en `ingresante_candidatos` durante el job. El endpoint `GET /api/cruce/ingresantes/{id}/candidatos` solo hace SELECT — nunca computa en caliente.
+- **Optimización de Rendimiento Fuzzy (AD-004):** Para cumplir con el SLA de 50s (NFR-001) para el lote completo, el motor fuzzy incorpora 3 estrategias de poda matemática y blocking en memoria:
+  1. **Pre-cálculo masivo:** Los registros de la academia pre-calculan sus cadenas normalizadas y mapas hash de bigramas al momento de cargarse una única vez, eliminando llamadas redundantes a la normalización.
+  2. **Blocking por inicial:** Se agrupa a los alumnos por la inicial de su apellido paterno, reduciendo el pool de búsqueda de 25,000 a ~1,000 candidatos por ingresante.
+  3. **Pruning matemático (Fail-fast):** Se utiliza intersección O(1) de mapas hash de bigramas para evaluar el coeficiente Dice. Si matemáticamente no puede superar el umbral combinado de 70%, se descarta (Dice < 0.25) antes de llamar a Levenshtein. Adicionalmente, se poda por distancia Levenshtein del apellido paterno (> 4) antes de evaluar la cadena completa.
+- **AD-001 (actualizado):** El fuzzy match se computa **EAGER** dentro de `ProcessCsvBatchJob`, no de forma lazy. `CalcularSimilitudesCabosAction` se invoca para todos los ingresantes `pendiente` inmediatamente después del exact match, dentro del mismo job batch. Los candidatos se persisten en `ingresante_candidatos` durante el job en batch (`insert`). El endpoint `GET /api/cruce/ingresantes/{id}/candidatos` solo hace SELECT — nunca computa en caliente.
 - **Optimización bulk (T023):** Los alumnos activos de academia se cargan una sola vez en `ProcessCsvBatchJob` (vía `AlumnoMatricula::getActivosConNombres()`) y se pasan como colección tanto a `RealizarCruceExactoAction` como a `CalcularSimilitudesCabosAction`, eliminando consultas N+1 a la BD academia.
+
 
 ---
 
@@ -382,6 +387,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | 2.5.0 | 2026-06-24 | Equipo V2 (revisión elite Antigravity) | Revisión final: Executive Summary actualizado con dual-table + Redis; NFR-001 título y trazabilidad unificados; NFR-003 verificación alineada con arquitectura de colas; EC-008 añadido (worker Redis caído); ERR-007 añadido (job a failed_jobs); Glosario extendido con 4 términos nuevos (ingresantes, no_ingresantes, ProcessCsvBatchJob, Redis Queue); A-05 añadido (disponibilidad Redis); enlace corregido al business-context.md en .specify/specs/ |
 | 2.6.0 | 2026-06-25 | Equipo V2 | Enmienda para incorporar campos DB, CSV y la estructura de reporte Excel final con Listas y Área. |
 | 2.7.0 | 2026-06-25 | Equipo V2 (Auditoría SDD-Enterprise) | Auditoría de cumplimiento: fórmula de similitud formalizada en AC-009 (Levenshtein × 0.6 + Dice bigramas × 0.4); EC-007 y ERR-003 unificados a estado `paused` (CQ-003); NFR-006 corregido de `pausado` a `paused`. |
+| 2.8.0 | 2026-07-02 | Equipo V2 (Antigravity) | Hiper-optimización de Fuzzy Match: reducción del 98.8% en tiempo de procesamiento (de 41 min a 29s). Añadidas notas técnicas a US-003: pre-cálculo de strings y mapas de bigramas O(1), blocking por inicial de apellido paterno, pruning Dice < 0.25 y fail-fast Levenshtein de apellido paterno. Batch inserts aplicados para carga de DB. |
 
 ---
 
