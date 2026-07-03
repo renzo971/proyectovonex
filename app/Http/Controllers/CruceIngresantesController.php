@@ -14,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CruceIngresantesController extends Controller
 {
@@ -277,12 +278,14 @@ class CruceIngresantesController extends Controller
         }
 
         $pendientes = $query
+            ->whereHas('ingresanteCandidatos', function ($q) {
+                $q->where('porcentaje_similitud', '>=', 80);
+            })
             ->withCount('ingresanteCandidatos')
             ->addSelect([
                 'max_similitud' => \App\Models\IngresanteCandidato::selectRaw('COALESCE(MAX(porcentaje_similitud), 0)')
                     ->whereColumn('ingresante_id', 'ingresantes.id'),
             ])
-            ->orderByDesc('ingresante_candidatos_count')
             ->orderByDesc('max_similitud')
             ->orderBy('apellido_paterno')
             ->orderBy('apellido_materno')
@@ -297,6 +300,57 @@ class CruceIngresantesController extends Controller
                 'per_page' => $pendientes->perPage(),
                 'total' => $pendientes->total(),
             ],
+        ]);
+    }
+
+    public function exportar(int $loteId): StreamedResponse
+    {
+        $lote = LoteCruce::findOrFail($loteId);
+
+        $ingresantes = $lote->ingresantes()
+            ->whereIn('estado_match', ['confirmado_automatico', 'confirmado_manual'])
+            ->get();
+
+        $headers = [
+            'CODIGO', 'APELLIDOS', 'NOMBRES', 'EAP', 'PUNTAJE', 'MERITO',
+            'OBSERVACION', 'TIPO', 'MODALIDAD', 'UNIVERSIDAD', 'PERIODO',
+            'FECHA', 'ESTADO_MATCH', 'ALUMNO_ID', 'PORCENTAJE_SIMILITUD',
+        ];
+
+        $filename = 'cruce_lote_' . $lote->id . '_' . now()->format('Y-m-d_His') . '.csv';
+
+        return response()->streamDownload(function () use ($ingresantes, $headers) {
+            $handle = fopen('php://output', 'w');
+
+            // BOM for Excel UTF-8 compatibility
+            fprintf($handle, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+            fputcsv($handle, $headers, ';');
+
+            foreach ($ingresantes as $ing) {
+                fputcsv($handle, [
+                    $ing->codigo,
+                    $ing->apellidos,
+                    $ing->nombres,
+                    $ing->eap,
+                    $ing->puntaje,
+                    $ing->merito,
+                    $ing->observacion,
+                    $ing->tipo,
+                    $ing->modalidad,
+                    $ing->universidad,
+                    $ing->periodo,
+                    $ing->fecha?->format('Y-m-d'),
+                    $ing->estado_match,
+                    $ing->alumno_id,
+                    $ing->porcentaje_similitud,
+                ], ';');
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ]);
     }
 

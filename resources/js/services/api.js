@@ -52,3 +52,7 @@ export async function confirmarMatch(ingresanteId, alumnoId) {
     });
     return res.json();
 }
+
+export function getExportUrl(loteId) {
+    return `${BASE_URL}/lotes/${loteId}/exportar`;
+}

@@ -90,6 +90,15 @@ export default function UnmatchedRow({ ingresante, onConfirmado }) {
                         <p className="text-sm font-medium text-gray-900">
                             {ingresante.apellido_paterno} {ingresante.apellido_materno}, {ingresante.nombres}
                         </p>
+                        {ingresante.max_similitud > 0 && (
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold ${
+                                ingresante.max_similitud >= 95 ? 'bg-emerald-100 text-emerald-800' :
+                                ingresante.max_similitud >= 90 ? 'bg-green-100 text-green-800' :
+                                'bg-amber-100 text-amber-800'
+                            }`}>
+                                {Number(ingresante.max_similitud).toFixed(1)}%
+                            </span>
+                        )}
                         <MatchStatusBadge estado={ingresante.estado_match} />
                     </div>
                     <p className="text-xs text-gray-500">

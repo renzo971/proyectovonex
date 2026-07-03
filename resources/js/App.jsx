@@ -207,7 +207,17 @@ export default function App() {
                                 <div className="space-y-3">
                                     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                                         <div className="flex items-center justify-between mb-3">
-                                            <h2 className="text-sm font-semibold text-gray-900">Pendientes ({pendingCount})</h2>
+                                            <h2 className="text-sm font-semibold text-gray-900">Pendientes ≥80% ({pendingCount})</h2>
+                                            <a
+                                                href={`/api/cruce/lotes/${selectedLote}/exportar`}
+                                                download
+                                                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 transition-colors shadow-sm"
+                                            >
+                                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                                                </svg>
+                                                Exportar Excel
+                                            </a>
                                         </div>
                                         <div className="relative">
                                             <input
@@ -230,9 +240,26 @@ export default function App() {
 
                                     {pendientes.length > 0 ? (
                                         <>
-                                            {pendientes.map((p) => (
-                                                <UnmatchedRow key={p.id} ingresante={p} onConfirmado={handleConfirmado} />
-                                            ))}
+                                            {(() => {
+                                                let lastGroup = null;
+                                                return pendientes.map((p) => {
+                                                    const sim = Number(p.max_similitud || 0);
+                                                    const group = sim >= 95 ? '95-100%' : sim >= 90 ? '90-94%' : '80-89%';
+                                                    const groupColor = sim >= 95 ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : sim >= 90 ? 'text-green-700 border-green-200 bg-green-50' : 'text-amber-700 border-amber-200 bg-amber-50';
+                                                    const showHeader = group !== lastGroup;
+                                                    lastGroup = group;
+                                                    return (
+                                                        <div key={p.id}>
+                                                            {showHeader && (
+                                                                <div className={`rounded-lg border px-3 py-1.5 text-xs font-semibold mt-2 mb-1 ${groupColor}`}>
+                                                                    Similitud {group}
+                                                                </div>
+                                                            )}
+                                                            <UnmatchedRow ingresante={p} onConfirmado={handleConfirmado} />
+                                                        </div>
+                                                    );
+                                                });
+                                            })()}
                                             {totalPaginas > 1 && (
                                                 <div className="flex justify-center gap-2 pt-4">
                                                     <button disabled={pagina <= 1} onClick={() => cargarPendientes(selectedLote, pagina - 1)}
