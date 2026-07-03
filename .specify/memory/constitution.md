@@ -5,352 +5,162 @@ reference_count: 0
 decay_floor: true
 ---
 
-# Project Constitution: Vonex
-
-**Version:** 2.3.0
-**Established:** 2026-06-16
-**Last Amended:** 2026-06-25
-
----
-
-## Article I: Project Identity
-
-### 1.1 Purpose
-
-Este proyecto construye un flujo analítico para ingerir, normalizar, cruzar y validar registros de admisión de estudiantes contra la base de datos académica, generando reportes confiables y decisiones asistidas para el equipo.
-
-### 1.2 Vision
-
-Vonex aspira a convertirse en la base analítica de confianza para los procesos de admisión y emparejamiento académico, permitiendo que el equipo tome decisiones más rápidas, precisas y auditables con menos esfuerzo manual y menos errores operativos.
-
-### 1.3 Users
-
-| Persona                         | Descripción                                                 | Necesidades principales                                                     |
-| ------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Equipo de admisiones            | Responsable de procesar cargas masivas de registros         | Cargar CSVs, cruzar información y revisar coincidencias dudosas con rapidez |
-| Analistas de datos              | Encargados de producir reportes y decisiones de integración | Obtener datos limpios, trazables y consistentes                             |
-| Desarrolladores y agentes de IA | Encargados de implementar y mantener el pipeline            | Trabajar con reglas claras, pruebas y documentación actualizada             |
-| QA                              | Responsable de validar calidad y regresiones                | Confirmar que los cambios no rompen el flujo de cruce ni la trazabilidad    |
-
-### 1.4 Success Metrics
-
-| Métrica                                                 | Objetivo                                               | Medición                                             |
-| ------------------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
-| Precisión del cruce inicial                             | 100% para coincidencias exactas aceptables             | Comparación de resultados contra validación esperada |
-| Registros con coincidencia difusa revisados por usuario | 100% de cabos sueltos                                  | Reporte de lotes con casos pendientes de validación  |
-| Duplicados evitados                                     | 100% de registros ya procesados ignorados              | Revisión de lotes y auditoría de carga               |
-| Tiempo de procesamiento por lote                        | Menor o igual al tiempo operativo aceptable del equipo | Métricas de ejecución del pipeline                   |
-| Trazabilidad por lote                                   | 100% de eventos y fallos registrados                   | Auditoría y logs del sistema                         |
-
----
-
-## Article II: Technology Stack
-
-### 2.1 Runtime & Platform
-
-| Component              | Technology                     | Version | Notes                                                             |
-| ---------------------- | ------------------------------ | ------- | ----------------------------------------------------------------- |
-| Production Environment | Linux / servidor de aplicación | -       | Ejecución en entorno operativo estable y controlado               |
-| Container Platform     | None                           | -       | El proyecto se ejecuta directamente sobre el runtime del servidor |
-| CI/CD                  | GitHub Actions                 | -       | Validaciones automáticas para pruebas y revisión                  |
-| Package Manager        | Composer / npm                 | -       | Backend con Composer; frontend con npm o equivalente              |
-
-### 2.2 Backend
-
-| Component         | Technology      | Version                           | Notes                                                       |
-| ----------------- | --------------- | --------------------------------- | ----------------------------------------------------------- |
-| Language          | PHP             | 8.4+                              | Requerido con `declare(strict_types=1);`                    |
-| Framework         | Laravel         | Version compatible con PHP 8.4+   | Arquitectura orientada a acciones y servicios               |
-| Database          | PostgreSQL      | Compatible con la base `academia` | Base de datos operativa del flujo analítico                 |
-| ORM/Query Builder | Eloquent / DB   | -                                 | Mantener relaciones limpias y consultas explícitas          |
-| Caching           | None by default | -                                 | Se agrega solo cuando el caso lo justifique                 |
-| Messaging         | None by default | -                                 | No se introduce infraestructura de mensajería sin necesidad |
-
-### 2.3 Frontend
-
-| Component        | Technology                   | Version                   | Notes                                               |
-| ---------------- | ---------------------------- | ------------------------- | --------------------------------------------------- |
-| Framework        | React                        | 18.x+                     | SPA con componentes funcionales y hooks             |
-| Language         | TypeScript                   | Compatible con React/Vite | Preferido para mayor seguridad y mantenibilidad     |
-| State Management | React hooks / contexto local | -                         | Se evita complejidad innecesaria si no es requerida |
-| Styling          | CSS Modules o Tailwind       | -                         | Definir según el alcance del módulo                 |
-| Build Tool       | Vite                         | -                         | Entorno moderno para el frontend                    |
-
-### 2.4 Testing
-
-| Type                | Framework                 | Version | Notes                                                   |
-| ------------------- | ------------------------- | ------- | ------------------------------------------------------- |
-| Unit Testing        | Pest / PHPUnit            | -       | Obligatorio para la lógica de cruce y reglas de negocio |
-| Integration Testing | Pest / Laravel HTTP tests | -       | Para endpoints y flujo de integración del backend       |
-| E2E Testing         | Playwright                | -       | Se usa cuando el flujo de usuario aporta valor crítico  |
-| Contract Testing    | None by default           | -       | Solo si el sistema expone contratos externos complejos  |
-| Load Testing        | None by default           | -       | Se incorpora si el volumen lo exige                     |
-
----
-
-## Article III: Quality Standards
-
-### 3.1 Code Quality
-
-#### Type Safety
-
-- Tipos estrictos en PHP: **Obligatorio**
-- Sin `any` implícito en código frontend; evitar tipado débil cuando sea posible
-- Las APIs públicas y los métodos de servicio deben exponer contratos explícitos y devolver estructuras de datos claras
-
-#### Linting
-
-- Herramienta: PHP-CS-Fixer / Pint y ESLint o estándar equivalente del proyecto
-- Configuración: Configuración estándar del proyecto; sin excepciones locales sin aprobación
-- Aplicación en pre-commit: Sí
-
-#### Formatting
-
-- Herramienta: Formateador alineado con el estándar del proyecto
-- Configuración: Aplicado en CI y desarrollo local
-- Formateo automático al guardar: Recomendado
-
-### 3.2 Test Coverage
-
-| Alcance           | Mínimo                                      | Recomendado                                         | Rutas críticas |
-| ----------------- | ------------------------------------------- | --------------------------------------------------- | -------------- |
-| General           | 80%                                         | 90%                                                 | 100%           |
-| Código nuevo      | 100%                                        | 100%                                                | 100%           |
-| Pruebas unitarias | Obligatorio para la lógica central          | Obligatorio para todas las reglas de negocio nuevas | -              |
-| Integración       | Obligatorio para endpoints y flujo de datos | Obligatorio para flujos por lotes                   | -              |
-
-### 3.3 Performance
-
-| Métrica                  | Objetivo                                    | Umbral de alerta                                       |
-| ------------------------ | ------------------------------------------- | ------------------------------------------------------ |
-| Respuesta de API (p95)   | 500ms                                       | 1s                                                     |
-| Procesamiento por lotes  | Estable dentro de la ventana operativa      | Cualquier timeout o pausa repetida debe revisarse      |
-| Consulta a base de datos | Bajo el umbral operativo del volumen actual | Cualquier degradación sostenida requiere investigación |
-
-### 3.4 Security
-
-#### Authentication
-
-- Método: Autenticación servicio a servicio y controles de sesión de usuario cuando aplique
-- Almacenamiento de secretos: Solo variables de entorno; nunca en el repositorio
-- Duración de sesión: Breve y explícita cuando la autenticación sea requerida
-
-#### Authorization
-
-- Modelo: Acceso basado en roles cuando sea requerido
-- Aplicación: Middleware o verificaciones a nivel de servicio para operaciones sensibles
-- Por defecto: Denegar por defecto para acciones privilegiadas
-
-#### Data Protection
-
-- Cifrado en reposo: Requerido para capas de persistencia sensibles
-- Cifrado en tránsito: TLS requerido para cualquier conexión externa
-- Manejo de PII: Los datos académicos sensibles deben tratarse con cuidado y registrarse mínimamente
-- Gestión de secretos: Solo `.env` o secretos gestionados por entorno equivalente
-
-#### Compliance
-
-- [x] OWASP Top 10 abordado en diseño e implementación
-- [ ] Marcos de cumplimiento adicionales solo si se requieren explícitamente
-- [x] Revisión de seguridad requerida antes de publicar cambios sensibles
-
-### 3.5 Accessibility
-
-- Estándar: WCAG 2.1 AA para interfaces orientadas al usuario
-- Pruebas: Manuales y automatizadas cuando sea factible
-- Herramientas: Lighthouse / axe o equivalentes cuando haya UI involucrada
-- Aplicación: Validaciones en CI y revisión manual para cambios de UI de alto impacto
-
----
-
-## Article IV: Architecture Principles
-
-### 4.1 Core Principles
-
-1. **Pequeños pasos y validación continua**
-   Cada cambio debe implementarse en incrementos pequeños y verificables para que los fallos sean fáciles de aislar y corregir.
-
-2. **Preservación de patrones y compatibilidad**
-   El proyecto debe conservar los patrones arquitectónicos, los nombres y las expectativas de compatibilidad existentes mientras evoluciona.
-
-3. **Precisión analítica antes que velocidad bruta**
-   Las reglas de coincidencia y normalización deben ser estrictas, auditables y resistentes a casos difusos.
-
-4. **Trazabilidad por defecto**
-   Cada lote, fecha de examen, resultado de cruce y error debe registrarse para reconstruir decisiones.
-
-5. **Seguridad y portabilidad**
-   El flujo debe evitar secretos hardcodeados y mantener las especificaciones para agentes en un lugar compartido y portable.
-
-### 4.2 Code Organization
-
-El backend debe mantenerse organizado alrededor de controladores delgados, clases de tipo acción y servicios explícitos donde corresponda la lógica de negocio. Los módulos del frontend deben mantenerse enfocados, componibles y alineados con el contrato de la API.
-
-### 4.3 Dependency Rules
-
-- Las nuevas dependencias requieren justificación explícita y aprobación previa.
-- Los cambios de esquema de base de datos y los cambios mayores de dependencias requieren revisión antes de implementarse.
-- Los artefactos reutilizables en `ai-specs` deben referenciarse mediante symlinks para mantener alineados a agentes y herramientas.
-
-### 4.4 API Design
-
-- Estilo: REST
-- Versionado: Versionado por URL solo cuando el contrato deba evolucionar de manera segura
-- Nomenclatura: Términos de negocio en español y símbolos técnicos en inglés
-- Formato de error: Respuestas JSON estructuradas desde los controladores de API
-- Paginación y filtrado: Se agregan cuando el volumen de datos lo requiere
-
-### 4.5 Error Handling
-
-- Los timeouts, fallas de conexión y procesamiento parcial deben pausar el lote y marcar los registros afectados para revisión.
-- Los fallos deben registrarse con suficiente contexto para reconstruir la ruta de decisión.
-- Los errores de validación y de reglas de negocio deben devolver retroalimentación estructurada en lugar de fallar en silencio.
-
-### 4.6 Logging & Observability
-
-#### Logging
-
-- Se requieren logs estructurados para la ejecución de lotes, estado de conexión, resultados de cruce y fallas.
-- Los logs deben incluir marca de tiempo, nivel, operación, contexto de entidad e identificadores relevantes.
-
-#### Observability
-
-- El equipo debe poder reconstruir el origen de cada decisión analítica a partir de los metadatos de lote y los logs.
-
-### 4.7 Cross-Process Flow
-
-1. Conectarse a la base de datos académica y extraer los registros actuales de estudiantes.
-2. Cargar el archivo CSV entrante proporcionado por el sistema fuente.
-3. Aplicar la regla inicial de coincidencia estricta: `2 apellidos exactos + 1 nombre exacto`.
-4. Para registros no coincidentes pero similares, ejecutar matching difuso y presentarlos al usuario para validación asistida antes de guardar.
-5. Ignorar fechas y registros ya procesados al procesar un nuevo archivo para evitar duplicados.
-
----
-
-## Article V: Development Workflow
-
-### 5.1 Branch Strategy
-
-- **Model:** GitFlow adaptado
-- **Main branch:** `main` (producción estable) y `develop` (integración)
-- **Feature branches:** `feature/[ticket-id]-[description]` para trabajo nuevo
-
-### 5.2 Commit Messages
-
-Format: Conventional Commits
-
-```
-<type>(<scope>): <subject>
-
-[optional body]
-```
-
-Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
-(Commits convencionales en inglés para símbolos técnicos y en español para lenguaje de negocio cuando sea apropiado).
-
-### 5.3 Pull Request Requirements
-
-**Before Opening:**
-- [ ] Pruebas automatizadas y manuales (`php artisan test`, validación de endpoints) pasan
-- [ ] Linting (PHP-CS-Fixer / Pint / ESLint) pasa
-- [ ] Generación de Wayfinder completada si cambiaron las rutas
-
-**Required for Merge:**
-- [ ] Tech Lead y QA (o revisor designado) evalúan y aprueban
-- [ ] CI pipeline pasa sin errores
-- [ ] Ningún comentario sin resolver
-
-### 5.4 Definition of Done
-
-A feature is DONE when:
-
-- [ ] La implementación está completa y verificada.
-- [ ] Existen pruebas automatizadas y pasan.
-- [ ] La documentación y las especificaciones relevantes están actualizadas.
-- [ ] Los comentarios de revisión están resueltos.
-- [ ] El cambio es seguro para fusionar y no introduce regresiones.
-
-### 5.5 TDD Mode
-
-```yaml
-tdd_mode: true
-```
-
-Cuando `tdd_mode: true` está habilitado, los agentes (Software Engineer / Test Engineer) y desarrolladores deben comenzar con al menos una prueba fallida o un test stub para el comportamiento objetivo antes de escribir código de producción.
-
----
-
-## Article VI: Model Configuration
-
-### 6.1 Model Tier Mapping
-
-| Tier | Provider | Model | Fallback |
-|------|----------|-------|----------|
-| deep | Anthropic | Claude Opus 4.6 | Claude Sonnet 4.6 |
-| standard | Anthropic | Claude Sonnet 4.6 | Claude Haiku 4.6 |
-| light | Anthropic | Claude Sonnet 4.6 | Claude Haiku 4.6 |
-
-### 6.2 Budget Controls
-
-- Budget Ceiling: 50.00
-- Warning Threshold: 80% of budget ceiling
-- Hard Stop Threshold: 100% of budget ceiling unless explicitly approved
-
-> **Note:** El campo `model-tier` en las definiciones de los agentes se resuelve al modelo específico en tiempo de generación mediante `sdd adapters generate`. Esto permite cambiar de proveedor de LLM sin modificar cada archivo de agente individualmente.
-
-### 6.3 Agent Tier Assignments
-
-| Tier | Agents |
-|------|--------|
-| deep | architect, test-explorer, constitution |
-| standard | requirement-analyst, clarification, api-champion, messaging-champion, gherkin-analyst, analysis, test-engineer, software-engineer, review, refactoring, agent-builder, instruction-builder, guidance-builder, prompt-builder, workflow-builder |
-| light | brainstorming, tech-context-maintainer, workflow-builder |
-
----
-
-## Article VII: Boundaries
-
-### 7.1 Always Do
-
-1. Etiquetar cada registro entrante con su fecha de examen correspondiente antes de insertarlo en la base de datos analítica.
-2. Validar la conectividad y la autenticación a la base de datos académica antes de procesar cualquier lote.
-3. Ignorar fechas y registros ya procesados al manejar un nuevo CSV para evitar duplicaciones.
-4. Entregar trabajo en pasos cortos e incrementales con verificación frecuente.
-5. Devolver JSON estructurado desde los controladores de API.
-6. Validar endpoints manualmente con `curl` o el navegador MCP antes de finalizar una iteración.
-7. Mantener la documentación técnica actualizada.
-
-### 7.2 Ask First
-
-1. Antes de cambiar o ampliar la lista de estados permitidos para el matching.
-2. Antes de cambiar la estructura de las columnas del CSV entrante.
-3. Antes de agregar nuevas dependencias de Composer o npm.
-4. Antes de cambiar esquemas de base de datos.
-
-### 7.3 Never Do
-
-1. Volver a la manipulación manual de datos o delegar el filtrado de fechas a intervención humana.
-2. Sobrescribir datos de días de examen previos al procesar un nuevo lote.
-3. Guardar coincidencias no exactas directamente sin permitir que el usuario las revise mediante validación asistida.
-4. Escribir SQL directamente en vistas Blade.
-5. Colocar lógica de negocio directamente en controladores.
-6. Almacenar credenciales o secretos en el repositorio.
-
----
-
-## Article VIII: Amendments
-
-### 8.1 Amendment Process
-
-1. **Proposal:** Crear una propuesta de cambio o PR que modifique esta constitución.
-2. **Review:** Tech Lead y al menos un ingeniero/QA designado evalúan el cambio.
-3. **Discussion:** Discusión del equipo para cambios significativos.
-4. **Approval:** Aprobación del Tech Lead requerida antes de fusionar.
-
-### 8.2 Amendment Log
-
-| Date       | Version | Article | Change                                                                 | Author      |
-| ---------- | ------- | ------- | ---------------------------------------------------------------------- | ----------- |
-| 2026-06-16 | 2.2.0   | -       | Constitución inicial alineada al flujo de Vonex                        | Equipo      |
-| 2026-06-24 | 2.2.1   | V-VIII  | Reestructuración de artículos a paridad estricta con SDD-Enterprise    | Antigravity |
-| 2026-06-25 | 2.3.0   | III, VIII| Enmienda para incorporar campos DB, CSV y la estructura Excel consolidada. | Antigravity |
+<!--
+SYNC IMPACT REPORT:
+- Version change: 2.5.0 -> 2.6.0
+- List of modified principles:
+  * Art. 3 - Estándares de Calidad: Se añade la regla de deduplicación por CODIGO+OBSERVACION dentro del lote; se añade el Contrato de Columnas inmutable para el Excel; se añade el principio de "solo Excel" como formato de salida.
+  * Art. 4 - Principios de Arquitectura: Se añade el módulo independiente de Catálogo de Áreas y Carreras y su regla de consumo exclusivo en exportación; se añade el selector de exportación por fecha o consolidado.
+  * Art. 6 - Límites (Las Tres Listas): Se añaden reglas ALWAYS DO / NEVER DO sobre el Contrato de Columnas, el uso del catálogo solo en exportación, y el formato exclusivo .xlsx.
+- Added sections:
+  * Flujo del Proceso de Cruce (actualizado con paso de selector de exportación)
+- Removed sections: None
+- Templates requiring updates:
+  * OK spec.md (v2.6.0, alineado)
+  * OK plan.md (v2.3.0, alineado)
+- Follow-up TODOs:
+  * Confirmar formato de carga del catálogo de Áreas y Carreras (ver spec.md Assumption A-06) antes de iniciar desarrollo de US-006.
+-->
+
+# Constitución del Proyecto Vonex
+
+## Principios Fundamentales
+
+### Art. 1 – Tareas pequeñas, una a la vez
+
+- **Reglas**: Trabajar siempre en pasos de bebé (baby steps), uno a la vez. Nunca avanzar más de un paso a la vez. Asegurar que cada paso esté completamente verificado antes de continuar.
+- **Justificación**: Mantiene los cambios manejables, reduce la complejidad de depuración y asegura la corrección del código.
+
+### Art. 2 – Preservación de Patrones y Compatibilidad
+
+- **Reglas**:
+  - **Backend**: Patrón de clases de Acción (`app/Actions/`) con un único método público `execute()` que retorna `success`, `data`, `error`. Controladores delgados, relaciones de Eloquent limpias, tipado estricto (`declare(strict_types=1);`). Compatibilidad estricta con PHP 8.4+.
+  - **Frontend**: React (Vite) SPA con componentes funcionales y Hooks reactivos, consumiendo la API REST de Laravel.
+- **Justificación**: Garantiza legibilidad, mantenibilidad y alineación arquitectónica con el stack moderno del proyecto.
+
+### Art. 3 – Estándares de Calidad
+
+- **Reglas**:
+  - **Integridad de Normalización**: Todo texto procesado desde el CSV crudo debe convertirse obligatoriamente a MAYÚSCULAS, sin tildes y con reemplazo estricto de la "Ñ" por "N". No se aceptan excepciones.
+  - **Precisión del Cruce (Match Exacto e Integración Difusa)**:
+    - Regla inicial estricta para cruce automático: `2 apellidos exactos + 1 nombre exacto` (Cero Falsos Positivos).
+    - Cabos sueltos: match difuso interactivo antes de guardarse.
+    - **Umbral dual de similitud (inmutable):** cálculo interno ≥30%; visualización en React solo ≥70%. Cualquier modificación requiere enmienda constitucional documentada.
+    - **Sistema de colores por rango de similitud (inmutable):** 95-100% verde intenso (`#16a34a`); 85-94% verde claro (`#4ade80`); 70-84% amarillo/ámbar (`#eab308`). Ningún candidato por debajo del 70% se expone al administrador.
+  - **Deduplicación de Lotes (inmutable, NUEVO):** La conformación de un lote por `FECHA_EXAMEN` y la detección de duplicados dentro de él se realiza **siempre** usando la combinación `CODIGO` (código único de postulante) + `OBSERVACION` normalizada como clave de identificación del registro — nunca únicamente la fecha de examen a nivel de lote completo. Esta clave debe reforzarse con un índice único a nivel de base de datos.
+  - **Formato Exclusivo de Salida (inmutable, NUEVO):** El único artefacto de reporte descargable por el usuario final es un archivo **Excel (`.xlsx`)**. No se ofrecen ni se desarrollan rutas de exportación a CSV, PDF, JSON u otro formato para el reporte consolidado de ingresantes.
+  - **Selector de Exportación (NUEVO):** Toda pantalla de descarga del reporte debe ofrecer al usuario exactamente dos modalidades de filtro: (a) una `FECHA_EXAMEN` específica, o (b) "Todas las fechas" (consolidado). No se permiten otras granularidades de filtro (ej. por rango de fechas libre) sin enmienda constitucional.
+  - **Contrato de Columnas (inmutable, NUEVO):** Existe un conjunto fijo y documentado de columnas (definido en `spec.md`, US-005) que debe aparecer siempre, en el mismo orden, con las mismas cabeceras, en la Hoja 1 del Excel exportado — sin importar si el usuario descargó por fecha específica o consolidado, y sin importar si algún campo enriquecido carece de valor (en cuyo caso se usa la etiqueta `SIN MAPEAR`, nunca se omite la columna). Modificar este contrato requiere enmienda constitucional documentada (Art. 6.2).
+  - **Catálogo de Áreas y Carreras — Alcance de Uso (inmutable, NUEVO):** El catálogo oficial de Áreas y Carreras UNMSM es un dato maestro independiente del flujo de ingresantes. **Su único punto de consumo permitido en todo el sistema es el momento de generación del Excel** (`ExportarExcelCruceAction`). Está prohibido usar el catálogo durante la carga del CSV de ingresantes, durante el cruce exacto o durante el cálculo de similitud difusa.
+  - **Alcance del Excel final:** El reporte Excel contiene únicamente registros con `estado_match IN ('confirmado_automatico', 'confirmado_manual')`. Los registros `pendiente` y `no_ingresado` no aparecen en el Excel (en ninguna de las dos modalidades de descarga) pero se preservan en la BD para auditoría (NFR-005).
+  - **Prioridad Histórica Inmutable**: 1. MATRICULADO, 2. PAGADO, 3. FINALIZADO, 4. SUSPENDIDO, 5. RETIRADO, 6. TRASLADADO, 7. STAND BY, 8. ANULADO.
+  - **Estándares de Codificación**: Símbolos técnicos en inglés. Términos de dominio (tablas, columnas de BD, reglas de negocio) e interfaz de usuario en español.
+  - **Reglas de Linting y Formateador**: Cumplimiento estricto sin excepciones.
+  - **Data Protection**:
+    - **Sanitización de Exportaciones**: Todo dato proveniente de fuentes externas (CSV de ingresantes y CSV/archivo de catálogo) debe sanitizarse antes de persistirse y exportarse a Excel para prevenir CSV/Formula Injection. Ningún campo puede comenzar con `=`, `+`, `-`, `@` sin ser neutralizado.
+    - **Mínimo Privilegio en Base de Datos**: El usuario de PostgreSQL para `academia` tiene permisos estrictos de `SELECT`; `INSERT`/`UPDATE` únicamente sobre `lotes_cruce`, `ingresantes_cruce` y `catalogo_areas_carreras`.
+    - **Validación Estricta de Tipos MIME**: La carga de cualquier archivo (CSV de ingresantes o catálogo de Áreas/Carreras) debe validar el contenido binario (Magic Bytes), no solo la extensión.
+    - **Aislamiento de Carga de Trabajo**: El procesamiento masivo (cálculo de similitudes, generación de Excel consolidado) se ejecuta de forma asíncrona mediante colas Laravel.
+- **Justificación**: Garantiza precisión analítica absoluta y trazabilidad de negocio real (no solo por fecha), consistencia total del formato de salida y separación limpia entre datos maestros (catálogo) y datos transaccionales (ingresantes).
+
+### Art. 4 – Principios de Arquitectura
+
+- **Reglas**:
+  - **Pipeline sin intervención manual**: Lectura del CSV, loteo, deduplicación por `CODIGO`+`OBSERVACION` y consultas a `academia` se gestionan por script PHP, sin filtrado previo en hojas de cálculo.
+  - **Centralización Analítica**: Resultado final siempre en un archivo Excel para distribución; el pipeline interno no depende de archivos intermedios estáticos.
+  - **Módulo de Catálogo Independiente (NUEVO)**: La carga y mantenimiento del catálogo de Áreas y Carreras UNMSM es un módulo desacoplado del pipeline de lotes de ingresantes, con su propia pantalla de administración, su propia tabla (`catalogo_areas_carreras`) y su propio ciclo de vida (upsert sin afectar lotes existentes). Se consume por referencia únicamente en tiempo de exportación.
+  - **Selector de Exportación Único (NUEVO)**: La exportación se expone mediante un único endpoint parametrizado que acepta un identificador de lote o el valor "todas las fechas", garantizando que el Contrato de Columnas (Art. 3) se aplique de forma centralizada y no diverja entre modalidades de descarga.
+  - **Gestión de Errores Silenciosos**: Timeout o error de conexión pausa el lote y alerta; datos parcialmente procesados se marcan para revisión.
+  - **Auditoría y trazabilidad**: Se registra cada lote, cada `Fecha de Examen`, cada `CODIGO` omitido por duplicado, el resultado del cruce y cualquier fallo.
+  - **Seguridad de credenciales**: Variables de entorno (`.env`) exclusivamente.
+  - **Pruebas automatizadas**: Cobertura unitaria e integrada para lógica de cruce, deduplicación, exportación y catálogo. Pruebas manuales (curl/MCP) complementan, no reemplazan.
+  - **SLA de rendimiento de validación manual**: Vista de validación React ≤5 minutos para lotes de hasta ~27,000 registros (`pg_trgm`, Redis cache TTL 1h, chunking de 500).
+  - **Stack de rendimiento inmutable**: `pg_trgm` + índice GIN (prohibido Levenshtein en bucle PHP); Redis como driver único de colas/caché/sesión; Laravel Horizon (mín. 4 workers); Laravel Octane + FrankenPHP; PgBouncer (modo `transaction`, pool 20); PHP OPcache + JIT; `Bus::batch()` (chunks de 500); `react-window`; TanStack Query v5 (cursor pagination); PhpSpreadsheet en modo streaming (obligatorio también para el modo de exportación "Todas las fechas", dado su mayor volumen acumulado).
+- **Justificación**: Claridad en la separación de responsabilidades, robustez ante fallos, y portabilidad del motor analítico y de sus datos maestros.
+
+### Art. 5 – Estándares de Lenguaje
+
+- **Reglas**: Codificación técnica (variables, clases, funciones, commits) en inglés. Elementos visibles al usuario y conceptos de negocio de BD en español.
+- **Justificación**: Profesionalidad del código y comprensión por usuarios y administradores.
+
+### Art. 6 – Límites (Las Tres Listas)
+
+- **SIEMPRE HACER (ALWAYS DO)**:
+  - Etiquetar cada registro entrante con su "Fecha de Examen" automáticamente.
+  - Validar conexión a la BD `academia` antes de procesar cualquier lote.
+  - Deduplicar registros dentro de un lote usando `CODIGO` + `OBSERVACION`, no solo la fecha de examen.
+  - Ignorar silenciosamente los registros/lotes ya procesados, registrando el detalle en el log.
+  - Ofrecer siempre las dos modalidades de descarga del reporte: fecha específica o "Todas las fechas".
+  - Incluir el 100% de las columnas del Contrato de Columnas en cada Excel generado, sin importar la modalidad de descarga ni la disponibilidad del dato (usar `SIN MAPEAR` cuando corresponda).
+  - Consumir el catálogo de Áreas y Carreras únicamente en el momento de generar el Excel.
+  - Aplicar el sistema de colores por rango de similitud (≥95% verde intenso, 85-94% verde claro, 70-84% amarillo) en la interfaz React de validación.
+  - Filtrar el Excel final para incluir exclusivamente registros `confirmado_automatico` o `confirmado_manual`.
+  - Realizar desarrollos en pasos cortos con entregas incrementales y frecuentes.
+  - Retornar respuestas JSON desde controladores de API.
+  - Probar manualmente endpoints mediante `curl` o navegador MCP antes de finalizar una iteración.
+- **PREGUNTAR PRIMERO (ASK FIRST)**:
+  - Antes de alterar o expandir la lista de los 8 estados permitidos para el cruce.
+  - Si la estructura de columnas del CSV de origen (ingresantes o catálogo) sufre alguna modificación.
+  - Antes de modificar el Contrato de Columnas del Excel.
+  - Antes de añadir una tercera modalidad de descarga (ej. rango de fechas libre) al selector de exportación.
+  - Agregar nuevas dependencias a Composer o npm.
+  - Modificar esquemas de bases de datos.
+- **NUNCA HACER (NEVER DO)**:
+  - Volver a la manipulación manual de datos o delegar el filtrado de fechas/duplicados a intervención humana.
+  - Sobrescribir datos de días de examen anteriores al procesar un nuevo lote.
+  - Guardar directamente coincidencias no exactas sin revisión interactiva del usuario.
+  - Omitir columnas del Contrato de Columnas en el Excel, incluso si están vacías para todos los registros del filtro elegido.
+  - Ofrecer o desarrollar exportación en un formato distinto a `.xlsx` para el reporte de ingresantes.
+  - Usar el catálogo de Áreas y Carreras en ningún paso del pipeline distinto a la exportación (ni en carga, ni en cruce exacto, ni en cálculo de similitud).
+  - Mostrar en la interfaz React candidatos con similitud < 70%.
+  - Incluir registros `pendiente` o `no_ingresado` en el Excel final, en ninguna modalidad de descarga.
+  - Modificar los códigos hexadecimales de color del sistema de rangos de similitud sin enmienda constitucional.
+  - Confiar ciegamente en la extensión de archivo (`.csv`); siempre validar Magic Bytes y tipo MIME real, tanto para el CSV de ingresantes como para el archivo del catálogo.
+  - Escribir SQL directo en vistas Blade o lógica de negocio en Controladores.
+  - Exponer endpoints de procesamiento masivo o de exportación sin Rate Limiting estricto.
+- **Justificación**: Reglas de control estrictas para salvaguardar calidad de datos, consistencia del reporte final y separación de responsabilidades entre datos transaccionales y datos maestros.
+
+## Flujo del Proceso de Cruce
+
+1. **Conexión y Extracción**: El sistema se conecta a la base de datos `academia` para extraer los datos de los alumnos matriculados vigentes.
+2. **Carga de Archivo**: El usuario sube el archivo CSV de ingresantes a San Marcos.
+3. **Loteo y Deduplicación (ACTUALIZADO)**: El sistema agrupa los registros en lotes por `FECHA_EXAMEN`; dentro de cada lote, identifica y deduplica cada registro por la clave `CODIGO` + `OBSERVACION`, ignorando silenciosamente lo ya procesado y registrándolo en el log.
+4. **Cruce Inicial (Coincidencia Exacta)**: `2 apellidos exactos + 1 nombre exacto` → estado `confirmado_automatico`.
+5. **Tratamiento de Cabos Sueltos (Match Difuso)**: umbral interno 30%, visible en UI solo ≥70%, coloreado por rango. El administrador confirma (`confirmado_manual`) o descarta (`no_ingresado`).
+6. **Mantenimiento Independiente del Catálogo (NUEVO)**: En paralelo, y de forma independiente al ciclo de vida de los lotes, el administrador puede subir o actualizar el catálogo oficial de Áreas y Carreras UNMSM.
+7. **Selección y Exportación del Reporte (ACTUALIZADO)**: El usuario elige, en la pantalla de exportación, si desea el reporte de una `FECHA_EXAMEN` específica o de "Todas las fechas" consolidadas. El sistema genera el Excel filtrando solo registros `confirmado_automatico`/`confirmado_manual`, aplicando siempre el Contrato de Columnas completo, y enriqueciendo `AREA_OFICIAL`/`CARRERA_OFICIAL` desde el catálogo vigente en ese momento (usando `SIN MAPEAR` si no hay coincidencia).
+
+## Flujo de Trabajo Git y Colaboración
+
+- **Rama `main` / `master`**: Producción estable. Solo se sube código verificado mediante pull requests.
+- **Rama `develop`**: Entorno de desarrollo e integración.
+- **Ramas de Características (`feature/`)**: Cada nueva funcionalidad o API se desarrolla en una rama dedicada.
+- **Validaciones**: Antes de fusionar con `develop`, todo código debe pasar por revisiones de QA.
+- **Integrantes y Funciones**:
+  - **Samuel Cisneros**: Product Owner (PO) / Product Manager
+  - **Renzo Fabián**: Tech Lead / Lead Developer
+  - **Diego Fernando**: QA Tester / Co-Lead de Constitución
+  - **Yerson Vargas**: QA / Apoyo Técnico
+
+## Configuración y Ejecución de Pruebas
+
+- **Backend**: PHP 8.4+ (`ext-pgsql`, `ext-redis`, `ext-opcache`, `ext-pcre`); PostgreSQL 14+ (`pg_trgm`, `unaccent`); Redis 7+; PgBouncer 1.21+; Laravel Octane + FrankenPHP; Laravel Horizon (4 workers).
+- **Frontend**: Node.js 20+/npm 10+; `react`, `@tanstack/react-query`, `react-window`, `zustand`, `axios`; build con Vite 8.
+- **Ejecución de Pruebas**: `php artisan test` (Pest/PHPUnit); `php artisan test --filter=FuzzyMatchPerformanceTest`; `php artisan test --filter=ExportacionSelectorTest`; `php artisan test --filter=CatalogoAreasCarrerasTest`.
+
+## Gobernanza de la Constitución
+
+- **Ratificación**: Esta constitución está ratificada por el equipo de desarrollo principal y es de cumplimiento obligatorio para programadores y agentes de IA.
+- **Enmiendas**: Cualquier modificación requiere acuerdo del equipo, documentación de la enmienda, incremento de versión y propagación en `spec.md`/`plan.md`.
+- **Revisión de Cumplimiento**: Se verifica adherencia en cada Pull Request.
+
+### Amendment Log
+
+| Fecha | Versión | Artículos | Descripción del Cambio | Autor |
+|---|---|---|---|---|
+| 2026-06-16 | 2.2.0 | All | Versión base ratificada | Equipo V2 |
+| 2026-06-24 | 2.4.0 | III, IV | Stack de rendimiento inmutable, Redis Queue, persistencia dual | Equipo V2 |
+| 2026-07-03 | 2.5.0 | III, VII | Controles de seguridad: sanitización CSV, mínimo privilegio DB | Antigravity |
+| **2026-07-03** | **2.6.0** | **III, IV, VI** | **Deduplicación de lote por `CODIGO`+`OBSERVACION`; formato exclusivo Excel; selector de exportación por fecha o consolidado; Contrato de Columnas inmutable; módulo independiente de Catálogo de Áreas y Carreras consumido solo en exportación** | **Equipo V2** |
+
+**Versión**: 2.6.0 | **Ratificado**: 2026-06-16 | **Última Enmienda**: 2026-07-03

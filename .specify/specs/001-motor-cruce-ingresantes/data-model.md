@@ -1,4 +1,4 @@
-# Data Model: Motor de Cruce Automático de Ingresantes UNMSM
+w# Data Model: Motor de Cruce Automático de Ingresantes UNMSM
 
 **Feature ID:** 001-motor-cruce-ingresantes
 **Created:** 2026-06-24
@@ -318,99 +318,11 @@ El motor filtra solo los estados activos `estado IN (2, 3, 9, 13)` para el pool 
 
 ### 5.1 New Tables
 
-```sql
--- Migration: Create lotes_cruce, ingresantes, no_ingresantes
-CREATE TABLE lotes_cruce (
-    id BIGSERIAL PRIMARY KEY,
-    fecha_examen DATE NOT NULL UNIQUE,
-    total_registros INT NOT NULL DEFAULT 0,
-    total_ingresantes INT NOT NULL DEFAULT 0,
-    total_no_ingresantes INT NOT NULL DEFAULT 0,
-    total_match_exacto INT NOT NULL DEFAULT 0,
-    total_pendientes INT NOT NULL DEFAULT 0,
-    total_no_ingresado INT NOT NULL DEFAULT 0,
-    estado VARCHAR(50) NOT NULL DEFAULT 'processing',
-    started_at TIMESTAMP NULL,
-    completed_at TIMESTAMP NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE ingresantes (
-    id BIGSERIAL PRIMARY KEY,
-    lote_cruce_id BIGINT NOT NULL REFERENCES lotes_cruce(id) ON DELETE CASCADE,
-    alumno_id BIGINT NULL, -- References logical Alumno
-    codigo VARCHAR(50) NOT NULL,
-    apellidos VARCHAR(255) NOT NULL,
-    nombres VARCHAR(255) NOT NULL,
-    eap VARCHAR(255) NOT NULL,
-    puntaje DECIMAL(8,3) NOT NULL,
-    merito INT NOT NULL,
-    observacion VARCHAR(255) NOT NULL,
-    tipo VARCHAR(100) NOT NULL,
-    modalidad VARCHAR(100) NOT NULL,
-    universidad VARCHAR(100) NOT NULL,
-    periodo VARCHAR(50) NOT NULL,
-    fecha DATE NOT NULL,
-    estado_match VARCHAR(50) NOT NULL DEFAULT 'pendiente',
-    porcentaje_similitud DECIMAL(5,2) NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_ingresantes_search ON ingresantes(apellidos, nombres);
-CREATE INDEX idx_ingresantes_lote ON ingresantes(lote_cruce_id);
-
-CREATE TABLE no_ingresantes (
-    id BIGSERIAL PRIMARY KEY,
-    lote_cruce_id BIGINT NOT NULL REFERENCES lotes_cruce(id) ON DELETE CASCADE,
-    codigo VARCHAR(50) NOT NULL,
-    apellidos VARCHAR(255) NOT NULL,
-    nombres VARCHAR(255) NOT NULL,
-    eap VARCHAR(255) NOT NULL,
-    puntaje DECIMAL(8,3) NOT NULL,
-    merito INT NOT NULL,
-    observacion VARCHAR(255) NOT NULL,
-    tipo VARCHAR(100) NOT NULL,
-    modalidad VARCHAR(100) NOT NULL,
-    universidad VARCHAR(100) NOT NULL,
-    periodo VARCHAR(50) NOT NULL,
-    fecha DATE NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
-    -- no updated_at: INV-02 append-only, sin UPDATE permitido
-);
-
-CREATE INDEX idx_no_ingresantes_lote ON no_ingresantes(lote_cruce_id);
-
--- Trigger DDL que enforce INV-02: no_ingresantes es append-only.
--- Previene operaciones directas desde psql, herramientas externas o migraciones futuras
--- que no conozcan el invariante. El enforcement a nivel de modelo Eloquent (UPDATED_AT=null)
--- es complementario, no sustituto.
-CREATE OR REPLACE FUNCTION prevent_no_ingresantes_mutation()
-RETURNS TRIGGER AS $$
-BEGIN
-  RAISE EXCEPTION 'no_ingresantes is append-only (INV-02). DELETE and UPDATE are not permitted.';
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_no_ingresantes_readonly
-BEFORE UPDATE OR DELETE ON no_ingresantes
-FOR EACH ROW
-EXECUTE PROCEDURE prevent_no_ingresantes_mutation();
-
-CREATE TABLE ingresante_candidatos (
-    id BIGSERIAL PRIMARY KEY,
-    ingresante_id BIGINT NOT NULL REFERENCES ingresantes(id) ON DELETE CASCADE,
-    alumno_id BIGINT NOT NULL,
-    porcentaje_similitud DECIMAL(5,2) NOT NULL CHECK (porcentaje_similitud >= 70.00),
-    ranking SMALLINT NOT NULL CHECK (ranking BETWEEN 1 AND 5),
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE (ingresante_id, ranking)
-);
-
-CREATE INDEX idx_ingresante_candidatos_ingresante_id ON ingresante_candidatos(ingresante_id);
-CREATE INDEX idx_ingresante_candidatos_ranking ON ingresante_candidatos(ingresante_id, ranking);
-```
+> **Nota Arquitectónica:** En cumplimiento con las reglas del *Architect Agent* del entorno SDD-Enterprise, el SQL DDL exacto (`CREATE TABLE`) se omite de esta especificación de diseño. El esquema físico a implementarse en las migraciones de Laravel se deriva de manera directa y estricta de las tablas Markdown definidas en la Sección 2 (*Entity Definitions*).
+> 
+> - Todos los identificadores principales utilizarán el tipo escalable nativo del framework (`BIGSERIAL` / `bigIncrements`).
+> - Las restricciones relacionales (`ON DELETE CASCADE`) y las dependencias únicas (`UNIQUE`) deben mapearse exactamente como se indica en la sección *Constraints*.
+> - El Invariante 2 (INV-02) que dictamina la inmutabilidad (append-only) de la entidad `NoIngresante` debe garantizarse en la capa de persistencia omitiendo la columna `updated_at` y, si el entorno lo permite, mediante constraints o triggers protectores.
 
 ---
 

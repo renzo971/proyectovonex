@@ -113,14 +113,27 @@ graph TB
 
 ---
 
-#### AD-005: Umbral de 80% en Match Manual y Exportación CSV por Stream
+#### AD-005: Umbral de Visibilidad en Match Manual
 
-**Decisión:** 
-1. **Filtro del 80%:** Los ingresantes listados como `pendientes` en el backend se filtran para incluir únicamente aquellos cuya coincidencia máxima de candidatos sea mayor o igual al 80%. Los registros con coincidencias por debajo se omiten de la bandeja interactiva para centrar el esfuerzo en emparejamientos viables.
-2. **Exportación CSV compatible:** Se implementa un endpoint de exportación que genera dinámicamente un archivo CSV con delimitador de punto y coma (`;`) y prefijo de firma BOM (`\xEF\xBB\xBF`) UTF-8 para garantizar la compatibilidad directa con MS Excel, prescindiendo de dependencias pesadas como PhpSpreadsheet que requerirían cambios de infraestructura.
+**Decisión:**
+1. **Filtro de visibilidad del 70% (inmutable):** Los ingresantes listados como `pendientes` en el backend se filtran para incluir únicamente aquellos cuya coincidencia máxima de candidatos sea mayor o igual al **70%**, alineado con el umbral inmutable fijado en el Art. 3 de la Constitución. Los registros con coincidencias por debajo se omiten de la bandeja interactiva para centrar el esfuerzo en emparejamientos viables.
+2. **Exportación exclusiva en `.xlsx`:** El único artefacto descargable es un archivo Excel (`.xlsx`) generado con PhpSpreadsheet en modo streaming. Cualquier otro formato de exportación está expresamente prohibido por el Art. 3 y Art. 6 de la Constitución.
 
-**Impacto:** Menor sobrecarga cognitiva en el administrador al resolver cruces manuales e integración del botón "Exportar Excel" directamente en la UI.
-**Alternativa Descartada:** Seguir mostrando candidatos débiles (< 80%) y usar librerías nativas `.xlsx` antes de tener la infraestructura de paquetes lista.
+**Impacto:** Menor sobrecarga cognitiva en el administrador al resolver cruces manuales. El sistema de colores por rango de similitud (95-100% verde intenso `#16a34a`; 85-94% verde claro `#4ade80`; 70-84% amarillo `#eab308`) se aplica en la interfaz React de validación según el Art. 3 de la Constitución.
+**Alternativa Descartada:** Mostrar candidatos con similitud < 70% y exportar en CSV/BOM — descartados por violar los principios inmutables de la Constitución v2.6.0.
+
+---
+
+### 1.4 Feature Decomposition
+
+| Feature | Type | Domain Layer | Application Layer | Infrastructure Layer | Justification |
+|---------|------|--------------|-------------------|---------------------|---------------|
+| Pipeline Importación y Normalización | ✨ NEW | N/A | `ProcesarCargaCsvAction`, `NormalizarTextoAction` | Redis Queue, `lotes_cruce` DB | Flujo asíncrono completamente nuevo para aislar la carga masiva. |
+| Consulta a BD Academia | 🔀 HYBRID | `Alumno`, `Persona` | `RealizarCruceExactoAction` | `academia` PostgreSQL | Reutilización de base de datos origen externa en modo solo lectura. |
+| Motor Difuso (Fuzzy Match) | ✨ NEW | `Ingresante`, `Candidato` | `CalcularSimilitudesCabosAction` | `ingresante_candidatos` DB | Nuevo módulo algorítmico independiente para emparejamiento. |
+| Dashboard UI de Validación | ✨ NEW | N/A | `CruceIngresantesController` | React SPA | Interfaz especializada dedicada para el área de admisiones. |
+| Reporte Consolidado Excel | ✨ NEW | N/A | `ExportarExcelCruceAction` | Archivo `.xlsx` (PhpSpreadsheet streaming) | Módulo de exportación exclusivo en Excel; único punto de consumo del Catálogo. |
+| Gestión de Catálogo de Áreas y Carreras | ✨ NEW | `CatalogoAreaCarrera` | `CargarCatalogoAction` | `catalogo_areas_carreras` DB | Módulo maestro independiente; su ciclo de vida no afecta lotes existentes. |
 
 ---
 
@@ -150,6 +163,54 @@ app/
 └── Actions/Cruce/
     ├── NormalizarTextoAction.php
     └── ProcesarCargaCsvAction.php
+```
+
+**Implementación de referencia — `NormalizarTextoAction.php`:**
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Actions\Cruce;
+
+final readonly class NormalizarTextoAction
+{
+    public function execute(string $input): string
+    {
+        $sanitized = mb_strtoupper(trim($input), 'UTF-8');
+
+        // Prevención de inyección de fórmulas para la exportación a Excel
+        if (preg_match('/^[=+\-@\t\r]/', $sanitized)) {
+            $sanitized = "'" . $sanitized;
+        }
+
+        $sanitized = str_replace(
+            ['Á', 'É', 'Í', 'Ó', 'Ú', 'Ñ'],
+            ['A', 'E', 'I', 'O', 'U', 'N'],
+            $sanitized
+        );
+
+        return $sanitized;
+    }
+}
+```
+
+**Implementación de referencia — validación de carga (`FormRequest`):**
+
+```php
+public function rules(): array
+{
+    return [
+        'archivo_ingresantes' => [
+            'required',
+            'file',
+            'mimetypes:text/csv,text/plain',
+            'mimes:csv',
+            'max:10240',
+        ],
+    ];
+}
 ```
 
 ### 2.2 Backend Component: MatchEngine
@@ -188,7 +249,7 @@ frontend/src/
 
 ### 2.4 Backend Component: ReportGenerator
 
-**Responsibility:** Generates the final Excel report with 24 columns, applying business calculations for Lists (L1, L2, L3) and EAP-to-Area resolution.
+**Responsibility:** Generates the final Excel report (`.xlsx`) as a single sheet applying the immutable Column Contract defined in `spec.md` US-005. Enriches data from the `catalogo_areas_carreras` table at export time. This is the ONLY point in the system where the Catalog is consumed.
 
 **Structure:**
 ```
@@ -197,10 +258,34 @@ app/Actions/Cruce/
 ```
 
 **Algorithm Details:**
-- **LISTA - 1 (L1):** Check if `periodo` in academic DB starts with or is lexicographically >= "Verano 2024" (e.g. Verano 2024, Anual 2024, Repaso 2025, Verano 2026, etc.). Set cell to `1` if true, otherwise `0`.
-- **LISTA - 2 (L2):** Check if `periodo` matches "Verano 2026", "Repaso 2026", or contains "OCTUBRE 2025", or represents a cycle active in Feb 2026. Includes status `RETIRADO` and `SUSPENDIDO`. Set cell to `1` if true, otherwise `0`.
-- **LISTA - 3 (L3):** Check if the enrollment is active (i.e. status is `MATRICULADO`, `PAGADO`, or `FINALIZADO` and not `RETIRADO`, `SUSPENDIDO`, `ANULADO`) in presencial/virtual cycles as of Feb 27, 2026. Set cell to `1` if true, otherwise `0`.
-- **AREA:** Map the `EAP` string using standard keyword rules to resolve to Area A, B, C, D, or E.
+- Filters records: only `estado_match IN ('confirmado_automatico', 'confirmado_manual')` are included.
+- Applies the Contrato de Columnas: columns A–M from CSV raw data, columns N+ enriched from academia (Sede, Ciclo, Año académico, Estado by hierarchy) and from catalog (`AREA_OFICIAL`, `CARRERA_OFICIAL`).
+- Fields without a catalog match show `SIN MAPEAR` — column is never omitted.
+- Uses PhpSpreadsheet in **streaming mode** to support high-volume exports ("All dates" mode).
+- Accepts a `lote_id` parameter or the special value `"todas"` to generate the consolidated export.
+
+### 2.5 Backend Component: CatalogoManager
+
+**Responsibility:** Independent module for uploading and maintaining the official UNMSM Catalog of Areas and Careers. Its lifecycle does not affect any existing ingresante batches.
+
+**Interfaces:**
+- `POST /api/catalogo/upload` — Upload catalog CSV file.
+- `GET /api/catalogo` — List current catalog entries.
+
+**Dependencies:**
+- `CargarCatalogoAction` — Validates Magic Bytes, sanitizes fields (formula injection prevention), and performs upsert into `catalogo_areas_carreras`.
+- PostgreSQL `catalogo_areas_carreras` table.
+
+**Structure:**
+```
+app/
+├── Http/Controllers/
+│   └── CatalogoAreasCarrerasController.php
+└── Actions/Cruce/
+    └── CargarCatalogoAction.php
+```
+
+**Constraint (Constitution Art. 3 + Art. 6 — inmutable):** El catálogo NO se usa en ningún paso del pipeline (carga de CSV, cruce exacto, cálculo de similitud difusa). Su único punto de consumo es `ExportarExcelCruceAction`.
 
 ---
 
@@ -215,6 +300,7 @@ See: [data-model.md](./data-model.md)
 | `LoteCruce` | Tracks metadata and statistics of an uploaded CSV batch. | One-to-Many with `Ingresante` and `NoIngresante`. |
 | `Ingresante` | Stores UNMSM applicants who met the `ALCANZO VACANTE` filter. | Belongs to `LoteCruce`. Optionally belongs to `Alumno` (Academia DB). |
 | `NoIngresante` | Stores applicants who did not meet the filter (audit only). | Belongs to `LoteCruce`. |
+| `CatalogoAreaCarrera` | Stores the official UNMSM catalog of Areas and EAP (Escuela Académico Profesional). Managed independently. | Consumed read-only by `ExportarExcelCruceAction` only. |
 
 ---
 
@@ -228,13 +314,15 @@ See: [data-model.md](./data-model.md)
 | `POST` | `/api/cruce/upload` | Upload CSV and dispatch queue job | Yes |
 | `GET` | `/api/cruce/lotes` | Retrieve list of upload batches | Yes |
 | `GET` | `/api/cruce/lotes/{lote_id}/status` | Retrieve status & stats of job | Yes |
-| `GET` | `/api/cruce/lotes/{lote_id}/pendientes` | List unmatched applicants (paginated) | Yes |
+| `GET` | `/api/cruce/lotes/{lote_id}/pendientes` | List unmatched applicants (paginated, filtered ≥70% similarity) | Yes |
 | `GET` | `/api/cruce/ingresantes/{id}/candidatos` | Get pre-computed fuzzy match candidates for an ingresante | Yes |
 | `POST` | `/api/cruce/ingresantes/{id}/confirmar` | Save manual match or mark as no_ingresado | Yes |
-| `GET` | `/api/cruce/lotes/{lote_id}/exportar` | Export final Excel spreadsheet | Yes |
+| `GET` | `/api/cruce/lotes/{lote_id}/exportar` | Export final Excel spreadsheet (.xlsx) — accepts `lote_id` or `todas` | Yes |
 | `GET` | `/api/cruce/academia/alumnos` | List active alumnos from academia DB (paginated, searchable) | Yes |
 | `DELETE` | `/api/cruce/limpiar` | Wipe all cruce data (lotes + ingresantes + candidatos) for fresh start | Yes |
 | `POST` | `/api/cruce/lotes/{lote_id}/reprocesar` | Re-process a batch (queue:clear + dispatch new job) | Yes |
+| `POST` | `/api/catalogo/upload` | Upload Catalog CSV (Areas y Carreras) — upsert into `catalogo_areas_carreras` | Yes |
+| `GET` | `/api/catalogo` | List current catalog entries | Yes |
 
 ---
 
