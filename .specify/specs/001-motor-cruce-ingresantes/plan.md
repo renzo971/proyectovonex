@@ -4,7 +4,7 @@
 **Created:** 2026-06-24
 **Architect:** Architect Agent
 **Status:** Under Review
-**Versión:** 2.8.0
+**Versión:** 2.9.0
 
 ---
 
@@ -110,6 +110,17 @@ graph TB
 **Cuándo corre:** Durante el cruce de `computeFuzzyCandidates` en el job `ProcessCsvBatchJob`.
 **Impacto:** Permite cumplir religiosamente el SLA de 50 segundos, bajando el tiempo de cruce de ~41 minutos a ~29 segundos (mejora de 98.8%), y procesando insert batch en la tabla `ingresante_candidatos` (eliminando timestamp dependencies si no existiesen en BD).
 **Alternativa Descartada:** Delegar a PostgreSQL (`pg_trgm`) o paralelizar colas falló por concurrencia DB y timeouts Redis.
+
+---
+
+#### AD-005: Umbral de 80% en Match Manual y Exportación CSV por Stream
+
+**Decisión:** 
+1. **Filtro del 80%:** Los ingresantes listados como `pendientes` en el backend se filtran para incluir únicamente aquellos cuya coincidencia máxima de candidatos sea mayor o igual al 80%. Los registros con coincidencias por debajo se omiten de la bandeja interactiva para centrar el esfuerzo en emparejamientos viables.
+2. **Exportación CSV compatible:** Se implementa un endpoint de exportación que genera dinámicamente un archivo CSV con delimitador de punto y coma (`;`) y prefijo de firma BOM (`\xEF\xBB\xBF`) UTF-8 para garantizar la compatibilidad directa con MS Excel, prescindiendo de dependencias pesadas como PhpSpreadsheet que requerirían cambios de infraestructura.
+
+**Impacto:** Menor sobrecarga cognitiva en el administrador al resolver cruces manuales e integración del botón "Exportar Excel" directamente en la UI.
+**Alternativa Descartada:** Seguir mostrando candidatos débiles (< 80%) y usar librerías nativas `.xlsx` antes de tener la infraestructura de paquetes lista.
 
 ---
 
