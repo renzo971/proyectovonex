@@ -178,6 +178,7 @@ class RealizarCruceExactoAction
 
         $alumnos = [];
         $byName = [];
+<<<<<<< HEAD
         $byInitial = [];
 
         foreach ($rows as $row) {
@@ -199,12 +200,18 @@ class RealizarCruceExactoAction
                 $bigramsHash[$bg]++;
             }
 
+=======
+
+        foreach ($rows as $row) {
+            $idx = count($alumnos);
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
             $alumnos[] = [
                 'id' => (int) $row->id,
                 'apellido_paterno' => $row->apellido_paterno,
                 'apellido_materno' => $row->apellido_materno,
                 'nombres' => $row->nombres,
                 'estado' => (int) $row->estado,
+<<<<<<< HEAD
                 'norm_paterno' => $normPaterno,
                 'full_name_normalized' => $fullNameNormalized,
                 'bigrams_hash' => $bigramsHash,
@@ -221,5 +228,15 @@ class RealizarCruceExactoAction
         }
 
         return ['alumnos' => $alumnos, 'by_name' => $byName, 'by_initial' => $byInitial];
+=======
+            ];
+
+            $nameKey = $this->normalizador->execute($row->apellido_paterno) . '|'
+                     . $this->normalizador->execute($row->apellido_materno);
+            $byName[$nameKey][] = $idx;
+        }
+
+        return ['alumnos' => $alumnos, 'by_name' => $byName];
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
     }
 }

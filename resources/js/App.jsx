@@ -207,6 +207,7 @@ export default function App() {
                                 <div className="space-y-3">
                                     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                                         <div className="flex items-center justify-between mb-3">
+<<<<<<< HEAD
                                             <h2 className="text-sm font-semibold text-gray-900">Pendientes ≥80% ({pendingCount})</h2>
                                             <a
                                                 href={`/api/cruce/lotes/${selectedLote}/exportar`}
@@ -218,6 +219,9 @@ export default function App() {
                                                 </svg>
                                                 Exportar Excel
                                             </a>
+=======
+                                            <h2 className="text-sm font-semibold text-gray-900">Pendientes ({pendingCount})</h2>
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
                                         </div>
                                         <div className="relative">
                                             <input
@@ -240,6 +244,7 @@ export default function App() {
 
                                     {pendientes.length > 0 ? (
                                         <>
+<<<<<<< HEAD
                                             {(() => {
                                                 let lastGroup = null;
                                                 return pendientes.map((p) => {
@@ -260,6 +265,11 @@ export default function App() {
                                                     );
                                                 });
                                             })()}
+=======
+                                            {pendientes.map((p) => (
+                                                <UnmatchedRow key={p.id} ingresante={p} onConfirmado={handleConfirmado} />
+                                            ))}
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
                                             {totalPaginas > 1 && (
                                                 <div className="flex justify-center gap-2 pt-4">
                                                     <button disabled={pagina <= 1} onClick={() => cargarPendientes(selectedLote, pagina - 1)}

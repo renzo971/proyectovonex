@@ -151,7 +151,10 @@ class ProcessCsvBatchJob implements ShouldQueue
         }
 
         $alumnos = $alumnosIndex['alumnos'] ?? [];
+<<<<<<< HEAD
         $byInitial = $alumnosIndex['by_initial'] ?? [];
+=======
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
 
         if (empty($alumnos)) {
             return;
@@ -167,7 +170,11 @@ class ProcessCsvBatchJob implements ShouldQueue
         ]);
 
         foreach ($pendientes as $ingresante) {
+<<<<<<< HEAD
             $this->fuzzyMatchAndSave($ingresante, $alumnos, $byInitial, $normalizer);
+=======
+            $this->fuzzyMatchAndSave($ingresante, $alumnos, $normalizer);
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
             $processed++;
 
             if ($processed % 50 === 0 || $processed === $total) {
@@ -182,6 +189,7 @@ class ProcessCsvBatchJob implements ShouldQueue
         ]);
     }
 
+<<<<<<< HEAD
     private function fuzzyMatchAndSave($ingresante, array $alumnos, array $byInitial, NormalizarTextoAction $normalizer): void
     {
         $normPaterno = $normalizer->execute($ingresante->apellido_paterno ?? '');
@@ -234,13 +242,56 @@ class ProcessCsvBatchJob implements ShouldQueue
             $maxLen = max($lenA, strlen($alumnoFullName));
             $levSimilarity = $maxLen === 0 ? 1.0 : 1.0 - ($levDistance / $maxLen);
 
+=======
+    private function fuzzyMatchAndSave($ingresante, array $alumnos, NormalizarTextoAction $normalizer): void
+    {
+        $ingresanteFullName = $normalizer->execute(
+            $ingresante->apellido_paterno . ' ' .
+            $ingresante->apellido_materno . ' ' .
+            $ingresante->nombres
+        );
+
+        $scored = [];
+
+        foreach ($alumnos as $alumno) {
+            $alumnoFullName = $normalizer->execute(
+                ($alumno['apellido_paterno'] ?? '') . ' ' .
+                ($alumno['apellido_materno'] ?? '') . ' ' .
+                ($alumno['nombres'] ?? '')
+            );
+
+            $levDistance = levenshtein($ingresanteFullName, $alumnoFullName);
+            $maxLen = max(mb_strlen($ingresanteFullName), mb_strlen($alumnoFullName));
+            $levSimilarity = $maxLen === 0 ? 1.0 : 1.0 - ($levDistance / $maxLen);
+
+            $lenA = mb_strlen($ingresanteFullName);
+            $lenB = mb_strlen($alumnoFullName);
+            $diceCoeff = 0.0;
+            if ($lenA >= 2 && $lenB >= 2) {
+                $bigramsA = [];
+                for ($i = 0; $i < $lenA - 1; $i++) {
+                    $bigramsA[] = mb_substr($ingresanteFullName, $i, 2);
+                }
+                $bigramsB = [];
+                for ($i = 0; $i < $lenB - 1; $i++) {
+                    $bigramsB[] = mb_substr($alumnoFullName, $i, 2);
+                }
+                $intersection = array_intersect($bigramsA, $bigramsB);
+                $diceCoeff = (2.0 * count($intersection)) / (count($bigramsA) + count($bigramsB));
+            }
+
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
             $similarity = ($levSimilarity * 0.6 + $diceCoeff * 0.4) * 100;
 
             if ($similarity >= 70.0) {
                 $scored[] = [
                     'alumno_id' => (int) $alumno['id'],
                     'porcentaje_similitud' => round($similarity, 2),
+<<<<<<< HEAD
                     'apellido_paterno' => $alumno['norm_paterno'],
+=======
+                    'apellido_paterno' => $normalizer->execute($alumno['apellido_paterno'] ?? ''),
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
                 ];
             }
         }
@@ -256,17 +307,26 @@ class ProcessCsvBatchJob implements ShouldQueue
 
         IngresanteCandidato::where('ingresante_id', $ingresante->id)->delete();
 
+<<<<<<< HEAD
         $inserts = [];
         foreach ($topCandidates as $idx => $candidate) {
             $inserts[] = [
+=======
+        foreach ($topCandidates as $idx => $candidate) {
+            IngresanteCandidato::create([
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
                 'ingresante_id' => $ingresante->id,
                 'alumno_id' => $candidate['alumno_id'],
                 'porcentaje_similitud' => $candidate['porcentaje_similitud'],
                 'ranking' => $idx + 1,
+<<<<<<< HEAD
             ];
         }
         if (!empty($inserts)) {
             IngresanteCandidato::insert($inserts);
+=======
+            ]);
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
         }
 
         if (!empty($topCandidates) && $topCandidates[0]['porcentaje_similitud'] >= 99.5) {

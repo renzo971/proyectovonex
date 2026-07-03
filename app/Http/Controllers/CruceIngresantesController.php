@@ -14,7 +14,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+<<<<<<< HEAD
 use Symfony\Component\HttpFoundation\StreamedResponse;
+=======
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
 
 class CruceIngresantesController extends Controller
 {
@@ -278,14 +281,21 @@ class CruceIngresantesController extends Controller
         }
 
         $pendientes = $query
+<<<<<<< HEAD
             ->whereHas('ingresanteCandidatos', function ($q) {
                 $q->where('porcentaje_similitud', '>=', 80);
             })
+=======
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
             ->withCount('ingresanteCandidatos')
             ->addSelect([
                 'max_similitud' => \App\Models\IngresanteCandidato::selectRaw('COALESCE(MAX(porcentaje_similitud), 0)')
                     ->whereColumn('ingresante_id', 'ingresantes.id'),
             ])
+<<<<<<< HEAD
+=======
+            ->orderByDesc('ingresante_candidatos_count')
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
             ->orderByDesc('max_similitud')
             ->orderBy('apellido_paterno')
             ->orderBy('apellido_materno')
@@ -303,6 +313,7 @@ class CruceIngresantesController extends Controller
         ]);
     }
 
+<<<<<<< HEAD
     public function exportar(int $loteId): StreamedResponse
     {
         $lote = LoteCruce::findOrFail($loteId);
@@ -354,6 +365,8 @@ class CruceIngresantesController extends Controller
         ]);
     }
 
+=======
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
     public function limpiar(): JsonResponse
     {
         try {

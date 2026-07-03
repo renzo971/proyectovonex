@@ -17,5 +17,8 @@ Route::prefix('cruce')->group(function () {
     Route::get('/lotes', [CruceIngresantesController::class, 'lotes']);
     Route::get('/lotes/{loteId}/status', [CruceIngresantesController::class, 'loteStatus']);
     Route::get('/lotes/{loteId}/pendientes', [CruceIngresantesController::class, 'pendientes']);
+<<<<<<< HEAD
     Route::get('/lotes/{loteId}/exportar', [CruceIngresantesController::class, 'exportar']);
+=======
+>>>>>>> 44d8bd6c55606cc038d5438a3aaa8289edab4c26
 });
