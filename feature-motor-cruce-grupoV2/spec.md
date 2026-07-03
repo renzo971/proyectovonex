@@ -6,7 +6,7 @@
 **PO:** Samuel Cisneros
 **Equipo:** Grupo V2 (Vonex)
 **Status:** Under Review
-**Versión:** 2.4.0
+**Versión:** 2.7.0
 
 ---
 
@@ -106,16 +106,23 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 #### Acceptance Criteria
 
-- [ ] **AC-011:** Dado un ingresante en estado `pendiente`, cuando se visualiza en la interfaz React, entonces se muestra una fila con sus datos del CSV (apellido paterno, materno, nombres, fecha de examen) y un selector `<select>` con los candidatos ordenados de mayor a menor probabilidad, mostrando para cada uno el nombre completo y el porcentaje de similitud.
+- [ ] **AC-011:** Dado un ingresante en estado `pendiente`, cuando se visualiza en la interfaz React, entonces se muestra una fila con sus datos del CSV (apellido paterno, materno, nombres, fecha de examen) y u
+
+70n selector `<select>` con los candidatos que superen el **umbral de visualización del 70% de similitud**, ordenados de mayor a menor probabilidad, mostrando para cada uno el nombre completo y el porcentaje de similitud. Los candidatos con similitud entre 30% y 69% son calculados por el motor pero **no se muestran** en la interfaz.
+- [ ] **AC-011b:** Dado que un candidato supera el umbral del 70% de similitud, cuando aparece en el selector de validación, entonces su badge de porcentaje se colorea según el siguiente sistema de rangos de colores inmutable:
+  - **95%–100% → Verde intenso** (`#16a34a`): Match casi exacto; alta confianza de correspondencia.
+  - **85%–94% → Verde claro** (`#4ade80`): Alta confianza; se recomienda seleccionar.
+  - **70%–84% → Amarillo/Ámbar** (`#eab308`): Confianza media; requiere revisión cuidadosa del administrador.
 - [ ] **AC-012:** Dado que el administrador selecciona un candidato del menú y presiona "Confirmar Match", cuando el sistema procesa la acción, entonces guarda la asociación invocando `GuardarCruceConfirmadoAction`, cambia el estado del ingresante a `confirmado_manual` y actualiza los datos enriquecidos en la base de datos analítica.
 - [ ] **AC-013:** Dado que ningún candidato corresponde al ingresante, cuando el administrador selecciona "Sin coincidencias encontradas — Marcar como No Ingresado" y confirma, entonces el estado del ingresante se actualiza a `no_ingresado` en la base de datos analítica.
 
 #### UI/UX Notes
 
 - El selector (AC-011) debe incluir como primera opción un placeholder no seleccionable: "Selecciona un alumno...".
-- Mostrar un badge con el porcentaje de similitud junto al nombre de cada candidato en el `<select>`.
+- Mostrar un **badge de color** con el porcentaje de similitud junto al nombre de cada candidato según los rangos definidos en AC-011b. No mostrar candidatos con similitud < 70%.
 - La confirmación (AC-012) debe mostrar feedback visual inmediato (spinner + mensaje de éxito/error) sin recargar la página.
 - La opción "No Ingresado" (AC-013) debe estar visualmente diferenciada (color rojo o icono de advertencia) para evitar clics accidentales.
+- Si ningún candidato supera el 70% de similitud, mostrar directamente la opción "Sin coincidencias encontradas — Marcar como No Ingresado" como única opción disponible (comportamiento equivalente a EC-003).
 
 #### Technical Notes
 
@@ -136,13 +143,111 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 #### Acceptance Criteria
 
-- [ ] **AC-014:** Dado un lote procesado (con matches confirmados), cuando el usuario descarga el reporte Excel, entonces la **Hoja 1** contiene en las columnas A–M los datos del CSV crudo original del ingresante y a partir de la columna N los campos enriquecidos del alumno de la academia: Sede, Ciclo, Año académico y Estado resuelto por jerarquía.
-- [ ] **AC-015:** Dado el archivo Excel descargado, cuando el usuario abre la **Hoja 2**, entonces encuentra gráficos analíticos pre-construidos (distribución por estado, por sede, por ciclo) y segmentadores dinámicos que filtran todas las métricas por fecha de examen.
+- [ ] **AC-014:** Dado un lote procesado, cuando el usuario descarga el reporte Excel, entonces la **Hoja 1** contiene **exclusivamente** los registros cuyo `estado_match` sea `confirmado_automatico` o `confirmado_manual` — los registros con estado `pendiente` o `no_ingresado` **no aparecen en el Excel**. Las columnas A–M corresponden a los datos del CSV crudo original del ingresante y a partir de la columna N se incluyen los campos enriquecidos del alumno de la academia: Sede, Ciclo, Año académico y Estado resuelto por jerarquía.
+- [ ] **AC-014b:** Dado el reporte Excel (Hoja 1), cuando el administrador lo abre, entonces los registros `confirmado_automatico` (match exacto, similitud implícita del 100%) aparecen sin distinción visual adicional de color de similitud; los registros `confirmado_manual` **no muestran columna de porcentaje de similitud** en el Excel — el reporte consolida únicamente los datos validados finales, sin metadatos del proceso de cruce difuso.
+- [ ] **AC-015:** Dado el archivo Excel descargado, cuando el usuario abre la **Hoja 2**, entonces encuentra gráficos analíticos pre-construidos (distribución por estado, por sede, por ciclo) basados únicamente en los registros confirmados de la Hoja 1, y segmentadores dinámicos que filtran todas las métricas por fecha de examen.
 
 #### Technical Notes
 
 - La exportación es responsabilidad de `ExportarExcelCruceAction.php`.
 - Utilizar una librería PHP compatible con Excel (ej. PhpSpreadsheet) para generar ambas hojas y los gráficos dinámicos.
+- El filtro de registros para el Excel se aplica con `WHERE estado_match IN ('confirmado_automatico', 'confirmado_manual')`; los estados `pendiente` y `no_ingresado` quedan fuera del reporte final pero permanecen en la BD para auditoría (NFR-005).
+- Los colores por rango de similitud son exclusivos de la **interfaz React** (AC-011b); el Excel no replica este sistema de colores.
+
+---
+
+## Arquitectura y Contexto Técnico
+
+### Racional de la Arquitectura de Seguridad (Security Design Decisions)
+
+**Contexto Operativo:**
+El sistema de cruce de ingresantes se desplegará en un entorno **100% local (Intranet)**. No tendrá exposición pública a Internet, por lo que los vectores de ataque perimetrales (fuerza bruta desde el exterior, DDoS) son de riesgo muy bajo. La principal amenaza es interna (errores de manipulación de datos, saturación de recursos por cargas masivas, o vulnerabilidades a nivel de aplicación como CSV Injection).
+
+**Decisión Arquitectónica:**
+Se adopta un enfoque centrado en la **Seguridad de la Aplicación (Zero-Trust a nivel de input)** y **Aislamiento de Carga de Trabajo**, descartando controles perimetrales (WAF, CrowdSec) y confinamiento de kernel (Chroot, AppArmor) para evitar complejidad operativa innecesaria en la red local de confianza.
+
+**Implementación:**
+1. **Sanitización Estricta:** Todo input (CSV) es desarmado antes de persistirse para prevenir inyección de fórmulas (CSV/Formula Injection).
+2. **Mínimo Privilegio (Base de Datos):** La aplicación se conecta con un usuario restringido a solo lectura sobre los datos de la academia y solo escritura sobre las tablas de cruce temporales.
+3. **Control de Recursos HTTP:** Nginx local con cabeceras de seguridad básicas y límite estricto de tamaño de carga.
+4. **Desacoplamiento de Carga:** El cálculo intensivo no bloquea el servidor web; se deriva asíncronamente a workers de Laravel Horizon.
+
+**Trade-offs:**
+- Ventajas: Agilidad operativa para el equipo, cero falsos positivos de WAF bloqueando a usuarios internos, menor sobrecarga de configuración del sistema operativo.
+- Desventajas: Si la red local es vulnerada, no hay una capa adicional de protección (AppArmor) para contener una escalada de privilegios en el servidor (riesgo aceptado dado el entorno).
+
+### Sección de Arquitectura e Infraestructura
+
+**A. Proxy Inverso: Nginx Local**
+
+Configuración estándar orientada a rendimiento y prevención de fallos de subida masiva.
+Cabeceras obligatorias:
+
+```nginx
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+client_max_body_size 10M;
+```
+
+**B. Capa de Ejecución: PHP-FPM / Laravel Octane**
+
+Se ejecuta de manera estándar sin configuraciones de jaula Chroot ni AppArmor obligatorios, minimizando el mantenimiento de políticas. Se recomienda usar un usuario de sistema dedicado sin privilegios de administrador.
+
+### Flujo de Datos (Cruce y Normalización)
+
+- Toda entrada de texto del CSV pasa por sanitización anti-inyección de
+  fórmulas antes de persistirse o exportarse (ver `NormalizarTextoAction`).
+- La carga del archivo se valida por Magic Bytes y MIME real, no solo por
+  extensión.
+- `CalcularSimilitudesCabosAction` se ejecuta como Job encolado (Laravel
+  Queues) para evitar timeouts y saturación de memoria en lotes grandes.
+
+### Ejemplo de implementación técnica (referencia para el equipo)
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Actions\Cruce;
+
+final readonly class NormalizarTextoAction
+{
+    public function execute(string $input): string
+    {
+        $sanitized = mb_strtoupper(trim($input), 'UTF-8');
+
+        // Prevención de inyección de fórmulas para la exportación a Excel
+        if (preg_match('/^[=+\-@\t\r]/', $sanitized)) {
+            $sanitized = "'" . $sanitized;
+        }
+
+        $sanitized = str_replace(
+            ['Á', 'É', 'Í', 'Ó', 'Ú', 'Ñ'],
+            ['A', 'E', 'I', 'O', 'U', 'N'],
+            $sanitized
+        );
+
+        return $sanitized;
+    }
+}
+```
+
+```php
+// FormRequest de CruceIngresantesController
+public function rules(): array
+{
+    return [
+        'archivo_ingresantes' => [
+            'required',
+            'file',
+            'mimetypes:text/csv,text/plain',
+            'mimes:csv',
+            'max:10240',
+        ],
+    ];
+}
+```
 
 ---
 
@@ -185,7 +290,16 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 - **Traces to:** Art. 4 de la Constitución — Pipeline sin intervención manual; Gestión de Errores Silenciosos; NFR-001 (SLA de 50 s); volumen real de ~27,000 filas × 12 columnas que excede los límites prácticos de procesamiento síncrono en HTTP.
 - **Verification:** (a) Verificar con `php artisan queue:work --queue=cruce` que el job `ProcessCsvBatchJob` se despacha y completa correctamente. (b) Simular fallo de worker a mitad de procesamiento y confirmar que el lote queda en estado `pausado` (no corruptible). (c) Confirmar que `QUEUE_CONNECTION=redis` está configurado en `.env`.
 
+### NFR-007: Tiempo Máximo de Generación del Reporte de Validación Manual
+
+- **Requirement:** El tiempo total transcurrido desde que el administrador navega a la vista de validación manual (`GET /api/cruce/{lote}/pendientes`) hasta que la interfaz React muestra la tabla completa de ingresantes `pendiente` con sus candidatos coloreados debe ser **≤ 5 minutos** para un lote con hasta ~27,000 ingresantes procesados (incluyendo los que quedaron en estado `pendiente`). El escenario base de producción actual registra tiempos de ~15 minutos, lo que excede el SLA admisible.
+- **Context:** Este SLA aplica al tiempo de carga de la vista de validación, no al procesamiento del CSV (cubierto por NFR-001). El cuello de botella principal identificado es el cálculo de similitud difusa secuencial en PHP contra toda la BD `academia`. La estrategia de optimización prioriza: (1) uso de `pg_trgm` en PostgreSQL para delegar el cálculo de similitud al motor de BD, (2) precarga de alumnos de academia en Redis con TTL de 1 hora, (3) filtro previo por inicial de apellido antes de ejecutar la similitud, (4) chunking de ingresantes en batches de 500 procesados en paralelo.
+- **Traces to:** Art. 4 de la Constitución — Pipeline sin intervención manual; Art. 3 — Precisión del Cruce; NFR-002 (300 ms por ingresante individual); A-02 (índices en BD).
+- **Verification:** Test de rendimiento con un lote real de ~5,000 registros `pendiente`: medir el tiempo total desde el request hasta que la vista React termina de renderizar todos los candidatos. El tiempo debe ser ≤ 5 minutos. Documentar comparativa antes/después de implementar `pg_trgm`.
+
 ---
+
+
 
 ## Edge Cases
 
@@ -193,11 +307,13 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 |----|----------|-------------------|-----------------:|
 | EC-001 | Fila del CSV con campo de nombre o apellido vacío | Registrar el error en el log del lote con número de fila e identificador del registro; continuar procesando las filas siguientes sin abortar el lote | US-001 |
 | EC-002 | CSV sin las columnas requeridas (`NOMBRES`, `OBSERVACION`, `FECHA_EXAMEN`) | Rechazar la carga inmediatamente con mensaje de error descriptivo indicando qué columnas faltan; no insertar ningún registro | US-001 |
-| EC-003 | Motor de coincidencia difusa sin candidatos con similitud ≥ 30% | Mostrar en el selector React la opción "Sin coincidencias encontradas — Marcar como No Ingresado"; no bloquear el flujo | US-003 / US-004 |
+| EC-003 | Motor de coincidencia difusa sin candidatos con similitud ≥ 70% (umbral de visualización) | Mostrar en el selector React directamente la opción "Sin coincidencias encontradas — Marcar como No Ingresado" como única opción disponible; no bloquear el flujo. Nota: el motor calcula internamente candidatos desde el 30%, pero solo se exponen al usuario los que superen el 70% | US-003 / US-004 |
 | EC-004 | Fecha de examen del CSV ya procesada previamente | Ignorar silenciosamente los registros de esa fecha; registrar el salto en el log con la fecha omitida y la razón | US-001 |
-| EC-005 | Alumno con más de 5 registros históricos de igual similitud | Tomar solo los 5 de mayor similitud; en caso de empate exacto, desempatar por orden alfabético del apellido paterno | US-003 |
+| EC-005 | Alumno con más de 5 candidatos calculados de igual similitud | Tomar solo los 5 de mayor similitud; en caso de empate exacto, desempatar por orden alfabético del apellido paterno; el filtro de visualización del 70% se aplica después del top-5 | US-003 |
 | EC-006 | CSV con codificación distinta de UTF-8 o ISO-8859-1 (ej. UTF-16) | Detectar la codificación al inicio de la carga; si no es soportada, rechazar con error descriptivo de codificación sin insertar ningún registro | US-001 |
 | EC-007 | Timeout o error de conexión a la BD `academia` durante el cruce | Pausar el lote, marcar los registros procesados con su estado actual y alertar al administrador; los registros no procesados quedan en `pendiente` para reintento | US-002 / NFR-006 |
+| EC-009 | Lote con 0 registros `confirmado_automatico` y 0 `confirmado_manual` al momento de exportar | Retornar HTTP 422 con mensaje: "No hay registros confirmados en este lote para exportar. Confirme al menos un match antes de descargar el reporte."; no generar archivo Excel vacío | US-005 |
+| EC-010 | Ingresante pendiente cuyos candidatos calculados (30%–69%) existen pero ninguno supera el umbral de visualización del 70% | La interfaz muestra la opción "Sin coincidencias encontradas — Marcar como No Ingresado"; el log del lote registra que el ingresante tenía N candidatos calculados por debajo del umbral visual (para auditoría interna) | US-003 / US-004 |
 | EC-008 | Worker Redis caído o reiniciado durante el procesamiento del job | El job queda en la cola `failed_jobs`; el lote permanece en estado `procesando` hasta que el administrador reintente el job manualmente; no se pierden ni duplican registros ya insertados | US-001 / NFR-006 |
 
 ---
@@ -255,9 +371,10 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 |----|------------|-----------------|
 | A-01 | El formato de codificación del CSV es siempre UTF-8 o ISO-8859-1 | Si se sube un CSV con otra codificación (ej. UTF-16), la carga fallará con ERR-002, evitando caracteres corruptos en la BD |
 | A-02 | La base de datos `academia` tiene índices creados sobre los campos de apellidos y nombres | Sin índices, las consultas de cruce exacto y difuso degradarán el rendimiento, incumpliendo NFR-001 y NFR-002 |
-| A-03 | Un umbral de similitud del 30% es el valor óptimo para filtrar candidatos relevantes de coincidencia difusa | Si el umbral óptimo es mayor, se listarán candidatos irrelevantes (ruido en UI); si es menor, se omitirán candidatos con variaciones severas que sí corresponden al ingresante |
-| A-04 | Un máximo de 5 candidatos potenciales es suficiente para cubrir los errores de digitación más frecuentes | Si existen más de 5 homónimos con la misma similitud, el candidato correcto podría quedar excluido de la lista, obligando a búsqueda manual extendida |
+| A-03 | El umbral de **cálculo interno** del motor difuso es 30% (mínimo para considerar un candidato); el umbral de **visualización en la interfaz** es 70% (mínimo para mostrar al usuario) | Si el umbral de visualización del 70% es demasiado alto, el administrador no verá candidatos válidos y deberá marcar manualmente más registros como "No Ingresado"; si es demasiado bajo, el selector React mostrará candidatos de baja confianza que incrementan el riesgo de match incorrecto. Estos dos umbrales son independientes y configurables por separado |
+| A-04 | Un máximo de 5 candidatos potenciales (calculados, pre-filtro de 70%) es suficiente para cubrir los errores de digitación más frecuentes | Si existen más de 5 homónimos con la misma similitud, el candidato correcto podría quedar excluido de la lista, obligando a búsqueda manual extendida |
 | A-05 | El servicio Redis está disponible y accesible desde el servidor Laravel en el entorno de producción | Si Redis no está disponible, el job no podrá encolarse, el procesamiento del CSV fallará inmediatamente tras la recepción del archivo y el SLA de NFR-001 no podrá cumplirse. Mitigación: configurar un health-check de Redis en el startup de la aplicación |
+| A-06 | El Excel final es un documento de distribución de resultados confirmados, no un reporte de auditoría del proceso de cruce | Si los usuarios de negocio necesitan ver también los registros `pendiente` o `no_ingresado` en el Excel, se requerirá una nueva US (hoja adicional de auditoría). Por ahora, la Hoja 1 contiene exclusivamente registros con `estado_match IN ('confirmado_automatico', 'confirmado_manual') |
 
 ---
 
@@ -282,6 +399,8 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | 2.3.0 | 2026-06-24 | Equipo V2 (refactor por Antigravity) | Adaptación completa al modelo Enterprise SDD: US-XXX H3, AC como checkboxes, NFR con trazabilidad, tablas de EC/ERR, Story Linking, Glosario, Assumptions formalizados |
 | 2.4.0 | 2026-06-24 | Samuel Cisneros (PO) | Correcciones post-revisión: NFR-001 ajustado de 5 s → 50 s; NC-1 resuelto (filtro post-normalización); persistencia dual ingresantes/no_ingresantes en AC-004; NFR-006 Redis Queue añadido; volumen real documentado (~27,000 filas × 12 columnas) |
 | 2.5.0 | 2026-06-24 | Equipo V2 (revisión elite Antigravity) | Revisión final: Executive Summary actualizado con dual-table + Redis; NFR-001 título y trazabilidad unificados; NFR-003 verificación alineada con arquitectura de colas; EC-008 añadido (worker Redis caído); ERR-007 añadido (job a failed_jobs); Glosario extendido con 4 términos nuevos (ingresantes, no_ingresantes, ProcessCsvBatchJob, Redis Queue); A-05 añadido (disponibilidad Redis) |
+| 2.6.0 | 2026-07-02 | Samuel Cisneros (PO) — decisiones ratificadas | **Umbral dual de similitud:** umbral de cálculo interno permanece en 30%; nuevo umbral de visualización en interfaz React fijado en 70%. **Sistema de colores en React (AC-011b):** verde intenso 95–100%, verde claro 85–94%, amarillo 70–84%; candidatos <70% no se muestran. **Alcance Excel redefinido (AC-014, AC-014b):** Hoja 1 contiene exclusivamente registros `confirmado_automatico` y `confirmado_manual`; registros `pendiente` y `no_ingresado` excluidos del Excel. **EC-009, EC-010 añadidos.** **A-06 añadido** (Excel como documento de distribución, no de auditoría). **NFR-007 añadido** (tiempo máximo de generación del reporte de validación ≤ 5 min). |
+| 2.7.0 | 2026-07-03 | Antigravity | Incorporación de racional y arquitectura de seguridad (perímetro Nginx/WAF/CrowdSec, PHP-FPM Chroot, AppArmor) |
 
 ---
 

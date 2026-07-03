@@ -1,6 +1,6 @@
 # Plan de Implementación: Motor de Cruce de Ingresantes UNMSM
 
-**Rama**: `feature/motor-cruce-ingresantes` | **Fecha**: 2026-06-16 | **Versión**: 2.2.0 | **Especificación**: [spec.md](spec.md)
+**Rama**: `feature/motor-cruce-ingresantes` | **Fecha**: 2026-07-03 | **Versión**: 2.7.0 | **Especificación**: [spec.md](spec.md)
 
 ## Resumen ejecutivo (≤150 palabras)
 Este plan define la implementación técnica del motor de cruce de ingresantes UNMSM en Laravel 13 y React. El objetivo es procesar cargas de CSV filtrando los estudiantes con vacante, normalizar nombres y realizar un cruce analítico en base de datos. La decisión técnica principal es el cruce en dos fases: un match automático exacto y un listado de cabos sueltos procesados mediante similitud de Levenshtein expuesto en un frontend reactivo para confirmación manual. No hay dudas abiertas críticas por el momento.
@@ -94,3 +94,23 @@ Crear las tablas de migración y modelos para:
 
 ### Paso 6: Exportación a Excel
 - `ExportarExcelCruceAction`: Genera el archivo final uniendo los campos del CSV y los enriquecidos del alumno matriculado de la academia.
+
+---
+
+### Fase X: Adaptación de Seguridad Local
+
+**Perímetro (Nginx Local)**
+- [ ] Añadir cabeceras X-Content-Type-Options, X-Frame-Options y `client_max_body_size 10M` en el server block.
+
+**Entorno de Ejecución**
+- [ ] Crear usuario de sistema no privilegiado dedicado al aplicativo (sin jaula Chroot ni AppArmor).
+
+**Backend / lógica de negocio**
+- [ ] Implementar sanitización anti-CSV-injection en `NormalizarTextoAction`.
+- [ ] Validar Magic Bytes + MIME real en `CruceIngresantesController`
+      (no solo extensión `.csv`).
+- [ ] Configurar usuario restringido (mínimo privilegio) en PostgreSQL para
+      la base de datos `academia`.
+- [ ] Refactorizar `CalcularSimilitudesCabosAction` para ejecutarse como Job
+      encolado (Laravel Queues).
+- [ ] Implementar Rate Limiting en los endpoints de `CruceIngresantesController`.
