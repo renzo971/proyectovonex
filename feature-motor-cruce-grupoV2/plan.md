@@ -2,115 +2,142 @@
 
 **Rama**: `feature/motor-cruce-ingresantes` | **Fecha**: 2026-07-03 | **Versión**: 2.7.0 | **Especificación**: [spec.md](spec.md)
 
-## Resumen ejecutivo (≤150 palabras)
-Este plan define la implementación técnica del motor de cruce de ingresantes UNMSM en Laravel 13 y React. El objetivo es procesar cargas de CSV filtrando los estudiantes con vacante, normalizar nombres y realizar un cruce analítico en base de datos. La decisión técnica principal es el cruce en dos fases: un match automático exacto y un listado de cabos sueltos procesados mediante similitud de Levenshtein expuesto en un frontend reactivo para confirmación manual. No hay dudas abiertas críticas por el momento.
+## 1. Feature Decomposition
 
-## 1. Enfoque técnico (alto nivel)
-El motor se implementará mediante clases de Acción en Laravel 13 para leer, filtrar y normalizar nombres del CSV. Un proceso por lotes consultará la base PostgreSQL `academia` buscando coincidencias exactas. Aquellos sin match pasarán por un algoritmo difuso y se expondrán vía API REST a una interfaz React para validación asistida por el usuario.
+| Feature | Type | Domain Layer | Application Layer | Infrastructure Layer | Justification |
+|---------|------|--------------|-------------------|---------------------|---------------|
+| US-001 (Carga CSV) | ✨ NEW | LoteCruce, Ingresante | ProcesarCargaCsvAction | Redis Queue, Controlador HTTP | Funcionalidad core aislada; requiere cola asíncrona para SLA (NFR-001). |
+| US-002 (Consulta BD) | 🔀 HYBRID | Alumno | RealizarCruceExactoAction | PostgreSQL (`academia`) | Reutiliza BD existente; solo lectura vía PgBouncer. |
+| US-003 (Match Engine) | ✨ NEW | Algoritmo Similitud | CalcularSimilitudesCabosAction | `pg_trgm` (PostgreSQL) | Cálculo intensivo delegado a motor BD (NFR-007). |
+| US-004 (Validación UI) | ✨ NEW | Estado Match | GuardarCruceConfirmadoAction | React SPA (Vite) | Frontend desacoplado para UX interactiva y rápida. |
+| US-005 (Excel) | ✨ NEW | Reporte | ExportarExcelCruceAction | PhpSpreadsheet | Generación de artefactos finales filtrados. |
 
-## 2. Componentes / archivos afectados
+## 2. Architecture Design
 
-Modificaremos o crearemos los siguientes archivos bajo el patrón de Acciones:
+### Flujo de Arquitectura (Secuencia)
 
-```text
-backend/ (Laravel 13)
-├── app/
-│   ├── Actions/
-│   │   └── Cruce/
-│   │       ├── NormalizarTextoAction.php (NUEVO - Quita tildes, convierte a mayúsculas, Ñ->N, separa apellidos/nombres)
-│   │       ├── ProcesarCargaCsvAction.php (NUEVO - Lee CSV, extrae fecha de examen, crea lote, filtra fechas ya existentes y filtra por campo OBSERVACION)
-│   │       ├── RealizarCruceExactoAction.php (NUEVO - Cruza lote por 2 apellidos + 1 nombre contra alumnos matriculados)
-│   │       ├── CalcularSimilitudesCabosAction.php (NUEVO - Ejecuta análisis exhaustivo de similitud de letras/Levenshtein)
-│   │       ├── GuardarCruceConfirmadoAction.php (NUEVO - Registra coincidencias confirmadas manualmente por el usuario)
-│   │       └── ExportarExcelCruceAction.php (NUEVO - Genera el reporte final de ingresantes confirmados)
-│   ├── Models/
-│   │   ├── IngresanteCruce.php (NUEVO - Modelo para registrar los ingresos y su estado de match)
-│   │   ├── LoteCruce.php (NUEVO - Modelo para agrupar cargas por fecha de examen)
-│   │   └── Alumno.php (MODIFICAR - si requiere relaciones de cruce)
-│   └── Http/
-│       └── Controllers/
-│           └── CruceIngresantesController.php (NUEVO - Controlador delgado para subir CSV, listar cabos sueltos, guardar y exportar)
-└── tests/ (Pruebas unitarias y funcionales en Pest)
+```mermaid
+sequenceDiagram
+    participant Admin as Admin (React UI)
+    participant API as Laravel API
+    participant Queue as Redis Queue (Horizon)
+    participant DB_Cruce as DB (Lotes/Ingresantes)
+    participant DB_Acad as DB (Academia)
 
-frontend/ (React SPA con Vite)
-├── src/
-│   ├── components/
-│   │   ├── FileUpload.jsx (NUEVO - Componente de carga de CSV)
-│   │   ├── ExactMatchList.jsx (NUEVO - Componente para mostrar coincidencias automáticas)
-│   │   └── UnmatchedRow.jsx (NUEVO - Fila interactiva para cabo suelto con select y confirmación)
-│   ├── App.jsx (NUEVO - Coordinador de interfaz y layouts)
-│   └── services/
-│       └── api.js (NUEVO - Capa de comunicación con Laravel 13 API)
+    Admin->>API: 1. Upload CSV (US-001)
+    API->>Queue: Dispatch ProcessCsvBatchJob
+    API-->>Admin: HTTP 202 (Lote ID)
+    
+    Queue->>DB_Acad: 2. Validar conexión (US-002)
+    Queue->>DB_Cruce: 3. Normalizar e Insertar (Pendientes)
+    Queue->>DB_Acad: 4. Cruce Exacto (US-003)
+    DB_Acad-->>Queue: Matches exactos
+    Queue->>DB_Cruce: Actualizar a 'confirmado_automatico'
+    
+    Queue->>DB_Acad: 5. Cruce Difuso (pg_trgm)
+    DB_Acad-->>Queue: Candidatos (≥30%)
+    Queue->>DB_Cruce: Guardar metadata de cabos sueltos
+    
+    Admin->>API: 6. GET /pendientes
+    API-->>Admin: Cabos sueltos + Candidatos (≥70%) (US-004)
+    Admin->>API: 7. POST /confirmar
+    API->>DB_Cruce: Actualizar a 'confirmado_manual'
+    
+    Admin->>API: 8. Descargar Excel (US-005)
+    API-->>Admin: Archivo Excel filtrado
 ```
 
-## 3. Decisiones de arquitectura (mini-ADR)
+### Abordaje de NFRs
+- **NFR-001 & NFR-006 (Rendimiento y Colas):** Resuelto mediante el uso de Laravel Horizon y Redis (`ProcessCsvBatchJob`).
+- **NFR-002 & NFR-007 (Performance de Búsqueda y UI):** Resuelto delegando la similitud a `pg_trgm` en BD y utilizando paginación con cursores.
+- **NFR-003 (Volumen):** Validación vía Magic Bytes/MIME. Procesamiento desacoplado de la petición HTTP.
+- **NFR-004 (Seguridad):** Variables inyectadas desde `.env`.
+- **NFR-005 (Trazabilidad):** El agregado `LoteCruce` retiene la auditoría de cada fecha procesada.
 
-- **DECISIÓN:** Separar la lógica de negocio en clases de Acción independientes (`app/Actions/Cruce/`).
-  - **POR QUÉ:** Cumple con el Art. 2 de la Constitución del Proyecto, facilita las pruebas unitarias aisladas y desacopla los controladores de Laravel.
-  - **ALTERNATIVA DESCARTADA:** Escribir la lógica directamente en `CruceIngresantesController`, descartada porque infla el controlador y dificulta la reutilización o prueba aislada del motor analítico.
-- **DECISIÓN:** Procesar la coincidencia en dos fases separando el cruce exacto y el difuso (fuzzy).
-  - **POR QUÉ:** Garantiza cero falsos positivos en la base de datos para los matches obvios y permite la intervención humana asistida únicamente para los casos con discrepancias ortográficas.
-  - **ALTERNATIVA DESCARTADA:** Forzar un auto-match difuso con un umbral alto, descartada por el riesgo de emparejar alumnos distintos con nombres similares de forma errónea.
+## 3. Data Model (Conceptual)
 
-## 4. Riesgos y dependencias
+```text
+Aggregate: LoteCruce
+  - id: Identifier
+  - fecha_examen: Date
+  - totales: TotalsRecord
+  - estado: LifecycleState (procesando, completado, pausado, error)
 
-- **Riesgo:** Cuello de botella en el rendimiento al procesar lotes grandes de ingresantes en la búsqueda difusa.
-  - **Mitigación:** Se limitará el ranking difuso a un número reducido de candidatos candidatos (top 5) utilizando índices en apellidos/nombres en PostgreSQL.
-- **Dependencia:** Conexión y estabilidad de la base de datos externa de la academia en PostgreSQL. Si esta conexión falla, el lote debe pausarse limpiamente sin perder consistencia (marcando en pausa).
+Aggregate: Ingresante (Traces to US-001, US-004)
+  - id: Identifier
+  - lote_cruce_id: Reference
+  - alumno_id: Reference (Nullable, to Academia)
+  - datos_csv: JSON
+  - estado_match: State (pendiente, confirmado_automatico, confirmado_manual, no_ingresado)
+  Business Rules:
+    - Se persiste aquí solo si la OBSERVACIÓN normalizada == 'ALCANZO VACANTE'.
+    - De lo contrario, va a tabla NoIngresante.
 
-## 5. Trazabilidad: cada US del spec -> dónde se implementa en este plan
+Aggregate: NoIngresante
+  - id: Identifier
+  - lote_cruce_id: Reference
+  - datos_csv: JSON
+  - motivo_filtro: String
+```
 
-- **US-1** (Carga, Normalización y Filtrado de CSV) $\rightarrow$ Implementado en `ProcesarCargaCsvAction.php` y `NormalizarTextoAction.php`.
-- **US-2** (Consulta Directa a BD) $\rightarrow$ Implementado en `LoteCruce` y `Alumno.php`.
-- **US-3** (Motor de Coincidencia) $\rightarrow$ Implementado en `RealizarCruceExactoAction.php` y `CalcularSimilitudesCabosAction.php`.
-- **US-4** (Interfaz React) $\rightarrow$ Implementado en `FileUpload.jsx`, `UnmatchedRow.jsx` y `GuardarCruceConfirmadoAction.php`.
-- **US-5** (Reporte Excel) $\rightarrow$ Implementado en `ExportarExcelCruceAction.php`.
+## 4. Synthesis Assessment
+
+### Lens 1 — Generalization
+> **Assessment:** El motor de búsqueda difusa y normalización anti-inyección puede extraerse a futuro como un `TextNormalizationService` reutilizable para otros proyectos del grupo.
+
+### Lens 2 — Build-vs-Adopt
+> **Assessment:** Para el cálculo de similitud, se adopta de forma nativa la extensión `pg_trgm` de PostgreSQL en lugar de construir un algoritmo Levenshtein costoso a nivel de PHP.
+
+### Lens 3 — Simplification
+> **Assessment:** Se ha simplificado la infraestructura descartando AppArmor/WAF, aprovechando una arquitectura monolítica modular (Laravel + SPA local) que cubre al 100% las necesidades del entorno Intranet.
+
+## 5. Task Breakdown & Boundaries
+
+### T001 [P] - Modelos y Migraciones (BD)
+_Boundary: Models (LoteCruce, Ingresante, NoIngresante, Alumno), Migrations_
+_Depends: None_
+**Description:** Crear el esquema base respetando el diseño de persistencia dual de `spec.md` y conectando el modelo `Alumno` a la conexión secundaria `academia`. (US-001, US-002)
+
+### T002 [P] - Infraestructura de Sanitización y Normalización
+_Boundary: NormalizarTextoAction, CruceIngresantesController_
+_Depends: T001_
+**Description:** Implementar el contrato normativo neutralizando inyección CSV y validando MIME. (US-001, NFR-004).  
+*Nota Arquitectónica:* Según las reglas del Agente, no se provee código de implementación aquí. La lógica requerida es:
+```text
+Action: NormalizarTextoAction
+  1. Trim y UPPERCASE
+  2. Reemplazar Tildes (ÁÉÍÓÚ) y Ñ->N
+  3. IF inicia con (=, +, -, @, \t, \r) THEN anteponer "'" (Prevenir CSV Injection)
+  4. RETURN cadena sanitizada
+```
+
+### T003 [P] - Pipeline Asíncrono de Importación
+_Boundary: ProcesarCargaCsvAction, ProcessCsvBatchJob_
+_Depends: T002_
+**Description:** Orquestar importación de CSV vía Redis. Aplicar filtro `ALCANZO VACANTE` normalizado y persistir en las tablas respectivas. (US-001, NFR-001, NFR-006)
+
+### T004 [P] - Motor de Cruce Exacto
+_Boundary: RealizarCruceExactoAction_
+_Depends: T003_
+**Description:** Búsqueda en `academia` por 2 apellidos exactos + 1 nombre. Asignar `confirmado_automatico`. (US-003)
+
+### T005 [P] - Motor de Cruce Difuso (Fuzzy)
+_Boundary: CalcularSimilitudesCabosAction_
+_Depends: T004_
+**Description:** Búsqueda asíncrona con `pg_trgm` (umbral interno 30%). Preparar endpoint `GET /pendientes` con filtro UI del 70%. (US-003, NFR-002, NFR-007)
+
+### T006 [P] - Interfaz Interactiva React
+_Boundary: React (UnmatchedRow.jsx, ExactMatchList.jsx, App.jsx)_
+_Depends: T005_
+**Description:** Tabla virtualizada (`react-window`). Lógica de colores por rangos inmutables. Endpoint `POST /confirmar`. (US-004)
+
+### T007 [P] - Exportación Excel
+_Boundary: ExportarExcelCruceAction_
+_Depends: T004, T006_
+**Description:** Filtrado exclusivo de registros confirmados sin metadata difusa en archivo final. (US-005)
 
 ---
-
-## Detalles Técnicos de Implementación
-
-### Paso 1: Migración y Modelos en Laravel 13
-Crear las tablas de migración y modelos para:
-- `lotes_cruce`: id, fecha_examen, total_registros, estado, created_at.
-- `ingresantes_cruce`: id, lote_cruce_id, alumno_id (nullable, FK academia), datos_csv (jsonb/campos individuales), estado_match (confirmado_automatico, confirmado_manual, no_ingresado, pendiente), porcentaje_similitud.
-
-### Paso 2: Importación y Normalización (Acciones)
-- `NormalizarTextoAction`: Implementa la limpieza de tildes, mayúsculas y la conversión estricta de "Ñ" a "N". Separa apellidos paterno/materno y nombres.
-- `ProcesarCargaCsvAction`: Lee el archivo. Detecta la fecha del examen. Si la fecha ya existe en `lotes_cruce`, aborta o ignora para evitar duplicidad. Filtra los registros manteniendo únicamente los que en el campo `OBSERVACION` contengan exactamente `ALCANZO VACANTE`. Inserta los registros filtrados en `ingresantes_cruce` con estado `pendiente`.
-
-### Paso 3: Cruce Automático (Paso 1)
-- `RealizarCruceExactoAction`: Busca en la tabla de alumnos de la base `academia` registros vigentes donde coincidan exactamente los dos apellidos y al menos un nombre.
-- Si hay coincidencia, vincula `alumno_id`, cambia estado a `confirmado_automatico` y enriquece los datos.
-
-### Paso 4: Análisis de Cabos Sueltos (Similitud)
-- `CalcularSimilitudesCabosAction`: Para cada registro que quedó `pendiente`, busca alumnos en la base de datos de la academia cuyos apellidos/nombres tengan coincidencia parcial.
-- **Algoritmo de Similitud**: Se calculará un ranking de similitud utilizando comparación de coincidencia de frecuencia de caracteres y distancia de Levenshtein, ordenando a los alumnos candidatos de mayor a menor probabilidad.
-
-### Paso 5: Interfaz Web Interactiva en React
-- Pantalla para listar los ingresantes del lote que están en estado `pendiente`.
-- Cada fila del ingresante mostrará sus datos del CSV y a su lado un componente `<select>` con los top 5 alumnos candidatos ordenados por porcentaje de similitud.
-- El usuario podrá seleccionar un candidato y presionar "Confirmar Match" (invocando a `GuardarCruceConfirmadoAction` vía API) o marcarlo como "No Ingresado".
-
-### Paso 6: Exportación a Excel
-- `ExportarExcelCruceAction`: Genera el archivo final uniendo los campos del CSV y los enriquecidos del alumno matriculado de la academia.
-
----
-
 ### Fase X: Adaptación de Seguridad Local
-
-**Perímetro (Nginx Local)**
-- [ ] Añadir cabeceras X-Content-Type-Options, X-Frame-Options y `client_max_body_size 10M` en el server block.
-
-**Entorno de Ejecución**
-- [ ] Crear usuario de sistema no privilegiado dedicado al aplicativo (sin jaula Chroot ni AppArmor).
-
-**Backend / lógica de negocio**
-- [ ] Implementar sanitización anti-CSV-injection en `NormalizarTextoAction`.
-- [ ] Validar Magic Bytes + MIME real en `CruceIngresantesController`
-      (no solo extensión `.csv`).
-- [ ] Configurar usuario restringido (mínimo privilegio) en PostgreSQL para
-      la base de datos `academia`.
-- [ ] Refactorizar `CalcularSimilitudesCabosAction` para ejecutarse como Job
-      encolado (Laravel Queues).
-- [ ] Implementar Rate Limiting en los endpoints de `CruceIngresantesController`.
+_Boundary: Nginx Config, OS Setup_
+_Depends: None_
+**Description:** Añadir cabeceras X-Content-Type-Options, X-Frame-Options, Rate Limiting y setup de usuario no-root.
