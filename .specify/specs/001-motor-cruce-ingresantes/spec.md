@@ -6,7 +6,7 @@
 **PO:** Samuel Cisneros
 **Equipo:** Grupo V2 (Vonex)
 **Status:** Under Review
-**Versión:** 2.8.0
+**Versión:** 2.9.0
 
 ---
 
@@ -117,8 +117,8 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 #### Acceptance Criteria
 
 - [ ] **AC-008:** Dado un ingresante en el lote, cuando sus 2 apellidos (paterno y materno) y al menos 1 nombre coinciden exactamente con un alumno de la academia tras la normalización, entonces el sistema asocia automáticamente al ingresante con el `alumno_id` correspondiente, establece el estado `confirmado_automatico` y continúa sin intervención del usuario.
-- [ ] **AC-009:** Dado un ingresante que no obtiene match exacto, cuando el motor calcula la similitud comparando la frecuencia de letras y la distancia de Levenshtein contra los alumnos de la academia, entonces genera una lista ordenada de mayor a menor probabilidad con hasta 5 candidatos potenciales y marca al ingresante como `pendiente`. Solo se consideran candidatos con un porcentaje de similitud del **70% para arriba**; los que tengan menos del 70% de similitud son ignorados.
-- [ ] **AC-010:** Dado un ingresante en estado `pendiente`, cuando ningún alumno supera el umbral de similitud del **70%**, entonces la lista de candidatos estará vacía y el sistema expondrá la opción "Sin coincidencias encontradas — Marcar como No Ingresado" en la interfaz.
+- [ ] **AC-009:** Dado un ingresante que no obtiene match exacto, cuando el motor calcula la similitud comparando la frecuencia de letras y la distancia de Levenshtein contra los alumnos de la academia, entonces genera una lista ordenada de mayor a menor probabilidad con hasta 5 candidatos potenciales y marca al ingresante como `pendiente`. Solo se consideran candidatos con un porcentaje de similitud del **70% para arriba**; los que tengan menos del 70% de similitud son ignorados. En la vista de coincidencia manual, únicamente se listarán y procesarán de manera interactiva aquellos ingresantes que cuenten con al menos un candidato con similitud **mayor o igual al 80%** (ordenados descendentemente por similitud máxima), ignorando los demás en esta etapa de validación asistida.
+- [ ] **AC-010:** Dado un ingresante en estado `pendiente`, cuando ningún alumno supera el umbral de similitud del **70%**, entonces la lista de candidatos estará vacía y el sistema expondrá la opción "Sin coincidencias encontradas — Marcar como No Ingresado" en la interfaz. El mismo comportamiento aplicará si el ingresante tiene candidatos pero ninguno supera el **80%** para la vista interactiva.
 
 - [ ] **AC-003a:** El sistema debe procesar lotes grandes con tiempos de ejecución medibles; ver AC-001f para el objetivo de rendimiento de procesamiento por lote.
 
@@ -200,37 +200,15 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 #### Acceptance Criteria
 
-- [ ] **AC-014:** Dado un lote procesado (con matches confirmados), cuando el usuario descarga el reporte Excel, entonces la **Hoja 1** contiene exactamente 24 columnas en el siguiente orden estricto (de la A a la X):
-    - **A: CODIGO** (del CSV `CODIGO`)
-    - **B: DNI** (de `personas.dni` en BD academia)
-    - **C: APELLIDOS** (del CSV `APELLIDOS`)
-    - **D: NOMBRES** (del CSV `NOMBRES`)
-    - **E: EAP** (del CSV `EAP`)
-    - **F: PUNTAJE** (del CSV `PUNTAJE`)
-    - **G: MERITO** (del CSV `MERITO`)
-    - **H: OBSERVACION** (del CSV `OBSERVACION`)
-    - **I: TIPO** (del CSV `TIPO`)
-    - **J: MODALIDAD** (del CSV `MODALIDAD`)
-    - **K: UNIVERSIDAD** (del CSV `UNIVERSIDAD`)
-    - **L: PERIODO** (del CSV `PERIODO`)
-    - **M: FECHA** (del CSV `FECHA`)
-    - **N: ANIO** (de la BD `anio`)
-    - **O: SEDE** (de la BD `local`)
-    - **P: CICLO** (de la BD `periodo`)
-    - **Q: F-MATRICULA** (de la BD `fecha_registro`)
-    - **R: CEL-ALUMNO** (de `personas.telefono` en BD academia)
-    - **S: CEL-APODERADO** (de `padres.telefono` vía `alumno_matricula.padre_id` — requiere join adicional)
-    - **T: ESTADO** (resuelto de `alumno_matricula.estado` según jerarquía numérica: 2=MATRICULADO, 3=PAGADO, 9=SUSPENDIDO, 13=STAND BY)
-    - **U: LISTA - 1** (L1: `1` si el alumno está matriculado desde el ciclo Verano 2024 hasta la actualidad, presencial y virtual; `0` si no)
-    - **V: LISTA - 2** (L2: `1` si el alumno está matriculado en cualquier ciclo activo a febrero 2026, verano 2026 (verano/repaso) o ciclos OCTUBRE 2025, incluyendo retirados/suspendidos, presencial y virtual; `0` si no)
-    - **W: LISTA - 3** (L3: `1` si el alumno está activo al 27 de febrero de 2026 en ciclos presenciales y virtuales; `0` si no)
-    - **X: AREA** (Área UNMSM resuelta a partir del campo `EAP`)
-- [ ] **AC-015:** Dado el archivo Excel descargado, cuando el usuario abre la **Hoja 2**, entonces encuentra gráficos analíticos pre-construidos (distribución por estado, por sede, por ciclo) y segmentadores dinámicos que filtran todas las métricas por fecha de examen.
+- [ ] **AC-014:** Dado un lote procesado (con matches confirmados), cuando el administrador presiona el botón "Exportar Excel" en la interfaz React, entonces se descarga un archivo CSV compatible con Excel delimitado por punto y coma (`;`) y pre-configurado con BOM UTF-8. El reporte consolidado contiene en sus columnas la información del ingresante unida a los campos clave del alumno emparejado.
+- [ ] **AC-015:** El reporte exportado incluye a todos los ingresantes con estado `confirmado_automatico` y `confirmado_manual` correspondientes al lote consultado.
+- [ ] **AC-016:** Dado el archivo Excel descargado, cuando el usuario abre la **Hoja 2** (requiere extensión y formato xlsx nativo), entonces encuentra gráficos analíticos pre-construidos (distribución por estado, por sede, por ciclo) y segmentadores dinámicos que filtran todas las métricas por fecha de examen.
 
 #### Technical Notes
 
-- La exportación es responsabilidad de `ExportarExcelCruceAction.php`.
-- Utilizar una librería PHP compatible con Excel (ej. PhpSpreadsheet) para generar ambas hojas y los gráficos dinámicos.
+- La exportación es responsabilidad de `ExportarExcelCruceAction.php` y el endpoint `GET /api/cruce/lotes/{loteId}/exportar`.
+- **Formato del archivo:** El botón en React invoca directamente la descarga del flujo estructurado vía `StreamedResponse`. Se inyecta el prefijo BOM (`\xEF\xBB\xBF`) y se usa delimitador `;` para asegurar la apertura automática en MS Excel bajo codificación estándar.
+- Utilizar una librería PHP compatible con Excel (ej. PhpSpreadsheet) si se requiere extender la generación a hojas xlsx nativas con gráficos integrados en la Hoja 2.
 - **Cálculo de Listas (AC-014):**
     - **L1 (LISTA - 1):** Valida si el registro de matrícula en `academia` tiene un ciclo (`periodo`) igual o posterior a "Verano 2024".
     - **L2 (LISTA - 2):** Valida si el ciclo (`periodo`) del alumno es un ciclo activo a febrero 2026, o bien un ciclo de verano 2026 (ej. "VERANO 2026", "REPASO 2026") o de octubre 2025 (ej. "OCTUBRE 2025"), sin importar si el estado es `RETIRADO` o `SUSPENDIDO`.
@@ -388,6 +366,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | 2.6.0   | 2026-06-25 | Equipo V2                              | Enmienda para incorporar campos DB, CSV y la estructura de reporte Excel final con Listas y Área.                                                                                                                                                                                                                                                                                                                                                           |
 | 2.7.0   | 2026-06-25 | Equipo V2 (Auditoría SDD-Enterprise)   | Auditoría de cumplimiento: fórmula de similitud formalizada en AC-009 (Levenshtein × 0.6 + Dice bigramas × 0.4); EC-007 y ERR-003 unificados a estado `paused` (CQ-003); NFR-006 corregido de `pausado` a `paused`.                                                                                                                                                                                                                                         |
 | 2.8.0   | 2026-07-02 | Equipo V2 (Antigravity)                | Hiper-optimización de Fuzzy Match: reducción del 98.8% en tiempo de procesamiento (de 41 min a 29s). Añadidas notas técnicas a US-003: pre-cálculo de strings y mapas de bigramas O(1), blocking por inicial de apellido paterno, pruning Dice < 0.25 y fail-fast Levenshtein de apellido paterno. Batch inserts aplicados para carga de DB.                                                                                                                |
+| 2.9.0   | 2026-07-03 | Equipo V2 (Antigravity)                | Ajustes en Match Manual y Exportación: (1) Se filtran pendientes para mostrar interactiva y únicamente ingresantes con candidatos que posean similitud >= 80% ordenados descendentemente. (2) Implementación del endpoint e interfaz de descarga CSV con delimitador ';' y BOM UTF-8 para compatibilidad directa con Excel.                                                                                                                                 |
 
 ---
 
