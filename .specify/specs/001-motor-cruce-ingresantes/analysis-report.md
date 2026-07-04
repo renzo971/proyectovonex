@@ -4,9 +4,22 @@
 **Phase:** 3.3 — Consistency Analysis
 **Analyst:** Analysis Agent
 **Run:** 7 (post-remediation delta — resolved state hierarchy, padres schema, and updated threshold to 70%)
-**Verdict:** PASS
+**Verdict:** PASS WITH MINOR DOCUMENTATION NOTE
 
-> **Context:** This run documents the resolution of the inconsistencies highlighted in Run 6, specifically the padres table schema mapping, state hierarchy validation, and alignment of the 70% fuzzy matching threshold.
+> **Context:** This run documents the resolution of the inconsistencies highlighted in Run 6, specifically the padres table schema mapping, state hierarchy validation, and the separation between the 30% fuzzy-match fallback threshold and the 70% UI visibility threshold.
+
+## Current Validation Summary (2026-07-04)
+
+A review of the current feature artifacts shows that the core behavior is consistent across the specification, technical plan, implementation tasks, test cases, and Gherkin scenarios:
+
+- The CSV import workflow, normalization of `OBSERVACION`, and dual routing to `ingresantes` / `no_ingresantes` are covered in the spec, plan, tasks, and feature tests.
+- The exact-match and fuzzy-match flow is reflected consistently in the plan, tasks, and BDD scenarios.
+- The assisted review UI is covered for pending rows, manual confirmation, and the no-ingresado fallback.
+- The export contract is consistently defined as Excel-only (`.xlsx`) and the catalog is treated as an export-time enrichment dependency rather than part of the core matching pipeline.
+
+### Minor documentation note
+
+The only remaining clarity gap is that the main spec should explicitly call out the separate 70% visibility threshold used by the pending-list UI, while keeping the 30% threshold for the no-candidate fallback. This distinction is already represented in the plan, tasks, and feature files, but it is more explicit there than in the main spec body.
 
 ---
 

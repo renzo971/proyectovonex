@@ -92,11 +92,13 @@ Debido a esta decisión arquitectónica de confianza de red (Zero-Trust aplicado
 - [ ] **AC-008:** Dado un ingresante en el lote, cuando sus 2 apellidos (paterno y materno) y al menos 1 nombre coinciden exactamente con un alumno de la academia tras la normalización, entonces el sistema asocia automáticamente al ingresante con el alumno_id correspondiente, establece el estado confirmado_automatico y continúa sin intervención del usuario.
 - [ ] **AC-009:** Dado un ingresante que no obtiene match exacto, cuando el motor calcula la similitud comparando la frecuencia de letras y la distancia de Levenshtein contra los alumnos de la academia, entonces genera una lista ordenada de mayor a menor probabilidad con hasta 5 candidatos potenciales y marca al ingresante como pendiente.
 - [ ] **AC-010:** Dado un ingresante en estado pendiente, cuando ningún alumno supera el umbral de similitud del 30%, entonces la lista de candidatos estará vacía y el sistema expondrá la opción "Sin coincidencias encontradas — Marcar como No Ingresado" en la interfaz.
+- [ ] **AC-010a:** Dado un ingresante pendiente, cuando la bandeja interactiva de revisión se carga, entonces solo se muestran los registros cuya coincidencia máxima es igual o superior al 70%, mientras que los registros por debajo de ese umbral quedan fuera de la lista visible para la revisión manual.
 
 #### Technical Notes
 - El cruce exacto (AC-008) es responsabilidad de RealizarCruceExactoAction.php.
 - El cálculo de similitud (AC-009) es responsabilidad de CalcularSimilitudesCabosAction.php.
-- El umbral del 30% (AC-010) es un supuesto revisable — ver Assumption A-03.
+- El umbral del 30% (AC-010) se usa para decidir si el candidato difuso es lo suficientemente fuerte como para mostrarlo o dejar la lista vacía con la opción de no ingresado.
+- El umbral del 70% (AC-010a) se usa para filtrar la bandeja interactiva de pendientes y priorizar los casos con mayor viabilidad de match.
 
 ---
 

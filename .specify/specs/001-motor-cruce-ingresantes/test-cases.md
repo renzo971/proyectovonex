@@ -1,1143 +1,746 @@
-# Casos de Prueba: Motor de Cruce Automático de Ingresantes UNMSM
+﻿# Casos de Prueba: Motor de Cruce Automático de Ingresantes UNMSM
 
-**ID de Feature:** 001-motor-cruce-ingresantes
-**Creado:** 2026-06-24
+**Feature ID:** 001-motor-cruce-ingresantes
+**Creado:** 2026-07-04
 **Autor:** Diego Castillo
-**Estado:** Borrador
+**Estado:** Under Review
 
-> Glosario de siglas:
+> Glosario:
 > - **US:** Historia de Usuario
 > - **AC:** Criterio de Aceptación
 > - **NFR:** Requisito No Funcional
-> - **EC:** Caso de Borde (Edge Case)
+> - **EC:** Caso de Borde
 > - **ERR:** Escenario de Error
 > - **E2E:** Prueba de extremo a extremo
-> - **BD:** Base de Datos
 
 ---
 
-## 1. Estrategia de Pruebas
+## 1. Estrategia de pruebas
 
-### 1.1 Alcance de Pruebas
+### 1.1 Alcance
 
-| Tipo de prueba | Alcance | Objetivo de cobertura |
-|---------------|---------|----------------------|
-| Pruebas de Unidad | `NormalizarTextoAction`, `ProcesarCargaCsvAction`, `RealizarCruceExactoAction`, `CalcularSimilitudesCabosAction`, `GuardarCruceConfirmadoAction`, `ExportarExcelCruceAction` | 100% en lógica de negocio (Art. III §3.2 Constitution) |
-| Pruebas de Integración | endpoints de API, BD `academia` y `lotes_cruce`, cola Redis | Flujos clave de carga, cruce, confirmación y exportación |
-| Pruebas E2E | Archivo CSV completo → reporte Excel, interfaz de validación asistida | Flujo feliz + casos de error críticos |
-| Pruebas de Rendimiento | Procesamiento asíncrono de CSV y respuesta de endpoints de candidatos | Validación de NFR-001 y NFR-002 |
-| Pruebas de Contrato | contrato API REST del backend | Endpoints expuestos por el plan |
+| Tipo | Alcance | Cobertura esperada |
+|------|---------|--------------------|
+| Unidad | Normalización de texto, parsing de nombres, jerarquía de estados, filtrado de observaciones, ordenamiento de candidatos, escape de fórmulas | Validar reglas de negocio críticas aisladas |
+| Integración | Upload CSV, job Redis, persistencia en lotes/ingresantes/no_ingresantes, cruce exacto y difuso, exportación Excel, catálogo | Cubrir los flujos principales del sistema |
+| E2E | Carga de CSV, revisión de pendientes, confirmación manual, exportación | Validar uso real del usuario administrador |
+| Rendimiento | Proceso batch de 27k filas, endpoint de candidatos, exportación de volumen | Verificar NFR-001 a NFR-003 |
+| Seguridad | Sanitización de CSV, protección ante fórmulas y SQL injection, manejo de credenciales | Verificar NFR-004 y NFR-007 |
 
-### 1.2 Entorno de Pruebas
+### 1.2 Entorno
 
 | Entorno | Propósito | Datos |
-|---------|----------|------|
+|---------|-----------|-------|
 | Local | Desarrollo y pruebas unitarias | Fixtures y factories |
-| CI | Validación continua | Bases de datos temporales, Redis mock o real |
-| Staging | Pruebas de integración | Datos anónimos representativos |
+| CI | Validación continua | Base de datos temporal + Redis controlado |
+| Staging | Integración realista | Datos anónimos representativos |
 
-### 1.3 Estrategia de Datos de Prueba
+### 1.3 Datos de prueba
 
-- **Fixtures:** `tests/fixtures/` o `.specify/specs/001-motor-cruce-ingresantes/test-data/`
-- **Factories:** `tests/factories/` para `Ingresante`, `LoteCruce`, `Alumno`
-- **Mocks:** En pruebas unitarias se simula la conexión y las respuestas de la base `academia` para aislar la lógica de cruce. En pruebas de integración se simula o se controla el worker Redis para validar el comportamiento de la cola sin depender de un worker en producción.
+- Fixtures de CSV con nombres acentuados, apellidos compuestos, observaciones variadas y duplicados.
+- Factories para `LoteCruce`, `Ingresante`, `NoIngresante`, `IngresanteCandidato` y modelos de la base `academia` si se usa migración de prueba.
+- Mocks o stubs solo para servicios externos no esenciales; los flujos relevantes deben ejecutarse contra base de datos real o aislada.
 
 ---
 
-## 2. Casos de Prueba
+## 2. Casos de prueba
 
-### 2.1 Historia de Usuario: US-001 - Carga, Normalización y Filtrado de CSV
+### 2.1 US-001 - Carga, normalización y filtrado de CSV
 
-#### TC-001: Importar CSV con múltiples fechas de examen y duplicados en el mismo lote
+#### TC-001: Procesar un CSV nuevo con códigos duplicados y fechas previas
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 (Crítico) |
-| **Automatizado** | Sí |
-| **Trazas a** | US-001, AC-001, plan.md: ProcesarCargaCsvAction / LoteCruce |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-001, AC-001 |
 
-**Precondiciones:**
-- Registro previo en `lotes_cruce` para la fecha `2026-05-10`.
-- CSV con dos fechas de examen: `2026-05-10` y `2026-05-17`, incluyendo filas duplicadas idénticas.
+**Dado** un CSV con dos fechas de examen y registros duplicados por `CODIGO`
+**Cuando** se sube al sistema y el job procesa el lote
+**Entonces** solo se insertan los `CODIGO` nuevos y el lote resultante contiene únicamente el delta de postulantes no previamente persistidos.
 
-**Pasos de Prueba:**
-| Paso | Acción | Resultado Esperado |
-|------|--------|-------------------|
-| 1 | Subir el CSV vía `POST /api/cruce/upload` | Respuesta 202 con `lote_id` y estado `processing` |
-| 2 | Esperar a que el `ProcessCsvBatchJob` complete | El lote nuevo se crea solo para `2026-05-17` y la fecha `2026-05-10` es ignorada |
-| 3 | Consultar `lotes_cruce` y logs de lote | Se registran totales de filas procesadas y duplicados eliminados |
-
-**Datos de Prueba:**
-```json
-{
-  "input": {
-    "csv": "CODIGO,APELLIDOS,NOMBRES,EAP,PUNTAJE,MERITO,OBSERVACION,TIPO,MODALIDAD,UNIVERSIDAD,PERIODO,FECHA\n001,LOPEZ GARCIA,JUAN,MEDICINA HUMANA,15.500,10,ALCANZO VACANTE,ORDINARIO,GENERAL,UNMSM,2026-I,2026-05-10\n001,LOPEZ GARCIA,JUAN,MEDICINA HUMANA,15.500,10,ALCANZO VACANTE,ORDINARIO,GENERAL,UNMSM,2026-I,2026-05-10\n002,PEREZ LOPEZ,MARIA,DERECHO,14.200,25,ALCANZO VACANTE,ORDINARIO,GENERAL,UNMSM,2026-I,2026-05-17"
-  },
-  "expected": {
-    "lote_fecha": "2026-05-17",
-    "ignored_fechas": ["2026-05-10"],
-    "duplicates_removed": 1
-  }
-}
-```
-
-**Limpieza:**
-- Borrar registros creados en `lotes_cruce` y tablas asociadas.
+**Validaciones adicionales:**
+- Los registros de fechas ya procesadas se ignoran silenciosamente.
+- Los códigos ya presentes en `ingresantes` o `no_ingresantes` no se vuelven a insertar.
 
 ---
 
-#### TC-002: Normalización de acentos y Ñ en la lógica del backend
+#### TC-002: Normalizar texto completo a mayúsculas, sin tildes y con Ñ convertida a N
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Unidad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-001, AC-002, plan.md: NormalizarTextoAction |
+| Tipo | Unidad |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-001, AC-002 |
 
-**Dado:** Un texto con caracteres especiales: `Ñ`, `Á`, `É`, `Í`, `Ó`, `Ú`, `DE LA CRUZ`.
-**Cuando:** Se ejecuta `NormalizarTextoAction`.
-**Entonces:** El resultado es `N`, `A`, `E`, `I`, `O`, `U` y texto en MAYÚSCULAS.
+**Dado** un texto con acentos, `Ñ` y mezclas de mayúsculas/minúsculas
+**Cuando** se ejecuta `NormalizarTextoAction`
+**Entonces** el valor queda en mayúsculas, sin tildes y con `Ñ` reemplazada por `N`.
 
-**Datos de Prueba:**
-- Entrada: `"María Ñañez de la Cruz"`
-- Esperado: `"MARIA NANEZ DE LA CRUZ"`
+**Ejemplo:** `María Ñañez De La Cruz` → `MARIA NANEZ DE LA CRUZ`.
 
 ---
 
-#### TC-003: Separación de apellido paterno, materno y nombres con apellidos compuestos
+#### TC-003: Separar nombres y apellidos cuando hay apellidos compuestos
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Unidad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-001, AC-003, plan.md: NormalizarTextoAction |
+| Tipo | Unidad |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-001, AC-003 |
 
-**Dado:** Nombre normalizado `"DE LA CRUZ GARCIA JUAN CARLOS"`.
-**Cuando:** Se procesa la cadena en la acción de parsing.
-**Entonces:** Se separan correctamente:
-- apellido paterno: `DE LA CRUZ`
-- apellido materno: `GARCIA`
-- nombres: `JUAN CARLOS`
+**Dado** un nombre normalizado como `DE LA CRUZ GARCIA JUAN CARLOS`
+**Cuando** se procesa el texto para separar nombres y apellidos
+**Entonces** el parser devuelve correctamente apellido paterno, apellido materno y nombres.
 
 ---
 
-#### TC-004: Filtrar `OBSERVACION` y enrutar a `ingresantes` / `no_ingresantes`
+#### TC-004: Filtrar `OBSERVACION` y enrutar a las tablas correctas
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-001, AC-004, plan.md: ProcesarCargaCsvAction |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-001, AC-004 |
 
-**Dado:** CSV con dos filas, una con `ALCANZO VACANTE` y otra con `NO ALCANZO VACANTE`.
-**Cuando:** El job de importación procesa el lote.
-**Entonces:** La fila con `ALCANZO VACANTE` queda en `ingresantes`; la otra en `no_ingresantes`; ambos registros comparten el mismo `lote_cruce_id` y se registran totales separados.
-
-**Datos de Prueba:**
-- Entrada: `OBSERVACION=ALCANZO VACANTE`, `OBSERVACION=NO ALCANZO VACANTE`
-- Esperado: 1 registro en cada tabla, mismo lote.
+**Dado** un CSV con registros cuyo valor normalizado de `OBSERVACION` es `ALCANZO VACANTE` y otros no lo es
+**Cuando** el job procesa el lote
+**Entonces** los que cumplen el filtro se insertan en `ingresantes`, los demás en `no_ingresantes`, ambos comparten el mismo `lote_cruce_id` y se registran los totales en el log del lote.
 
 ---
 
-### 2.2 Historia de Usuario: US-002 - Consulta Directa a Base de Datos Academia
-
-#### TC-005: Validar conexión y extracción de estados desde `academia`
+#### TC-005: Sanitizar caracteres especiales y prefijos de inyección antes de persistir
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-002, AC-005, AC-006, AC-007, plan.md: MatchEngine |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-001, AC-004b, NFR-007 |
 
-**Dado:** La conexión a la BD `academia` está configurada.
-**Cuando:** `RealizarCruceExactoAction` inicia el proceso.
-**Entonces:** Se valida la conexión antes de consultar; si la conexión es exitosa, se obtienen solo alumnos con `estado IN (2, 3, 9, 13)` (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY), `estado_aula = 1`, ciclo activo, y se resuelve el estado de mayor prioridad según la jerarquía numérica.
-
-**Datos de Prueba (schema real — 3 tablas):**
-
-```sql
--- Insertar en personas (PK: dni)
-INSERT INTO personas (dni, nombres, apellido_paterno, apellido_materno) 
-VALUES ('12345678', 'JUAN', 'LOPEZ', 'GARCIA');
-
--- Insertar en alumnos (PK: codigo, FK: persona_dni)
-INSERT INTO alumnos (codigo, persona_dni) 
-VALUES ('ALU001', '12345678');
-
--- Insertar aula, matricula, ciclo
-INSERT INTO aulas (id, matricula_id) VALUES (1, 1);
-INSERT INTO matriculas (id) VALUES (1);
-INSERT INTO ciclos (id, matricula_id, fecha_inicio, fecha_fin) 
-VALUES (1, 1, '2026-01-01', '2026-12-31');
-
--- Insertar en alumno_matricula con estado 2 (MATRICULADO)
-INSERT INTO alumno_matricula (id, alumno_codigo, aula_id, estado, estado_aula, fecha)
-VALUES (100, 'ALU001', 1, 2, 1, NOW());
-```
-
-- Entrada: alumno con `alumno_matricula.estado = 2` (MATRICULADO).
-- Esperado: `getActivosConNombres()` devuelve 1 resultado con `estado = 2`.
+**Dado** un registro con prefijos o caracteres especiales como `=`, `+`, `-`, `@`
+**Cuando** se procesa y se persiste en la base de datos
+**Entonces** el valor se sanitiza y se guarda de forma segura mediante el ORM, sin permitir ejecución maliciosa ni corrupción del contenido.
 
 ---
 
-#### TC-047: Consultar estado del lote vía API
+#### TC-006: Mostrar resumen de progreso y métricas del lote al finalizar
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | plan.md: `/api/cruce/lotes/{lote_id}/status`, NFR-005 |
+| Tipo | E2E |
+| Prioridad | P2 |
+| Automatizado | Sí / Planificado |
+| Trazas a | US-001, UI/UX Notes |
 
-**Dado:** Un lote en proceso o completado.
-**Cuando:** Se llama `GET /api/cruce/lotes/{lote_id}/status`.
-**Entonces:** La respuesta contiene el `lote_id`, estado actual, totales de registros, totales de ingresantes, no_ingresantes, match exacto, pendientes, no_ingresados y timestamps de inicio/fin.
+**Dado** un CSV cargado correctamente
+**Cuando** finaliza el procesamiento
+**Entonces** la interfaz muestra un resumen con total de registros, registros filtrados, registros cargados y fechas ignoradas por duplicado.
 
 ---
 
-#### TC-048: Consultar ingresantes pendientes vía API
+### 2.2 US-002 - Consulta directa a la base de datos academia
+
+#### TC-007: Validar conexión a academia antes de ejecutar el cruce
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | plan.md: `/api/cruce/lotes/{lote_id}/pendientes`, US-004 AC-011 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-002, AC-005 |
 
-**Dado:** Un lote con ingresantes en estado `pendiente`.
-**Cuando:** Se llama `GET /api/cruce/lotes/{lote_id}/pendientes`.
-**Entonces:** La respuesta devuelve una lista paginada de ingresantes `pendiente` con sus datos CSV normalizados y un total de páginas disponible.
-**Y:** El orden de la lista prioriza a aquellos ingresantes que poseen candidatos sugeridos con similitud >= 70%, dejando al final de la paginación a los ingresantes que no poseen ningún candidato.
-
+**Dado** que la conexión a la base de datos academia no está disponible
+**Cuando** se inicia el proceso de cruce
+**Entonces** el sistema aborta de forma controlada y no ejecuta consultas posteriores.
 
 ---
 
-#### TC-049: GET /api/cruce/lotes — List all batches
+#### TC-008: Consultar alumnos en todos los estados válidos y resolver jerarquía correcta
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 (High) |
-| **Automatizado** | Sí |
-| **Trazas a** | US-001, US-004, NFR-005, openapi.yaml `/cruce/lotes` GET, plan.md §4.1 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-002, AC-006, AC-007 |
 
-**Dado** que existen lotes procesados en el sistema
-**Y** el usuario está autenticado
-**Cuando** realiza GET /api/cruce/lotes
-**Entonces** el response HTTP es 200
-**Y** el body es un array paginado de objetos LoteCruce
-**Y** cada objeto contiene: lote_id, estado (enum: processing|completed|paused|error), fecha_examen, total_rows, rows_procesadas, created_at
-**Y** el schema cumple con openapi.yaml LoteCruce
-
-**Caso negativo:**
-**Dado** que el usuario NO está autenticado
-**Cuando** realiza GET /api/cruce/lotes
-**Entonces** el response HTTP es 401
+**Dado** múltiples registros históricos de un alumno en la base de datos academia con distintos estados
+**Cuando** se resuelve el estado para el reporte
+**Entonces** el sistema toma el estado de mayor prioridad según la jerarquía: `MATRICULADO > PAGADO > FINALIZADO > SUSPENDIDO > RETIRADO > TRASLADADO > STAND BY > ANULADO`.
 
 ---
 
-### TC-050: CruceBatchProcessedEvent dispatched on batch success
-
-**ID:** TC-050
-**US:** US-001
-**AC:** (AsyncAPI contract)
-**Trazas a:** asyncapi.yaml CruceBatchProcessedEvent, tasks.md T007
-**Priority:** High
-
-**Dado** que un lote CSV fue procesado exitosamente
-**Y** todos los registros fueron clasificados (ingresantes o no_ingresantes)
-**Cuando** el job ProcessCsvBatchJob finaliza sin errores
-**Entonces** se dispatcha el evento CruceBatchProcessedEvent
-**Y** el payload contiene: lote_id, total_registros, total_ingresantes, total_no_ingresantes
-**Y** verificable via Event::fake() en tests de integración
-
----
-
-### TC-051: CruceBatchFailedEvent dispatched on batch failure
-
-**ID:** TC-051
-**US:** US-001
-**AC:** (AsyncAPI contract)
-**Trazas a:** asyncapi.yaml CruceBatchFailedEvent, tasks.md T007
-**Priority:** High
-
-**Dado** que un lote CSV está en procesamiento
-**Y** ocurre un error irrecuperable durante el job
-**Cuando** el job ProcessCsvBatchJob falla definitivamente
-**Entonces** se dispatcha el evento CruceBatchFailedEvent
-**Y** el payload contiene: lote_id y detalles del error
-**Y** verificable via Event::fake() en tests de integración
-
----
-
-### 2.3 Historia de Usuario: US-003 - Motor de Coincidencia en Dos Fases
-
-#### TC-006: Cruce exacto automático con 2 apellidos y 1 nombre
+#### TC-009: Exponer estado del lote vía API
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-003, AC-008, plan.md: RealizarCruceExactoAction |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-002, NFR-005 |
 
-**Dado:** Un ingresante normalizado con apellidos y nombre que existen en `academia`.
-**Cuando:** Se ejecuta `RealizarCruceExactoAction`.
-**Entonces:** El ingresante recibe `alumno_id`, estado `confirmado_automatico` y datos enriquecidos.
-
-**Datos de Prueba:**
-- Entrada: `APELLIDO_PATERNO=LOPEZ`, `APELLIDO_MATERNO=GARCIA`, `NOMBRE=JUAN`
-- Esperado: match exacto y estado `confirmado_automatico`.
+**Dado** un lote en proceso o completado
+**Cuando** se invoca `GET /api/cruce/lotes/{lote_id}/status`
+**Entonces** la respuesta incluye `lote_id`, estado, totales y timestamps relevantes.
 
 ---
 
-#### TC-007: Cálculo de similitud difusa y top 5 candidatos ordenados
+### 2.3 US-003 - Motor de coincidencia en dos fases
+
+#### TC-010: Asignar match exacto cuando apellidos y un nombre coinciden
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Unidad / Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-003, AC-009, plan.md: CalcularSimilitudesCabosAction |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-003, AC-008 |
 
-**Dado:** Un ingresante sin match exacto y una lista de candidatos en `academia`.
-**Cuando:** Se calcula similitud usando el Dice coefficient sobre bigramas de caracteres y Levenshtein (fórmula: `similitud = Levenshtein × 0.6 + Dice_bigramas × 0.4`).
-**Entonces:** Genera hasta 5 candidatos ordenados de mayor a menor probabilidad de match.
-
-**Datos de Prueba:**
-- Entrada: `NOMBRE=JHON`, `APELLIDO_PATERNO=RAMOS`, `APELLIDO_MATERNO=LOPEZ` (ingresante) vs `JOHN RAMOS LOPEZ` (academia)
-- Esperado: similitud >= 85% con la fórmula Dice bigramas; lista ordenada por puntaje, máximo 5 candidatos.
+**Dado** un ingresante con apellidos y al menos un nombre coincidiendo exactamente con un alumno de academia tras la normalización
+**Cuando** se ejecuta la fase exacta de cruce
+**Entonces** el sistema asigna el `alumno_id`, marca el estado como `confirmado_automatico` y continúa sin intervención humana.
 
 ---
 
-#### TC-008: Ningún candidato supera el umbral de similitud y se expone opción "No Ingresado"
+#### TC-011: Generar candidatos difusos con hasta 5 opciones ordenadas
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-003, AC-010, plan.md: CalcularSimilitudesCabosAction |
+| Tipo | Unidad |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-003, AC-009 |
 
-**Dado:** Un ingresante con similitud máxima < 70% frente a alumnos de academia.
-**Cuando:** Se calcula la lista de candidatos.
-**Entonces:** La lista está vacía y el sistema marca al ingresante como `pendiente` con opción de `no_ingresado` en la interfaz.
+**Dado** un ingresante sin match exacto
+**Cuando** se calcula la similitud difusa
+**Entonces** el motor devuelve hasta 5 candidatos ordenados de mayor a menor probabilidad.
 
+**Validaciones adicionales:**
+- Se incluyen score o porcentaje de similitud.
+- El cálculo se produce dentro del job batch y no en el request HTTP.
 
 ---
 
-### 2.4 Historia de Usuario: US-004 - Interfaz de Validación Asistida
-
-#### TC-009: Interfaz pendiente muestra candidato ordenado y confirma match manual
+#### TC-012: Dejar lista vacía y exponer opción de no ingresado cuando no hay candidato válido
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | E2E |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí / Planificado |
-| **Trazas a** | US-004, AC-011, AC-012, AC-013, plan.md: UnmatchedRow.jsx, api.js |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-003, AC-010 |
 
-**Dado:** Un ingresante en estado `pendiente` y una lista de candidatos con porcentajes.
-**Cuando:** El administrador selecciona un candidato y presiona "Confirmar Match".
-**Entonces:** Se llama a `POST /api/cruce/ingresantes/{id}/confirmar`, el registro pasa a `confirmado_manual`, y la UI muestra éxito.
-
-**Datos de Prueba:**
-- Entrada: alumno válido desde `academia`.
-- Esperado: estado `confirmado_manual` y datos enriquecidos actualizados.
+**Dado** un ingresante cuyo mejor candidato no supera el umbral del 30%
+**Cuando** finaliza la fase difusa
+**Entonces** la lista de candidatos queda vacía y la interfaz expone la opción `Sin coincidencias encontradas — Marcar como No Ingresado`.
 
 ---
 
-#### TC-010: Marcar como "No Ingresado" cuando no hay candidato válido
+### 2.4 US-004 - Interfaz de validación asistida
+
+#### TC-013: Mostrar fila pendiente con placeholder y candidatos ordenados
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | E2E |
-| **Prioridad** | P2 |
-| **Automatizado** | Sí / Planificado |
-| **Trazas a** | US-004, AC-013 |
+| Tipo | E2E |
+| Prioridad | P1 |
+| Automatizado | Sí / Planificado |
+| Trazas a | US-004, AC-011 |
 
-**Dado:** Un ingresante sin candidatos relevantes.
-**Cuando:** El administrador selecciona la opción "Sin coincidencias encontradas — Marcar como No Ingresado".
-**Entonces:** El estado se actualiza a `no_ingresado` y la UI refleja la confirmación.
+**Dado** un ingresante en estado `pendiente`
+**Cuando** se visualiza en la interfaz React
+**Entonces** aparece una fila con sus datos del CSV, un `<select>` con placeholder inicial no seleccionable y los candidatos ordenados por similitud con porcentaje visible.
 
 ---
 
-#### TC-052: CSV con BOM UTF-8 es procesado correctamente
+#### TC-014: Confirmar match manual y actualizar estado y datos enriquecidos
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-001, AC-001a |
+| Tipo | E2E |
+| Prioridad | P1 |
+| Automatizado | Sí / Planificado |
+| Trazas a | US-004, AC-012 |
 
-**Dado:** Un archivo CSV con BOM UTF-8 (`\xEF\xBB\xBF`) al inicio (común en exportaciones de Excel).
-**Cuando:** Se sube el archivo vía `POST /api/cruce/upload`.
-**Entonces:** El sistema detecta y remueve el BOM antes de validar los headers. Los headers se reconocen correctamente y el lote se crea sin errores de "Formato de columnas incorrecto".
+**Dado** un ingresante pendiente con candidatos disponibles
+**Cuando** el administrador selecciona un candidato y confirma el match
+**Entonces** se invoca `GuardarCruceConfirmadoAction`, el estado cambia a `confirmado_manual` y se actualizan los datos enriquecidos.
 
-**Datos de Prueba:**
-- Input: CSV file con `\xEF\xBB\xBF` + `CODIGO,APELLIDOS,...`
-- Esperado: HTTP 202 con `lote_id` (no HTTP 400 por headers inválidos).
+**Validación UX:**
+- Debe mostrarse feedback visual inmediato (spinner + mensaje de éxito/error) sin recargar la página.
 
 ---
 
-### 2.5 Historia de Usuario: US-005 - Exportación de Reporte Consolidado en Excel
-
-#### TC-011: Generar Excel con datos crudos y enriquecidos en Hoja 1
+#### TC-015: Marcar como no ingresado desde la opción visualmente diferenciada
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P2 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-005, AC-014, plan.md: ExportarExcelCruceAction |
+| Tipo | E2E |
+| Prioridad | P2 |
+| Automatizado | Sí / Planificado |
+| Trazas a | US-004, AC-013 |
 
-**Dado:** Un lote procesado con matches confirmados.
-**Cuando:** Se solicita `GET /api/cruce/lotes/{lote_id}/exportar`.
-**Entonces:** El Excel contiene Hoja 1 con columnas A–M del CSV original y columnas N+ con Sede, Ciclo, Año académico y Estado.
+**Dado** un ingresante pendiente sin candidato válido
+**Cuando** el administrador selecciona la opción de no ingresado y confirma
+**Entonces** el estado del ingresante cambia a `no_ingresado` y la interfaz refleja la decisión.
 
 ---
 
-#### TC-012: Generar Excel con gráficos analíticos en Hoja 2
+### 2.5 US-005 - Exportación de reporte consolidado en Excel
+
+#### TC-016: Requerir selector de fecha o consolidado y bloquear otros formatos
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P3 |
-| **Automatizado** | Planificado |
-| **Trazas a** | US-005, AC-015 |
+| Tipo | Integración |
+| Prioridad | P2 |
+| Automatizado | Sí |
+| Trazas a | US-005, AC-014 |
 
-**Dado:** Un reporte Excel generado.
-**Cuando:** Se abre Hoja 2.
-**Entonces:** Contiene gráficos pre-construidos de distribución por estado, sede y ciclo, y segmentadores dinámicos por fecha de examen.
+**Dado** un conjunto de lotes procesados
+**Cuando** el usuario solicita la exportación
+**Entonces** el sistema obliga a elegir entre una `FECHA_EXAMEN` específica o `Todas las fechas`, y genera solo un archivo `.xlsx`.
 
 ---
 
-## 3. Pruebas de Casos de Borde
-
-### EC-001: Registro CSV con nombre o apellido vacío
-
-#### TC-013: Continuar procesamiento y registrar error por fila incompleta
+#### TC-017: Generar Excel con contrato de columnas y datos enriquecidos
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Unidad / Integración |
-| **Prioridad** | P2 |
-| **Automatizado** | Sí |
-| **Trazas a** | EC-001 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | US-005, AC-015 |
 
-**Dado:** Una fila CSV con `NOMBRES` vacío.
-**Cuando:** Se procesa el lote.
-**Entonces:** Se registra un error en el log del lote con número de fila y el job continúa con las demás filas.
+**Dado** un lote con registros confirmados automáticos o manuales
+**Cuando** se genera el reporte Excel
+**Entonces** el archivo contiene el contrato de columnas definido: columnas A-M del CSV original y columnas N+ con datos enriquecidos de academia y catálogo; los campos sin match muestran `SIN MAPEAR` y solo se incluyen registros con estado `confirmado_automatico` o `confirmado_manual`.
+
+---
+
+### 2.6 US-006 - Gestión del catálogo de áreas y carreras
+
+#### TC-018: Cargar catálogo con validación de Magic Bytes y sanitización
+
+| Atributo | Valor |
+|----------|-------|
+| Tipo | Integración |
+| Prioridad | P2 |
+| Automatizado | Sí |
+| Trazas a | US-006, AC-017 |
+
+**Dado** un archivo CSV del catálogo oficial
+**Cuando** se sube al módulo independiente
+**Entonces** el sistema valida los Magic Bytes, sanitiza campos para evitar inyección de fórmulas y realiza un upsert en `catalogo_areas_carreras`.
+
+---
+
+#### TC-019: Restringir el uso del catálogo al reporte final y no al pipeline de cruce
+
+| Atributo | Valor |
+|----------|-------|
+| Tipo | Integración |
+| Prioridad | P2 |
+| Automatizado | Sí |
+| Trazas a | US-006, AC-018 |
+
+**Dado** el pipeline de carga y cruce
+**Cuando** se evalúan los ingresantes o se calcula el fuzzy match
+**Entonces** el catálogo no se consulta ni se usa en ninguna etapa intermedia.
+
+---
+
+## 3. Casos de borde
+
+### EC-001: Fila con nombre o apellido vacío
+
+#### TC-020: Registrar error por fila incompleta y continuar con las demás
+
+| Atributo | Valor |
+|----------|-------|
+| Tipo | Integración |
+| Prioridad | P2 |
+| Automatizado | Sí |
+| Trazas a | EC-001 |
+
+**Dado** una fila CSV con campos de nombre vacíos
+**Cuando** se procesa el lote
+**Entonces** se registra un error en el log del lote con número de fila y el proceso continúa con las filas restantes.
 
 ---
 
 ### EC-002: CSV sin columnas requeridas
 
-#### TC-014: Rechazar carga con mensaje de columnas faltantes
+#### TC-021: Rechazar carga con mensaje de columnas faltantes
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | EC-002, ERR-001 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | EC-002, ERR-001 |
 
-**Dado:** Un CSV faltando `NOMBRES`, `OBSERVACION` o `FECHA`.
-**Cuando:** Se intenta subir el archivo.
-**Entonces:** La carga se rechaza con HTTP 422 y mensaje que indica las columnas faltantes.
+**Dado** un CSV sin columnas obligatorias como `NOMBRES`, `OBSERVACION` o `FECHA`
+**Cuando** se intenta sube el archivo
+**Entonces** la carga se rechaza con un error descriptivo y no se insertan registros.
 
 ---
 
-### EC-003: Motor difuso sin candidatos superiores al umbral
+### EC-003: Fuzzy match sin candidatos válidos
 
-#### TC-015: Mostrar opción "No Ingresado" sin bloquear el flujo
+#### TC-022: Mostrar opción de no ingresado sin bloquear el flujo
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P2 |
-| **Automatizado** | Sí |
-| **Trazas a** | EC-003 |
+| Tipo | Integración |
+| Prioridad | P2 |
+| Automatizado | Sí |
+| Trazas a | EC-003 |
 
-**Dado:** Un ingresante cuya similitud máxima es < 70%.
-**Cuando:** Se genera la lista de candidatos.
-**Entonces:** La lista está vacía y la opción `no_ingresado` es accesible en la interfaz.
-
+**Dado** un ingresante con similitud máxima menor al umbral del 30%
+**Cuando** se genera la lista de candidatos
+**Entonces** la lista queda vacía y la interfaz permite marcarlo como no ingresado.
 
 ---
 
 ### EC-004: Fecha de examen ya procesada
 
-#### TC-016: Ignorar registros de fecha ya existente y registrar el salto
+#### TC-023: Ignorar silenciosamente los registros ya incluidos
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | EC-004 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | EC-004 |
 
-**Dado:** CSV con fecha `2026-05-10` ya procesada en `lotes_cruce`.
-**Cuando:** Se vuelve a subir el CSV.
-**Entonces:** Los registros de esa fecha se ignoran silenciosamente y el log del lote registra la fecha omitida.
+**Dado** un CSV con una fecha de examen previamente procesada
+**Cuando** se vuelve a subir el archivo
+**Entonces** los registros de esa fecha se ignoran y el log registra la fecha omitida.
 
 ---
 
-### EC-005: Más de 5 candidatos históricos con igualdad de similitud
+### EC-005: Más de 5 candidatos con igual similitud
 
-#### TC-017: Limitar candidatos a 5 y desempatar por apellido paterno
+#### TC-024: Limitar a 5 candidatos y desempatar por apellido paterno
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Unidad |
-| **Prioridad** | P2 |
-| **Automatizado** | Sí |
-| **Trazas a** | EC-005 |
+| Tipo | Unidad |
+| Prioridad | P2 |
+| Automatizado | Sí |
+| Trazas a | EC-005 |
 
-**Dado:** Más de 5 alumnos con similitud igual.
-**Cuando:** Se ordenan candidatos.
-**Entonces:** Se muestran solo los 5 primeros y los empates se desempatan por apellido paterno alfabético.
+**Dado** más de 5 alumnos con igual similitud
+**Cuando** se ordenan los candidatos
+**Entonces** solo se muestran los 5 primeros y los empates se resuelven por apellido paterno.
 
 ---
 
-### EC-006: CSV con codificación no UTF-8/ISO-8859-1
+### EC-006: CSV con codificación distinta de UTF-8/ISO-8859-1
 
-#### TC-018: Detectar codificación inválida y rechazar con error descriptivo
+#### TC-025: Rechazar carga por codificación no soportada
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | EC-006, ERR-002 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | EC-006, ERR-002 |
 
-**Dado:** CSV codificado en UTF-16.
-**Cuando:** Se sube el archivo.
-**Entonces:** La carga es rechazada con mensaje de codificación y no se insertan registros.
+**Dado** un CSV codificado como UTF-16
+**Cuando** se sube al sistema
+**Entonces** se rechaza con un mensaje de codificación y no se insertan registros.
 
 ---
 
-### EC-007: Timeout o error de conexión durante el cruce
+### EC-007: Error de conexión a academia durante el cruce
 
-#### TC-019: Pausar lote y dejar registros `pendiente` cuando la DB academia falla
+#### TC-026: Pausar el lote y conservar estado recuperable
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | EC-007 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | EC-007, NFR-006 |
 
-**Dado:** Conexión a `academia` falla durante el proceso.
-**Cuando:** `RealizarCruceExactoAction` se ejecuta.
-**Entonces:** El lote se marca `paused` (fallo recuperable, ver CQ-003); los registros ya procesados conservan su estado; los no procesados quedan en `pendiente` para reintento. El sistema NO marca `error` ante fallo de conexión recuperable.
+**Dado** una falla temporal de conexión a la base de datos academia
+**Cuando** el job intenta ejecutar el cruce
+**Entonces** el lote queda en un estado recuperable y los registros ya procesados no se pierden.
 
 ---
 
-### EC-008: Worker Redis caído durante el procesamiento
+### EC-008: Worker Redis caído o reiniciado
 
-#### TC-020: Garantizar job en `failed_jobs` y mantener lote consistente
+#### TC-027: Mantener consistencia del lote tras fallo del worker
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | EC-008, NFR-006 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | EC-008, NFR-006 |
 
-**Dado:** Worker Redis reiniciado durante un job activo.
-**Cuando:** El job falla.
-**Entonces:** El job debe aparecer en `failed_jobs`; el lote permanece en estado `processing` sin registros duplicados ni perdidos.
+**Dado** un worker Redis reiniciado durante la ejecución del job
+**Cuando** el proceso falla
+**Entonces** el job queda registrado en `failed_jobs` y el lote conserva el estado ya persistido sin duplicaciones.
 
 ---
 
-### EC-009: CSV exportado desde Excel con BOM UTF-8
+## 4. Escenarios de error
 
-#### TC-053: BOM al inicio del archivo no impide el reconocimiento de headers
+### ERR-001: Formato de columnas incorrecto
+
+#### TC-028: Rechazar carga cuando los nombres de las columnas son incorrectos
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | EC-009, US-001 AC-001a |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | ERR-001 |
 
-**Dado:** Un archivo CSV exportado desde Excel que incluye BOM UTF-8 (`\xEF\xBB\xBF`) antes del header `CODIGO`.
-**Cuando:** Se sube el archivo vía `POST /api/cruce/upload`.
-**Entonces:** El BOM se remueve automáticamente, los headers se reconocen como `CODIGO, APELLIDOS, NOMBRES...` y el lote se crea exitosamente. Sin el stripping del BOM, el primer header se leería como `\xEF\xBB\xBFCODIGO` y la validación fallaría.
+**Dado** un CSV con columnas presentes pero con nombres incorrectos
+**Cuando** se intenta subir
+**Entonces** la API responde con HTTP 422 y mensaje claro sobre las columnas inválidas.
 
 ---
 
-## 4. Escenarios de Error
+### ERR-002: Archivo mayor a 20 MB
 
-### ERR-001: CSV con formato de columnas incorrecto
-
-#### TC-021: Rechazar carga cuando columnas requeridas tienen nombres incorrectos
+#### TC-029: Rechazar archivo demasiado grande antes de procesar
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | ERR-001, US-001 AC-001a |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | ERR-005 |
 
-**Dado:** Un CSV que contiene 12 columnas pero con nombres incorrectos (ej: `APELLIDO` en lugar de `APELLIDOS`, `NOMBRE` en lugar de `NOMBRES`, `FECHA_EXAMEN` en lugar de `FECHA`).
-**Cuando:** Se hace `POST /api/cruce/upload`.
-**Entonces:** HTTP 422, mensaje de error que lista las columnas con nombres incorrectos o faltantes y no se crea ningún registro en BD.
-
-> **Diferencia con TC-014:** TC-014 cubre columnas AUSENTES; TC-021 cubre columnas PRESENTES pero con nombres incorrectos. Ambos casos están definidos en AC-001a.
+**Dado** un archivo CSV de 21 MB
+**Cuando** se envía al endpoint de carga
+**Entonces** el sistema responde con HTTP 413 y no crea un lote.
 
 ---
 
-### ERR-002: Codificación de archivo no soportada
+### ERR-003: CSV vacío tras el filtro de observación
 
-#### TC-022: Rechazar archivo con codificación inválida antes de procesar
+#### TC-030: Rechazar carga cuando no hay registros válidos
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | ERR-002 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | ERR-004 |
 
-**Dado:** CSV con codificación UTF-16.
-**Cuando:** Se sube el archivo.
-**Entonces:** HTTP 422 con mensaje de codificación no soportada.
+**Dado** un CSV donde ninguna fila tiene `OBSERVACION=ALCANZO VACANTE`
+**Cuando** se intenta procesar
+**Entonces** la carga se rechaza con HTTP 422 y mensaje de que no hay registros válidos.
 
 ---
 
-### ERR-003: Fallo de conexión a BD `academia`
+### ERR-004: Confirmación de match con alumno_id inválido
 
-#### TC-023: Abortar el cruce con mensaje y registrar el fallo
+#### TC-031: Rechazar la confirmación y no alterar el estado
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | ERR-003 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | ERR-006 |
 
-**Dado:** Conexión a `academia` no disponible.
-**Cuando:** Se ejecuta el proceso de cruce.
-**Entonces:** La operación falla limpiamente con mensaje de usuario y el lote queda en estado `paused` (fallo recuperable, ver CQ-003).
+**Dado** un ingreso con un `alumno_id` inexistente en la petición de confirmación
+**Cuando** se invoca `POST /api/cruce/ingresantes/{id}/confirmar`
+**Entonces** el sistema responde con HTTP 404 y no modifica el estado del ingresante.
 
 ---
 
-### ERR-004: CSV vacío tras filtro de OBSERVACION
+### ERR-005: Job fallido y movido a failed_jobs
 
-#### TC-024: Rechazar carga cuando no hay registros `ALCANZO VACANTE`
+#### TC-032: Registrar el fallo y mantener consistencia del lote
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | ERR-004 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | ERR-007, NFR-006 |
 
-**Dado:** CSV donde ninguna fila tiene `OBSERVACION=ALCANZO VACANTE`.
-**Cuando:** Se sube el archivo.
-**Entonces:** HTTP 422 y mensaje que indica que el CSV no contiene registros válidos.
-
----
-
-### ERR-005: Archivo mayor a 20 MB
-
-#### TC-025: Rechazar carga de archivo demasiado grande
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | ERR-005 |
-
-**Dado:** Un archivo CSV de 21 MB.
-**Cuando:** Se intenta subir.
-**Entonces:** HTTP 413 y mensaje de límite de tamaño.
+**Dado** una excepción inesperada durante `ProcessCsvBatchJob`
+**Cuando** el worker procesa el job
+**Entonces** el job aparece en `failed_jobs`, el lote queda en estado de error o pausa según la naturaleza del fallo y no se pierden registros ya insertados.
 
 ---
 
-### ERR-006: Confirmación con `alumno_id` inválido
-
-#### TC-026: Manejar selección inválida en la interfaz de confirmación
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | ERR-006 |
-
-**Dado:** La interfaz envía un `alumno_id` inexistente.
-**Cuando:** Se hace `POST /api/cruce/ingresantes/{id}/confirmar`.
-**Entonces:** HTTP 404 y el estado del ingresante no cambia.
-
----
-
-### ERR-007: Job falla y mueve a `failed_jobs`
-
-#### TC-027: Capturar job fallido y mantener lote en estado pausado
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | ERR-007, NFR-006 |
-
-**Dado:** Job `ProcessCsvBatchJob` lanza una excepción inesperada no recuperable.
-**Cuando:** El worker de Redis procesa el job.
-**Entonces:** El job aparece en `failed_jobs`, el lote se marca específicamente como `error` (fallo catastrófico, ver CQ-003) y no se pierden ni duplican registros ya insertados.
-
----
-
-## 5. Pruebas No Funcionales
+## 5. Pruebas no funcionales
 
 ### NFR-001: Rendimiento de carga asíncrona
 
-#### TC-028: Procesar un CSV de ~27,000 filas en menos de 50 segundos
+#### TC-033: Procesar 27,000 filas en menos de 50 segundos
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Rendimiento |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | NFR-001, plan.md: Redis Queue |
+| Tipo | Rendimiento |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | NFR-001 |
 
-**Escenario:** Despachar un job con un CSV sintético de 27,000 filas.
-**Objetivo:** `lotes_cruce.estado = 'completed'` en < 50 segundos.
+**Escenario:** despachar un job con un CSV sintético de 27,000 filas.
+**Objetivo:** el lote pasa a `completed` en menos de 50 segundos.
 
 ---
 
-### NFR-002: Tiempo de respuesta de fuzzy match
+### NFR-002: Tiempo de respuesta del fuzzy match
 
-#### TC-029: Endpoint de candidatos responde en < 300 ms p95
+#### TC-034: Responder el endpoint de candidatos en menos de 300 ms p95
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Rendimiento |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | NFR-002, plan.md: API endpoint de candidatos |
+| Tipo | Rendimiento |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | NFR-002 |
 
-**Escenario:** Consultar `GET /api/cruce/ingresantes/{ingresante_id}/candidatos` con carga representativa.
-**Objetivo:** p95 < 300 ms.
+**Escenario:** consultar el endpoint de candidatos con carga representativa.
+**Objetivo:** p95 menor a 300 ms.
 
 ---
 
-### NFR-003: Soporte de carga de archivo hasta 20 MB
+### NFR-003: Soporte de archivos hasta 20 MB
 
-#### TC-030: Aceptar archivo CSV de 20 MB sin error de memoria
+#### TC-035: Aceptar un CSV de 20 MB sin error de memoria en el upload inicial
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Rendimiento |
-| **Prioridad** | P2 |
-| **Automatizado** | Sí |
-| **Trazas a** | NFR-003 |
+| Tipo | Rendimiento |
+| Prioridad | P2 |
+| Automatizado | Sí |
+| Trazas a | NFR-003 |
 
-**Dado:** Archivo de 20 MB.
-**Cuando:** Se sube mediante el endpoint de carga.
-**Entonces:** Respuesta HTTP exitosa y job encolado sin error de memoria.
+**Escenario:** subir un archivo de 20 MB mediante la ruta inicial.
+**Objetivo:** respuesta HTTP exitosa y job encolado sin error de memoria.
 
 ---
 
 ### NFR-004: Seguridad de credenciales
 
-#### TC-031: Validar que credenciales de `academia` no están en el repositorio
+#### TC-036: Garantizar que las credenciales de academia no se almacenen en el repositorio
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Seguridad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | NFR-004 |
+| Tipo | Seguridad |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | NFR-004 |
 
-**Dado:** Repositorio de código.
-**Cuando:** Se ejecuta revisión de secrets.
-**Entonces:** No existen credenciales de BD en el repositorio; solo variables de entorno.
+**Escenario:** revisar el repositorio y la configuración de ejecución.
+**Objetivo:** no debe existir ninguna credencial real en el código; solo variables de entorno.
 
 ---
 
 ### NFR-005: Trazabilidad de lotes
 
-#### TC-032: Verificar totales y metadatos de `lotes_cruce`
+#### TC-037: Verificar metadatos completos del lote procesado
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | NFR-005 |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | NFR-005 |
 
-**Dado:** Lote procesado.
-**Cuando:** Se consulta `lotes_cruce`.
-**Entonces:** Existen fecha de examen, totales de registros, ingresantes, no_ingresantes, match exacto, pendientes, no_ingresados y timestamps de inicio/fin.
+**Dado** un lote procesado
+**Cuando** se consulta la tabla de lotes
+**Entonces** deben existir fecha de examen, totales, match exacto, pendientes, no ingresados y timestamps de inicio y fin.
 
 ---
 
 ### NFR-006: Procesamiento asíncrono con Redis
 
-#### TC-033: Ejecutar job en Redis y soportar reinicio sin pérdida de datos
+#### TC-038: Encolar el job y soportar reinicios del worker
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | NFR-006, plan.md: Redis Queue |
+| Tipo | Integración |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | NFR-006 |
 
-**Dado:** Worker Redis activo.
-**Cuando:** Se encola `ProcessCsvBatchJob` y el worker se reinicia durante el procesamiento.
-**Entonces:** El job falla a `failed_jobs`; el lote no pierde registros y puede reintentarse.
+**Escenario:** despachar `ProcessCsvBatchJob` y reiniciar el worker durante la ejecución.
+**Objetivo:** el job queda registrado en la cola fallida o se recupera sin pérdida de datos ya insertados.
 
 ---
 
-### 5.2 Pruebas de Lógica de Negocio Adicionales (Campos y Reportes)
+### NFR-007: Integridad y sanitización de datos
 
-#### TC-034: Mapeo de EAP a AREA académica en UNMSM
+#### TC-039: Neutralizar prefijos de fórmulas y caracteres peligrosos
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Unidad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-005, AC-014, plan.md: ExportarExcelCruceAction |
+| Tipo | Seguridad |
+| Prioridad | P1 |
+| Automatizado | Sí |
+| Trazas a | NFR-007 |
 
-**Dado:** Diferentes carreras profesionales de UNMSM en el CSV (`EAP`).
-**Cuando:** Se calcula la columna `AREA` en el reporte.
-**Entonces:** El sistema asocia correctamente la carrera a su área académica correspondiente.
-
-**Datos de Prueba:**
-- `"MEDICINA HUMANA"` -> `Área A`
-- `"CIENCIAS BIOLOGICAS"` -> `Área B`
-- `"INGENIERIA DE SOFTWARE"` -> `Área C`
-- `"ADMINISTRACION"` -> `Área D`
-- `"DERECHO"` -> `Área E`
+**Dado** un valor de texto que empieza con `=`, `+`, `-` o `@`
+**Cuando** se ingresa al flujo de carga o exportación
+**Entonces** el sistema lo neutraliza y lo persiste como dato seguro.
 
 ---
 
-#### TC-035: Validación de la estructura de 24 columnas del reporte final
+## 6. Matriz de trazabilidad
 
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-005, AC-014 |
-
-**Dado:** Un lote de cruce finalizado con alumnos coincidentes.
-**Cuando:** Se genera y descarga el Excel consolidado.
-**Entonces:** El archivo contiene exactamente 24 columnas en el orden A-X especificado en `AC-014` y los campos de la base de datos se corresponden correctamente.
-
----
-
-#### TC-036: Cálculo de LISTA - 1 (Cachimbos Históricos)
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Unidad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-005, AC-014 |
-
-**Dado:** Alumnos matriculados en diferentes ciclos históricos de Vonex.
-**Cuando:** Se realiza la exportación del Excel.
-**Entonces:** La columna `LISTA - 1` se marca con `1` si el ciclo es igual o posterior a "Verano 2024", y con `0` si es anterior.
-
-**Datos de Prueba:**
-- Ciclo "Verano 2024" -> `1`
-- Ciclo "Verano 2025" -> `1`
-- Ciclo "Anual 2023" -> `0`
+| Requisito | Casos de prueba |
+|-----------|-----------------|
+| US-001 / AC-001 | TC-001 |
+| US-001 / AC-002 | TC-002 |
+| US-001 / AC-003 | TC-003 |
+| US-001 / AC-004 | TC-004 |
+| US-001 / AC-004b | TC-005 |
+| US-002 / AC-005 | TC-007 |
+| US-002 / AC-006, AC-007 | TC-008 |
+| US-003 / AC-008 | TC-010 |
+| US-003 / AC-009 | TC-011 |
+| US-003 / AC-010 | TC-012 |
+| US-004 / AC-011 | TC-013 |
+| US-004 / AC-012 | TC-014 |
+| US-004 / AC-013 | TC-015 |
+| US-005 / AC-014 | TC-016 |
+| US-005 / AC-015 | TC-017 |
+| US-006 / AC-017 | TC-018 |
+| US-006 / AC-018 | TC-019 |
+| NFR-001 | TC-033 |
+| NFR-002 | TC-034 |
+| NFR-003 | TC-035 |
+| NFR-004 | TC-036 |
+| NFR-005 | TC-037 |
+| NFR-006 | TC-038 |
+| NFR-007 | TC-039 |
 
 ---
 
-#### TC-037: Cálculo de LISTA - 2 (Cachimbos Temporada)
+## 7. Plan de ejecución
 
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Unidad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-005, AC-014 |
-
-**Dado:** Alumnos matriculados en ciclos del verano 2026, octubre 2025 o activos a febrero 2026.
-**Cuando:** Se realiza la exportación del Excel.
-**Entonces:** La columna `LISTA - 2` se marca con `1` si se cumple la condición de temporada (incluyendo retirados/suspendidos), y con `0` si no.
-
-**Datos de Prueba:**
-- Ciclo "VERANO 2026", Estado "RETIRADO" -> `1`
-- Ciclo "OCTUBRE 2025", Estado "SUSPENDIDO" -> `1`
-- Ciclo "ANUAL 2025", Estado "MATRICULADO" (no activo a feb 2026) -> `0`
+| Etapa | Cobertura |
+|-------|-----------|
+| Pre-commit | Pruebas unitarias de normalización y lógica de match |
+| PR | Integración de carga, cruce y exportación |
+| Merge | Suite completa de integración y seguridad |
+| Nocturna | E2E y pruebas de rendimiento |
 
 ---
 
-#### TC-038: Cálculo de LISTA - 3 (Cachimbos Activos a Febrero 2026)
+## 8. Criterios de salida
 
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Unidad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | US-005, AC-014 |
-
-**Dado:** Alumnos matriculados en la academia.
-**Cuando:** Se realiza la exportación del Excel.
-**Entonces:** La columna `LISTA - 3` se marca con `1` si el alumno es activo (MATRICULADO, PAGADO, FINALIZADO) al 27 de febrero de 2026, y con `0` en cualquier otro caso.
-
-**Datos de Prueba:**
-- Ciclo "Verano 2026", Estado "MATRICULADO", fecha de matrícula <= 27/02/2026 -> `1`
-- Ciclo "Verano 2026", Estado "RETIRADO", fecha de retiro <= 27/02/2026 -> `0`
-
----
-
-### 5.4 Pruebas de Invariantes de Negocio
-
-#### TC-039: Solo RealizarCruceExactoAction puede asignar estado `confirmado_automatico` (INV-01)
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Unidad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | INV-01, US-003 AC-008 |
-
-**Dado:** Un ingresante en estado `pendiente`.
-**Cuando:** Se intenta actualizar directamente `estado_match` a `confirmado_automatico` desde un path de código distinto a `RealizarCruceExactoAction` (ej. `GuardarCruceConfirmadoAction`, controlador directo o Tinker).
-**Entonces:** La operación es rechazada o detectada como violación de invariante. Solo `RealizarCruceExactoAction` puede asignar este estado.
-
-**Enfoque de implementación:** Encapsular la asignación de `confirmado_automatico` en un método privado o protegido dentro de `RealizarCruceExactoAction` y usar un event/observer o policy que valide el origen del cambio.
-
----
-
-#### TC-040: Tabla `no_ingresantes` es append-only — sin DELETE ni UPDATE (INV-02)
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | INV-02 |
-
-**Dado:** Registros existentes en la tabla `no_ingresantes`.
-**Cuando:** Se intenta ejecutar una operación `DELETE` o `UPDATE` sobre la tabla `no_ingresantes`.
-**Entonces:** La operación es rechazada a nivel de BD por el trigger `trg_no_ingresantes_readonly` (INV-02 enforceado a nivel DDL — ver data-model.md §5.1). El modelo Eloquent `NoIngresante` también lo rechaza a nivel de aplicación (`const UPDATED_AT = null`). Ambas capas deben fallar independientemente.
-
-**Datos de prueba:**
-- Insertar un registro válido en `no_ingresantes`.
-- Intentar `NoIngresante::find($id)->update([...])` → debe lanzar excepción Eloquent.
-- Intentar `DB::statement("DELETE FROM no_ingresantes WHERE id = ?", [$id])` → debe lanzar excepción PostgreSQL del trigger (código SQLSTATE P0001).
-- Intentar `DB::statement("UPDATE no_ingresantes SET observacion = 'X' WHERE id = ?", [$id])` → idem.
-
----
-
-#### TC-041: Cero operaciones de escritura sobre la conexión `academia` (INV-07)
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | INV-07, US-002 |
-
-**Dado:** Un lote de ingresantes procesado y cruzado contra la base de datos `academia`.
-**Cuando:** Se ejecuta el pipeline completo (importación + cruce exacto + fuzzy match).
-**Entonces:** Se interceptan todas las queries ejecutadas contra la conexión `academia` (usando `DB::connection('academia')->listen()`) y se verifica que NINGUNA sea de tipo `INSERT`, `UPDATE` o `DELETE`. Solo se permiten operaciones `SELECT`.
-
----
-
-#### TC-042: Constraint UNIQUE en `lotes_cruce.fecha_examen` rechaza INSERT duplicado a nivel de BD (INV-03)
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | INV-03, data-model.md §5.1 |
-
-**Dado:** Un registro existente en `lotes_cruce` con `fecha_examen = '2026-05-17'`.
-**Cuando:** Se intenta ejecutar directamente `INSERT INTO lotes_cruce (fecha_examen, ...) VALUES ('2026-05-17', ...)` a nivel de SQL (simulando bypass de la lógica de aplicación).
-**Entonces:** PostgreSQL lanza una excepción de violación de constraint UNIQUE (`duplicate key value violates unique constraint "lotes_cruce_fecha_examen_key"`). La inserción es rechazada sin datos corruptos.
-
----
-
-#### TC-043: Filas idénticas dentro del mismo CSV solo producen un registro en BD (INV-04)
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Unidad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | INV-04, CQ-002, US-001 AC-001 |
-
-**Dado:** Un CSV con 3 filas completamente idénticas (mismo código, apellidos, nombres, EAP, puntaje, mérito, observación, tipo, modalidad, universidad, período y fecha).
-**Cuando:** `ProcesarCargaCsvAction` procesa el lote.
-**Entonces:** Solo se persiste 1 registro en la tabla correspondiente (`ingresantes` o `no_ingresantes`); las 2 filas duplicadas son eliminadas antes de cualquier INSERT. El total reportado en `lotes_cruce` refleja 1 registro, no 3.
-
----
-
-#### TC-044: Valor crudo de OBSERVACION nunca es evaluado en el filtro — solo el normalizado (INV-05)
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Unidad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | INV-05, CQ-001, US-001 AC-004 |
-
-**Dado:** Un CSV con una fila cuyo campo `OBSERVACION` contiene `alcanzó vacante` (minúsculas y con tilde — que post-normalización resulta en `ALCANZO VACANTE`).
-**Cuando:** `ProcesarCargaCsvAction` aplica el filtro.
-**Entonces:** El registro se enruta a `ingresantes` (el filtro opera sobre el valor normalizado, no el crudo). Verificar en el código que el valor crudo del CSV nunca es comparado directamente con ningún string de filtro.
-
-**Dato adicional de violación:** Si se modifica `ProcesarCargaCsvAction` para comparar el string crudo, este test DEBE fallar. Esto lo convierte en un test de regresión de la invariante.
-
----
-
-#### TC-045: Jerarquía de estados cubre todas las combinaciones de borde de INV-06
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Unidad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | INV-06, US-002 AC-007 |
-
-**Dado:** Un alumno con múltiples registros históricos en `academia` en diferentes combinaciones de estado.
-**Cuando:** Se resuelve el estado mediante la jerarquía de INV-06.
-**Entonces:** El estado resuelto es siempre el de mayor prioridad según el orden: `MATRICULADO (2) > PAGADO (3) > FINALIZADO (14) > SUSPENDIDO (9) > RETIRADO (0) > TRASLADADO (12) > STAND BY (13) > ANULADO (11)`.
-
-**Datos de prueba — casos de borde obligatorios (valores numéricos en la DB real):**
-
-| Estados presentes (DB values) | Estado resuelto esperado |
-|---|---|
-| `ANULADO (11)`, `STAND BY (13)` | `STAND BY` |
-| `RETIRADO (0)`, `TRASLADADO (12)`, `ANULADO (11)` | `RETIRADO` |
-| `SUSPENDIDO (9)`, `FINALIZADO (14)` | `FINALIZADO` |
-| `MATRICULADO (2)`, `ANULADO (11)`, `RETIRADO (0)` | `MATRICULADO` |
-| Solo `ANULADO (11)` | `ANULADO` |
-| Solo `STAND BY (13)` | `STAND BY` |
-
----
-
-#### TC-046: Credenciales de `academia` no existen en ningún archivo del repositorio (INV-08)
-
-| Atributo | Valor |
-|----------|-------|
-| **Tipo** | Seguridad |
-| **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | INV-08, NFR-004, TC-031 |
-
-**Dado:** El repositorio de código completo.
-**Cuando:** Se ejecuta un scanner de secretos (ej. `git-secrets`, `trufflehog`, o búsqueda por regex de `DB_ACADEMIA_PASSWORD`, `password`, IPs de servidor de producción).
-**Entonces:** No se encuentran valores reales de credenciales en ningún archivo rastreado por git. Solo se permiten referencias a variables de entorno (`DB_ACADEMIA_*`). El archivo `.env.example` solo contiene placeholders vacíos o descriptivos (ej. `DB_ACADEMIA_PASSWORD=`).
-
-> **Diferencia con TC-031 (NFR-004):** TC-031 verifica la política general de credenciales; TC-046 verifica específicamente el enforcement del invariante INV-08 para la conexión `academia`. Se complementan.
-
----
-
-## 6. Suite de Pruebas de Regresión
-
-| ID de Prueba | Descripción | Prioridad | Automatizado |
-|-------------|-------------|----------|-------------|
-| TC-001 | Importar CSV con múltiples fechas y duplicados | P1 | Sí |
-| TC-002 | Normalización de texto con acentos y Ñ | P1 | Sí |
-| TC-006 | Cruce exacto automático | P1 | Sí |
-| TC-009 | Confirmar match manual desde UI | P1 | Sí / Planificado |
-| TC-021 | Rechazar CSV con columnas faltantes | P1 | Sí |
-| TC-028 | Procesar CSV de 27,000 filas en < 50 s | P1 | Sí |
-
----
-
-## 7. Matriz de Cobertura de Pruebas
-
-| Requisito | Unidad | Integración | E2E | Rendimiento |
-|-----------|--------|------------|-----|-------------|
-| US-001/AC-001 |  | TC-001 |  |  |
-| US-001/AC-001a |  | TC-014, TC-021, TC-052, TC-053 |  |  |
-| US-001/AC-001b |  | TC-018, TC-022 |  |  |
-| US-001/AC-001c |  | TC-025 |  |  |
-| US-001/AC-001d |  | TC-027 |  |  |
-| US-001/AC-001e |  | TC-033 |  |  |
-| US-001/AC-001f |  |  |  | TC-028 |
-| US-001/AC-002 | TC-002 |  |  |  |
-| US-001/AC-003 | TC-003 |  |  |  |
-| US-001/AC-004 |  | TC-004 |  |  |
-| US-001/AsyncAPI |  | TC-050, TC-051 |  |  |
-| US-002/AC-005 |  | TC-005 |  |  |
-| US-002/AC-005a |  | TC-005 |  |  |
-| US-002/AC-006 |  | TC-005 |  |  |
-| US-002/AC-007 | TC-045 | TC-005 |  |  |
-| US-003/AC-003a |  |  |  | TC-028 (cobertura transitiva via AC-001f) |
-| US-003/AC-008 |  | TC-006 |  |  |
-| US-003/AC-009 | TC-007 |  |  |  |
-| US-003/AC-010 |  | TC-008, TC-015 |  |  |
-| US-004/AC-011 |  |  | TC-009, TC-048 |  |
-| US-004/AC-012 |  |  | TC-009 |  |
-| US-004/AC-013 |  |  | TC-010 |  |
-| US-004/AC-004a |  |  |  | TC-029 |
-| US-004/AC-004b |  | TC-026 |  |  |
-| US-005/AC-014 | TC-034, TC-036, TC-037, TC-038 | TC-011, TC-035 |  |  |
-| US-005/AC-015 |  | TC-012 |  |  |
-| EC-001 |  | TC-013 |  |  |
-| EC-002 |  | TC-014 |  |  |
-| EC-003 |  | TC-015 |  |  |
-| EC-004 |  | TC-016 |  |  |
-| EC-005 | TC-017 |  |  |  |
-| EC-006 |  | TC-018 |  |  |
-| EC-007 |  | TC-019 |  |  |
-| EC-008 |  | TC-020 |  |  |
-| ERR-001 |  | TC-014, TC-021 |  |  |
-| ERR-002 |  | TC-022 |  |  |
-| ERR-003 |  | TC-023 |  |  |
-| ERR-004 |  | TC-024 |  |  |
-| ERR-005 |  | TC-025 |  |  |
-| ERR-006 |  | TC-026 |  |  |
-| ERR-007 |  | TC-027 |  |  |
-| NFR-001 |  |  |  | TC-028 |
-| NFR-002 |  |  |  | TC-029 |
-| NFR-003 |  |  |  | TC-030 |
-| NFR-004 |  | TC-031 |  |  |
-| NFR-005 |  | TC-032, TC-047 |  |  |
-| NFR-006 |  | TC-033 |  |  |
-| INV-01 | TC-039 |  |  |  |
-| INV-02 |  | TC-040 |  |  |
-| INV-03 |  | TC-042 |  |  |
-| INV-04 | TC-043 |  |  |  |
-| INV-05 | TC-044 |  |  |  |
-| INV-06 | TC-045 | TC-005 |  |  |
-| INV-07 |  | TC-041 |  |  |
-| INV-08 |  | TC-046, TC-031 |  |  |
-
----
-
-## 8. Plan de Ejecución de Pruebas
-
-### 8.1 Pipeline de CI
-
-| Etapa | Pruebas | Desencadenante |
-|-------|---------|----------------|
-| Pre-commit | Pruebas de Unidad | Gancho local |
-| Revisión de PR | Unidad + Integración | Pull request abierto |
-| Fusión | Suite completa | Fusión a main |
-| Nocturna | E2E + Rendimiento | Programado |
-
-### 8.2 Pruebas Manuales
-
-| Caso | Cuándo | Evaluador |
-|------|---------|-----------|
-| Exploratoria de carga CSV | Antes de la liberación | QA |
-| Validación de UI de cabos sueltos | Antes de la liberación | QA + Dev |
-
----
-
-## 9. Aprobación
-
-- [x] QA Lead: Diego Castillo y Yerson - Date: 2026-06-25
-- [x] Dev Lead: Renzo Santos - Date: 2026-06-25
+La funcionalidad se considera lista para revisar cuando:
+- Todos los TC P1 están verdes.
+- Los NFR-001 a NFR-007 cuentan con evidencia ejecutable.
+- No quedan escenarios críticos sin cobertura.
