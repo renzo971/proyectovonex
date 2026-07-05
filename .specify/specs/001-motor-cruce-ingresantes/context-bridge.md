@@ -119,7 +119,7 @@ matriculas.id → ciclos.matricula_id
 ### Filtros para alumnos activos (usados en el matching)
 
 ```sql
-WHERE alumno_matricula.estado IN (2, 3, 9, 13)   -- MATRICULADO, PAGADO, SUSPENDIDO, STAND BY
+WHERE alumno_matricula.estado IN (2, 3, 9, 13, 14)   -- MATRICULADO, PAGADO, SUSPENDIDO, STAND BY, FINALIZADO
   AND alumno_matricula.estado_aula = 1            -- aula activa
   AND EXISTS (SELECT 1 FROM ciclos                -- ciclo activo
               WHERE ciclos.matricula_id = matriculas.id
@@ -147,7 +147,7 @@ El campo `alumno_matricula.estado` es numérico. En la base de datos real de `ac
 
 *Nota:* Los valores `1` (PENDIENTE) y `4` (PRE-INSCRITO) también existen en la base de datos, pero no participan en esta jerarquía de resolución de estados para el cruce.
 
-Para la extracción inicial de la base de datos de Academia, el motor aplica un filtro de estados activos: `estado IN (2, 3, 9, 13)` (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY), según se detalla en el filtro de la query. Sin embargo, al resolver alumnos con múltiples registros históricos en la base de datos, se debe utilizar la jerarquía completa descrita arriba.
+Para la extracción inicial de la base de datos de Academia, el motor aplica un filtro de estados activos: `estado IN (2, 3, 9, 13, 14)` (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY, FINALIZADO), según se detalla en el filtro de la query. Sin embargo, al resolver alumnos con múltiples registros históricos en la base de datos, se debe utilizar la jerarquía completa descrita arriba.
 
 **Anti-Corruption Layer:** La normalización (`NormalizarTextoAction`) se aplica a los datos de Academia antes de cualquier comparación. El dominio nunca almacena strings crudos de Academia — solo formas normalizadas.
 

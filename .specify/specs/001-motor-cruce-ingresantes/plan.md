@@ -131,6 +131,8 @@ graph TB
 
 **Responsibility:** Receives and validates uploaded CSV files, persists the file, and dispatches the async queue job for processing. Does NOT parse or process the CSV inline in the HTTP request.
 
+**Traces to:** US-001
+
 **Interfaces:**
 
 - `POST /api/cruce/upload` - Upload endpoint (returns immediately with lote_id).
@@ -160,6 +162,8 @@ app/
 
 **Responsibility:** Performs exact matching using strict filters, and calculates Levenshtein distances for fuzzy candidate matches.
 
+**Traces to:** US-002, US-003
+
 **Interfaces:**
 
 - `RealizarCruceExactoAction` - Processes automatic matches.
@@ -182,6 +186,8 @@ app/Actions/Cruce/
 
 **Responsibility:** React interface for uploading files, displaying job progress, listing unmatched students, and resolving matches.
 
+**Traces to:** US-004
+
 **Structure:**
 
 ```
@@ -197,6 +203,8 @@ frontend/src/
 ### 2.4 Backend Component: ReportGenerator
 
 **Responsibility:** Generates the final Excel report with 24 columns, applying business calculations for Lists (L1, L2, L3) and EAP-to-Area resolution.
+
+**Traces to:** US-005
 
 **Structure:**
 

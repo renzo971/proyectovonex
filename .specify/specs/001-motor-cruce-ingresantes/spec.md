@@ -74,7 +74,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 - [ ] **AC-005a:** La consulta a la base de datos `academia` debe recuperar los datos del alumno mediante el join de 3 tablas: `alumno_matricula` → `alumnos` → `personas`. Los campos obtenidos son:
     - De `personas`: `dni`, `nombres`, `apellido_paterno`, `apellido_materno`
     - De `alumno_matricula`: `id` (usado como `alumno_id`), `estado`, `fecha`
-- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema filtra solo los estados activos: `estado IN (2, 3, 9, 13)` que corresponden a MATRICULADO, PAGADO, SUSPENDIDO y STAND BY respectivamente. Además aplica los filtros: `estado_aula = 1`, ciclo activo (`ciclos.fecha_fin >= hoy`), y excluye los registros originales cuyo id aparece como `matricularegular_id` en otra fila (la matrícula regular los supera).
+- [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema filtra solo los estados activos: `estado IN (2, 3, 9, 13, 14)` que corresponden a MATRICULADO, PAGADO, SUSPENDIDO, STAND BY y FINALIZADO respectivamente. Además aplica los filtros: `estado_aula = 1`, ciclo activo (`ciclos.fecha_fin >= hoy`), y excluye los registros originales cuyo id aparece como `matricularegular_id` en otra fila (la matrícula regular los supera).
 - [ ] **AC-007:** Dado un alumno con múltiples registros históricos en la base de datos `academia`, cuando se determina su estado para el reporte, entonces se resuelve eligiendo el estado de mayor prioridad según la jerarquía inmutable: MATRICULADO (2) → PAGADO (3) → FINALIZADO (14) → SUSPENDIDO (9) → RETIRADO (0) → TRASLADADO (12) → STAND BY (13) → ANULADO (11).
 
 > **Nota sobre el schema de academia:** La base `academia` no tiene una tabla `alumnos` plana con todos los campos. El schema real usa 3 tablas relacionadas: `personas` (PK: `dni`), `alumnos` (PK: `codigo`, FK: `persona_dni`), y `alumno_matricula` (PK: `id`, FK: `alumno_codigo` → `alumnos.codigo`). Ver `context-bridge.md` para el detalle completo.
@@ -92,7 +92,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
     LEFT JOIN aulas ON alumno_matricula.aula_id = aulas.id
     LEFT JOIN matriculas ON aulas.matricula_id = matriculas.id
     LEFT JOIN ciclos ON matriculas.id = ciclos.matricula_id AND ciclos.fecha_fin >= CURRENT_DATE
-    WHERE alumno_matricula.estado IN (2, 3, 9, 13)
+    WHERE alumno_matricula.estado IN (2, 3, 9, 13, 14)
       AND alumno_matricula.estado_aula = 1
       AND ciclos.id IS NOT NULL
       AND alumno_matricula.id NOT IN (
@@ -276,6 +276,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | EC-006 | CSV con codificación distinta de UTF-8 o ISO-8859-1 (ej. UTF-16)           | Detectar la codificación al inicio de la carga; si no es soportada, rechazar con error descriptivo de codificación sin insertar ningún registro                                              |           US-001 |
 | EC-007 | Timeout o error de conexión a la BD `academia` durante el cruce            | Marcar el lote como `paused` (recuperable); conservar los registros ya procesados con su estado actual; los registros no procesados quedan en `pendiente` para reintento manual. Ver CQ-003. | US-002 / NFR-006 |
 | EC-008 | Worker Redis caído o reiniciado durante el procesamiento del job           | El job queda en la cola `failed_jobs`; el lote permanece en estado `processing` hasta que el administrador reintente el job manualmente; no se pierden ni duplican registros ya insertados   | US-001 / NFR-006 |
+| EC-009 | CSV exportado desde Excel con BOM UTF-8                                    | Detectar y remover automáticamente la firma BOM (\xEF\xBB\xBF) al inicio del archivo antes de validar las columnas; procesar con normalidad                |           US-001 |
 
 ---
 
