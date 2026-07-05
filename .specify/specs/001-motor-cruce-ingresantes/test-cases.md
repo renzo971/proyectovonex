@@ -64,7 +64,7 @@
 **Pasos de Prueba:**
 | Paso | Acción | Resultado Esperado |
 |------|--------|-------------------|
-| 1 | Subir el CSV vía `POST /api/cruce/upload` | Respuesta 202 con `lote_id` y estado `procesando` |
+| 1 | Subir el CSV vía `POST /api/cruce/upload` | Respuesta 202 con `lote_id` y estado `processing` |
 | 2 | Esperar a que el `ProcessCsvBatchJob` complete | El lote nuevo se crea solo para `2026-05-17` y la fecha `2026-05-10` es ignorada |
 | 3 | Consultar `lotes_cruce` y logs de lote | Se registran totales de filas procesadas y duplicados eliminados |
 
@@ -156,11 +156,26 @@
 
 **Dado:** La conexión a la BD `academia` está configurada.
 **Cuando:** `RealizarCruceExactoAction` inicia el proceso.
-**Entonces:** Se valida la conexión antes de consultar; si la conexión es exitosa, se obtienen registros en todos los estados válidos y se resuelve el estado de mayor prioridad según la jerarquía.
+**Entonces:** Se valida la conexión antes de consultar; si la conexión es exitosa, se obtienen solo alumnos con `estado IN (2, 3, 9, 13, 14)` (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY, FINALIZADO), `estado_aula = 1`, sin filtro por ciclo ni exclusión de `matricularegular_id`, y se resuelve el estado de mayor prioridad según la jerarquía numérica.
 
-**Datos de Prueba:**
-- Entrada: alumno con estados `ANULADO`, `PAGADO`, `MATRICULADO`.
-- Esperado: elegir `MATRICULADO` para el reporte.
+**Datos de Prueba (schema real — 3 tablas):**
+
+```sql
+-- Insertar en personas (PK: dni)
+INSERT INTO personas (dni, nombres, apellido_paterno, apellido_materno) 
+VALUES ('12345678', 'JUAN', 'LOPEZ', 'GARCIA');
+
+-- Insertar en alumnos (PK: codigo, FK: persona_dni)
+INSERT INTO alumnos (codigo, persona_dni) 
+VALUES ('ALU001', '12345678');
+
+-- Insertar en alumno_matricula con estado 14 (FINALIZADO) — no requiere ciclo ni aula
+INSERT INTO alumno_matricula (id, alumno_codigo, estado, estado_aula, fecha)
+VALUES (100, 'ALU001', 14, 1, NOW());
+```
+
+- Entrada: alumno con `alumno_matricula.estado = 14` (FINALIZADO).
+- Esperado: `getActiveAlumnos()` devuelve 1 resultado con `estado = 14`.
 
 ---
 
@@ -191,6 +206,66 @@
 **Dado:** Un lote con ingresantes en estado `pendiente`.
 **Cuando:** Se llama `GET /api/cruce/lotes/{lote_id}/pendientes`.
 **Entonces:** La respuesta devuelve una lista paginada de ingresantes `pendiente` con sus datos CSV normalizados y un total de páginas disponible.
+**Y:** El orden de la lista prioriza a aquellos ingresantes que poseen candidatos sugeridos con similitud >= 70%, dejando al final de la paginación a los ingresantes que no poseen ningún candidato.
+
+
+---
+
+#### TC-049: GET /api/cruce/lotes — List all batches
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 (High) |
+| **Automatizado** | Sí |
+| **Trazas a** | US-001, US-004, NFR-005, openapi.yaml `/cruce/lotes` GET, plan.md §4.1 |
+
+**Dado** que existen lotes procesados en el sistema
+**Y** el usuario está autenticado
+**Cuando** realiza GET /api/cruce/lotes
+**Entonces** el response HTTP es 200
+**Y** el body es un array paginado de objetos LoteCruce
+**Y** cada objeto contiene: lote_id, estado (enum: processing|completed|paused|error), fecha_examen, total_rows, rows_procesadas, created_at
+**Y** el schema cumple con openapi.yaml LoteCruce
+
+**Caso negativo:**
+**Dado** que el usuario NO está autenticado
+**Cuando** realiza GET /api/cruce/lotes
+**Entonces** el response HTTP es 401
+
+---
+
+### TC-050: CruceBatchProcessedEvent dispatched on batch success
+
+**ID:** TC-050
+**US:** US-001
+**AC:** (AsyncAPI contract)
+**Trazas a:** asyncapi.yaml CruceBatchProcessedEvent, tasks.md T007
+**Priority:** High
+
+**Dado** que un lote CSV fue procesado exitosamente
+**Y** todos los registros fueron clasificados (ingresantes o no_ingresantes)
+**Cuando** el job ProcessCsvBatchJob finaliza sin errores
+**Entonces** se dispatcha el evento CruceBatchProcessedEvent
+**Y** el payload contiene: lote_id, total_registros, total_ingresantes, total_no_ingresantes
+**Y** verificable via Event::fake() en tests de integración
+
+---
+
+### TC-051: CruceBatchFailedEvent dispatched on batch failure
+
+**ID:** TC-051
+**US:** US-001
+**AC:** (AsyncAPI contract)
+**Trazas a:** asyncapi.yaml CruceBatchFailedEvent, tasks.md T007
+**Priority:** High
+
+**Dado** que un lote CSV está en procesamiento
+**Y** ocurre un error irrecuperable durante el job
+**Cuando** el job ProcessCsvBatchJob falla definitivamente
+**Entonces** se dispatcha el evento CruceBatchFailedEvent
+**Y** el payload contiene: lote_id y detalles del error
+**Y** verificable via Event::fake() en tests de integración
 
 ---
 
@@ -206,12 +281,13 @@
 | **Trazas a** | US-003, AC-008, plan.md: RealizarCruceExactoAction |
 
 **Dado:** Un ingresante normalizado con apellidos y nombre que existen en `academia`.
-**Cuando:** Se ejecuta `RealizarCruceExactoAction`.
-**Entonces:** El ingresante recibe `alumno_id`, estado `confirmado_automatico` y datos enriquecidos.
+**Cuando:** Se ejecuta `RealizarCruceExactoAction::executeBatch()`.
+**Entonces:** El sistema busca match por nombre compuesto (`findMatchByName`). Si encuentra coincidencia de 2 apellidos + al menos 1 nombre, asigna `alumno_id`, estado `confirmado_automatico` y datos enriquecidos.
 
 **Datos de Prueba:**
-- Entrada: `APELLIDO_PATERNO=LOPEZ`, `APELLIDO_MATERNO=GARCIA`, `NOMBRE=JUAN`
-- Esperado: match exacto y estado `confirmado_automatico`.
+- Ingresante: `APELLIDO_PATERNO=PEREZ`, `APELLIDO_MATERNO=LOPEZ`, `NOMBRES=JUAN`
+- Academia: persona con `apellido_paterno=PEREZ`, `apellido_materno=LOPEZ`, `nombres=JUAN`
+- Esperado: match por nombre, estado `confirmado_automatico`
 
 ---
 
@@ -225,12 +301,12 @@
 | **Trazas a** | US-003, AC-009, plan.md: CalcularSimilitudesCabosAction |
 
 **Dado:** Un ingresante sin match exacto y una lista de candidatos en `academia`.
-**Cuando:** Se calcula similitud por frecuencia de letras y Levenshtein.
+**Cuando:** Se calcula similitud usando el Dice coefficient sobre bigramas de caracteres y Levenshtein (fórmula: `similitud = Levenshtein × 0.6 + Dice_bigramas × 0.4`).
 **Entonces:** Genera hasta 5 candidatos ordenados de mayor a menor probabilidad de match.
 
 **Datos de Prueba:**
-- Entrada: `NOMBRE=JHON`, `APELLIDO_PATERNO=RAMOS`, `APELLIDO_MATERNO=LOPEZ`
-- Esperado: lista ordenada por puntaje, máximo 5 candidatos.
+- Entrada: `NOMBRE=JHON`, `APELLIDO_PATERNO=RAMOS`, `APELLIDO_MATERNO=LOPEZ` (ingresante) vs `JOHN RAMOS LOPEZ` (academia)
+- Esperado: similitud >= 85% con la fórmula Dice bigramas; lista ordenada por puntaje, máximo 5 candidatos.
 
 ---
 
@@ -243,9 +319,27 @@
 | **Automatizado** | Sí |
 | **Trazas a** | US-003, AC-010, plan.md: CalcularSimilitudesCabosAction |
 
-**Dado:** Un ingresante con similitud máxima < 30% frente a alumnos de academia.
+**Dado:** Un ingresante con similitud máxima < 70% frente a alumnos de academia.
 **Cuando:** Se calcula la lista de candidatos.
 **Entonces:** La lista está vacía y el sistema marca al ingresante como `pendiente` con opción de `no_ingresado` en la interfaz.
+
+
+---
+
+#### TC-056: Flat array + integer index byName — sin duplicación
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Unidad |
+| **Prioridad** | P2 |
+| **Automatizado** | Sí |
+| **Trazas a** | US-003, plan.md: Optimization Strategies |
+
+**Dado:** `getActiveAlumnos()` retorna ~25,000-30,000 registros de academia.
+**Cuando:** Se construye el índice `byName`.
+**Entonces:** El índice almacena solo enteros (posiciones en `$alumnos[]`), nunca copias de los datos completos. El arreglo `$alumnos` tiene exactamente N elementos y el índice apunta a posiciones dentro de él, sin duplicar los arrays asociativos de cada alumno.
+
+**Verificación:** Comparar `memory_get_usage()` antes y después de construir el índice. No debe existir `byDni` (el CSV no contiene DNI).
 
 ---
 
@@ -282,6 +376,25 @@
 **Dado:** Un ingresante sin candidatos relevantes.
 **Cuando:** El administrador selecciona la opción "Sin coincidencias encontradas — Marcar como No Ingresado".
 **Entonces:** El estado se actualiza a `no_ingresado` y la UI refleja la confirmación.
+
+---
+
+#### TC-052: CSV con BOM UTF-8 es procesado correctamente
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | US-001, AC-001a |
+
+**Dado:** Un archivo CSV con BOM UTF-8 (`\xEF\xBB\xBF`) al inicio (común en exportaciones de Excel).
+**Cuando:** Se sube el archivo vía `POST /api/cruce/upload`.
+**Entonces:** El sistema detecta y remueve el BOM antes de validar los headers. Los headers se reconocen correctamente y el lote se crea sin errores de "Formato de columnas incorrecto".
+
+**Datos de Prueba:**
+- Input: CSV file con `\xEF\xBB\xBF` + `CODIGO,APELLIDOS,...`
+- Esperado: HTTP 202 con `lote_id` (no HTTP 400 por headers inválidos).
 
 ---
 
@@ -364,9 +477,10 @@
 | **Automatizado** | Sí |
 | **Trazas a** | EC-003 |
 
-**Dado:** Un ingresante cuya similitud máxima es < 30%.
+**Dado:** Un ingresante cuya similitud máxima es < 70%.
 **Cuando:** Se genera la lista de candidatos.
 **Entonces:** La lista está vacía y la opción `no_ingresado` es accesible en la interfaz.
+
 
 ---
 
@@ -451,7 +565,24 @@
 
 **Dado:** Worker Redis reiniciado durante un job activo.
 **Cuando:** El job falla.
-**Entonces:** El job debe aparecer en `failed_jobs`; el lote permanece en estado `procesando` o `error` sin registros duplicados ni perdidos.
+**Entonces:** El job debe aparecer en `failed_jobs`; el lote permanece en estado `processing` sin registros duplicados ni perdidos.
+
+---
+
+### EC-009: CSV exportado desde Excel con BOM UTF-8
+
+#### TC-053: BOM al inicio del archivo no impide el reconocimiento de headers
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Sí |
+| **Trazas a** | EC-009, US-001 AC-001a |
+
+**Dado:** Un archivo CSV exportado desde Excel que incluye BOM UTF-8 (`\xEF\xBB\xBF`) antes del header `CODIGO`.
+**Cuando:** Se sube el archivo vía `POST /api/cruce/upload`.
+**Entonces:** El BOM se remueve automáticamente, los headers se reconocen como `CODIGO, APELLIDOS, NOMBRES...` y el lote se crea exitosamente. Sin el stripping del BOM, el primer header se leería como `\xEF\xBB\xBFCODIGO` y la validación fallaría.
 
 ---
 
@@ -506,7 +637,7 @@
 
 **Dado:** Conexión a `academia` no disponible.
 **Cuando:** Se ejecuta el proceso de cruce.
-**Entonces:** La operación falla limpiamente con mensaje de usuario y el lote queda en estado `error`.
+**Entonces:** La operación falla limpiamente con mensaje de usuario y el lote queda en estado `paused` (fallo recuperable, ver CQ-003).
 
 ---
 
@@ -592,7 +723,7 @@
 | **Trazas a** | NFR-001, plan.md: Redis Queue |
 
 **Escenario:** Despachar un job con un CSV sintético de 27,000 filas.
-**Objetivo:** `lotes_cruce.estado = 'completado'` en < 50 segundos.
+**Objetivo:** `lotes_cruce.estado = 'completed'` en < 50 segundos.
 
 ---
 
@@ -891,18 +1022,18 @@
 
 **Dado:** Un alumno con múltiples registros históricos en `academia` en diferentes combinaciones de estado.
 **Cuando:** Se resuelve el estado mediante la jerarquía de INV-06.
-**Entonces:** El estado resuelto es siempre el de mayor prioridad según el orden: `MATRICULADO > PAGADO > FINALIZADO > SUSPENDIDO > RETIRADO > TRASLADADO > STAND BY > ANULADO`.
+**Entonces:** El estado resuelto es siempre el de mayor prioridad según el orden: `MATRICULADO (2) > PAGADO (3) > FINALIZADO (14) > SUSPENDIDO (9) > RETIRADO (0) > TRASLADADO (12) > STAND BY (13) > ANULADO (11)`.
 
-**Datos de prueba — casos de borde obligatorios:**
+**Datos de prueba — casos de borde obligatorios (valores numéricos en la DB real):**
 
-| Estados presentes | Estado resuelto esperado |
+| Estados presentes (DB values) | Estado resuelto esperado |
 |---|---|
-| `ANULADO`, `STAND BY` | `STAND BY` |
-| `RETIRADO`, `TRASLADADO`, `ANULADO` | `RETIRADO` |
-| `SUSPENDIDO`, `FINALIZADO` | `FINALIZADO` |
-| `MATRICULADO`, `ANULADO`, `RETIRADO` | `MATRICULADO` |
-| Solo `ANULADO` | `ANULADO` |
-| Solo `STAND BY` | `STAND BY` |
+| `ANULADO (11)`, `STAND BY (13)` | `STAND BY` |
+| `RETIRADO (0)`, `TRASLADADO (12)`, `ANULADO (11)` | `RETIRADO` |
+| `SUSPENDIDO (9)`, `FINALIZADO (14)` | `FINALIZADO` |
+| `MATRICULADO (2)`, `ANULADO (11)`, `RETIRADO (0)` | `MATRICULADO` |
+| Solo `ANULADO (11)` | `ANULADO` |
+| Solo `STAND BY (13)` | `STAND BY` |
 
 ---
 
@@ -941,20 +1072,29 @@
 | Requisito | Unidad | Integración | E2E | Rendimiento |
 |-----------|--------|------------|-----|-------------|
 | US-001/AC-001 |  | TC-001 |  |  |
-| US-001/AC-001a |  | TC-014, TC-021 |  |  |
+| US-001/AC-001a |  | TC-014, TC-021, TC-052, TC-053 |  |  |
+| US-001/AC-001b |  | TC-018, TC-022 |  |  |
+| US-001/AC-001c |  | TC-025 |  |  |
+| US-001/AC-001d |  | TC-027 |  |  |
+| US-001/AC-001e |  | TC-033 |  |  |
+| US-001/AC-001f |  |  |  | TC-028 |
 | US-001/AC-002 | TC-002 |  |  |  |
 | US-001/AC-003 | TC-003 |  |  |  |
 | US-001/AC-004 |  | TC-004 |  |  |
+| US-001/AsyncAPI |  | TC-050, TC-051 |  |  |
 | US-002/AC-005 |  | TC-005 |  |  |
 | US-002/AC-005a |  | TC-005 |  |  |
 | US-002/AC-006 |  | TC-005 |  |  |
 | US-002/AC-007 | TC-045 | TC-005 |  |  |
-| US-003/AC-008 |  | TC-006 |  |  |
+| US-003/AC-003a |  |  |  | TC-028 (cobertura transitiva via AC-001f) |
+| US-003/AC-008 | TC-054 | TC-006 |  |  |
 | US-003/AC-009 | TC-007 |  |  |  |
 | US-003/AC-010 |  | TC-008, TC-015 |  |  |
 | US-004/AC-011 |  |  | TC-009, TC-048 |  |
 | US-004/AC-012 |  |  | TC-009 |  |
 | US-004/AC-013 |  |  | TC-010 |  |
+| US-004/AC-004a |  |  |  | TC-029 |
+| US-004/AC-004b |  | TC-026 |  |  |
 | US-005/AC-014 | TC-034, TC-036, TC-037, TC-038 | TC-011, TC-035 |  |  |
 | US-005/AC-015 |  | TC-012 |  |  |
 | EC-001 |  | TC-013 |  |  |
@@ -978,6 +1118,7 @@
 | NFR-004 |  | TC-031 |  |  |
 | NFR-005 |  | TC-032, TC-047 |  |  |
 | NFR-006 |  | TC-033 |  |  |
+| AD-001 (v2.9.0) | TC-056 | TC-005 |  |  |
 | INV-01 | TC-039 |  |  |  |
 | INV-02 |  | TC-040 |  |  |
 | INV-03 |  | TC-042 |  |  |

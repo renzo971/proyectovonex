@@ -74,8 +74,6 @@ components:
       name: ProcessCsvBatchJob
       title: CSV Processing Queue Job
       summary: Dispatched immediately after HTTP upload. Tells the worker to begin processing a CSV.
-      correlationId:
-        location: $message.payload#/correlation_id
       payload:
         type: object
         properties:
@@ -88,22 +86,14 @@ components:
             type: string
             description: Path to the uploaded CSV file stored in the local disk structure.
             example: 'cruce_uploads/unmsm_2026_06_24.csv'
-          correlation_id:
-            type: string
-            format: uuid
-            description: Unique ID to trace execution throughout the batch lifecycle.
-            example: '4b9d8c52-3dc8-44a6-acd0-bcc353ba38ad'
         required:
           - lote_id
           - file_path
-          - correlation_id
 
     CruceBatchProcessedEvent:
       name: CruceBatchProcessedEvent
       title: Cruce Batch Processed Event
       summary: Event published upon successful parsing, matching, and database persistence.
-      correlationId:
-        location: $message.payload#/correlation_id
       payload:
         type: object
         properties:
@@ -124,24 +114,16 @@ components:
             type: integer
             description: Total rows persisted to no_ingresantes.
             example: 23950
-          correlation_id:
-            type: string
-            format: uuid
-            description: Tracing correlation ID.
-            example: '4b9d8c52-3dc8-44a6-acd0-bcc353ba38ad'
         required:
           - lote_id
           - total_registros
           - total_ingresantes
           - total_no_ingresantes
-          - correlation_id
 
     CruceBatchFailedEvent:
       name: CruceBatchFailedEvent
       title: Cruce Batch Failed Event
       summary: Event published when processing fails (e.g., database connection timeout).
-      correlationId:
-        location: $message.payload#/correlation_id
       payload:
         type: object
         properties:
@@ -154,12 +136,6 @@ components:
             type: string
             description: Diagnostic message outlining the root cause of failure.
             example: 'Fallo de conexión a la base de datos academia.'
-          correlation_id:
-            type: string
-            format: uuid
-            description: Tracing correlation ID.
-            example: '4b9d8c52-3dc8-44a6-acd0-bcc353ba38ad'
         required:
           - lote_id
           - error_message
-          - correlation_id
