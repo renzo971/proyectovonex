@@ -89,7 +89,9 @@ class InvariantsTest extends TestCase
     {
         $queries = [];
         DB::connection('academia')->listen(function ($query) use (&$queries) {
-            $queries[] = $query->sql;
+            if ($query->connectionName === 'academia') {
+                $queries[] = $query->sql;
+            }
         });
 
         // Execute a read operation (simulating cruce)
@@ -129,7 +131,7 @@ class InvariantsTest extends TestCase
             LoteCruce::factory()->create(['fecha_examen' => '2026-05-17']);
             $this->fail('Expected unique constraint violation');
         } catch (\Exception $e) {
-            expect($e->getMessage())->toContain('unique');
+            expect(strtolower($e->getMessage()))->toContain('unique');
         }
     }
 

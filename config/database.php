@@ -114,6 +114,20 @@ return [
             // 'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
         ],
 
+        'academia' => [
+            'driver' => env('DB_ACADEMIA_DRIVER', 'pgsql'),
+            'host' => env('DB_ACADEMIA_HOST', '127.0.0.1'),
+            'port' => env('DB_ACADEMIA_PORT', '5432'),
+            'database' => env('DB_ACADEMIA_DATABASE', 'academia'),
+            'username' => env('DB_ACADEMIA_USERNAME', 'root'),
+            'password' => env('DB_ACADEMIA_PASSWORD', ''),
+            'charset' => env('DB_ACADEMIA_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('DB_ACADEMIA_SSLMODE', 'prefer'),
+        ],
+
     ],
 
     /*

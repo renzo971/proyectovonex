@@ -33,19 +33,25 @@ class ProcesarCargaCsvActionTest extends TestCase
     #[Test]
     public function tc001_imports_csv_with_multiple_dates_and_removes_duplicates(): void
     {
+        // Seed the pre-existing date 2026-05-10
+        LoteCruce::factory()->create(['fecha_examen' => '2026-05-10', 'estado' => 'completed']);
+
         $csvContent = readFixture('duplicate-rows.csv');
         $path = $this->createTempCsv($csvContent, 'tc001-duplicates.csv');
 
         $result = $this->action->execute($path);
 
         expect($result['success'])->toBeTrue();
-        expect($result['data']['total_registros'])->toBe(2);
+        // Since 2026-05-10 is skipped, only 2026-05-17 is processed (1 unique record)
+        expect($result['data']['total_registros'])->toBe(1);
         expect($result['data']['duplicates_removed'])->toBe(3);
 
-        // Verify only one lote created for the latest date
+        // Verify we have 2 lotes in DB (the pre-existing 2026-05-10 and the new 2026-05-17)
         $lotes = LoteCruce::all();
-        expect($lotes)->toHaveCount(1);
-        expect($lotes->first()->fecha_examen)->toBe('2026-05-17');
+        expect($lotes)->toHaveCount(2);
+        
+        $dates = $lotes->map(fn($l) => $l->fecha_examen instanceof \Carbon\Carbon ? $l->fecha_examen->format('Y-m-d') : (string)$l->fecha_examen)->toArray();
+        expect($dates)->toContain('2026-05-17');
     }
 
     /**

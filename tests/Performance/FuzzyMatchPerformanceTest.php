@@ -90,7 +90,7 @@ class FuzzyMatchPerformanceTest extends TestCase
         $currentSize = strlen($csv);
         $i = 1;
 
-        while ($currentSize < $targetSize && $i <= $rows) {
+        while ($currentSize < $targetSize) {
             $row = $this->generateRow($i);
             $csv .= $row;
             $currentSize += strlen($row);
