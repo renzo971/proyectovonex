@@ -5,8 +5,8 @@
 **Business Context:** [business-context.md](business-context.md)
 **PO:** Samuel Cisneros
 **Equipo:** Grupo V2 (Vonex)
-**Status:** Under Review
-**Versión:** 2.9.0
+**Status:** Implemented
+**Versión:** 3.0.0
 
 ---
 
