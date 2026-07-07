@@ -202,14 +202,21 @@ class CruceIngresantesController extends Controller
 
     public function confirmar(Request $request, int $id): JsonResponse
     {
-        $request->validate([
-            'alumno_id' => 'nullable|integer',
-        ]);
+        $marcarNoIngresado = $request->boolean('marcar_no_ingresado', false);
+
+        $alumnoId = null;
+        if (!$marcarNoIngresado) {
+            $request->validate([
+                'alumno_id' => 'required|integer',
+            ]);
+
+            $alumnoId = $request->integer('alumno_id');
+        }
 
         $action = app(GuardarCruceConfirmadoAction::class);
-        $result = $action->execute($id, $request->integer('alumno_id'));
+        $result = $action->execute($id, $alumnoId, $marcarNoIngresado);
 
-        $status = isset($result['http_status']) ? $result['http_status'] : ($result['success'] ? 200 : 422);
+        $status = $result['http_status'] ?? ($result['success'] ? 200 : 422);
 
         return response()->json($result, $status);
     }
