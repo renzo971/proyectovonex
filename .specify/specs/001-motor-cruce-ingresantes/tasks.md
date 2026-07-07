@@ -206,6 +206,7 @@ Perform exact matching (2 surnames + 1 name) against the Academia database.
 - [ ] Validate connection to `academia` DB before any query (AC-005). Abort with ERR-003 if fails.
 - [ ] Query the 3-table join (`alumno_matricula` → `alumnos` → `personas`) para obtener los campos de matching: `alumno_matricula.id` (usado como `alumno_id`), `personas.apellido_paterno`, `personas.apellido_materno`, `personas.nombres`, `alumno_matricula.estado` (numérico). Los campos adicionales para el reporte Excel (DNI, teléfonos, etc.) se obtienen bajo demanda.
 - [ ] Fetch only active enrolled students: `estado IN (2, 3, 9, 13, 14)`, `estado_aula = 1`, active ciclo (`ciclos.fecha_fin >= hoy`), exclude regular duplicates (`matricularegular_id IS NOT NULL`).
+  > **Corrección (2026-07-07, decisión PO — T039):** el allow-list se amplía a `estado IN (0, 2, 3, 9, 13, 14)`, incluyendo RETIRADO (0); ANULADO(11)/TRASLADADO(12) permanecen excluidos.
 - [ ] Normalize academia data via `NormalizarTextoAction` before comparison (context-bridge ACL).
 - [ ] Match criteria: 2 exact surnames + at least 1 exact first name (AC-008).
 - [ ] On match: set `alumno_id`, `estado_match = 'confirmado_automatico'`, `porcentaje_similitud = 100.00`.
@@ -542,6 +543,8 @@ Make `CalcularSimilitudesCabosAction` the single source of truth for the fuzzy s
 - [ ] AC-G2.4: NFR-001 (≤50 s/lote) still holds after consolidation.
 - [ ] The Action's batch entry point does not re-load academia data or re-normalize per ingresante; the existing single-`ingresanteId` entry point remains as a thin wrapper for the `candidatos`/`reprocesar` read paths and unit tests.
 
+**Note (2026-07-07, T036):** T036 already extracted and shared one piece of what this task eventually wants — the INV-06 estado-hierarchy dedup for duplicate person records — via `App\Actions\Cruce\ResolverEstadoHierarchy`, now called from both `RealizarCruceExactoAction::getActiveAlumnos()` and `CalcularSimilitudesCabosAction::execute()`. This task remains **Not Started**: the broader consolidation (making `CalcularSimilitudesCabosAction` the single source of truth for the scoring formula, with `ProcessCsvBatchJob` delegating to a batch entry point instead of its own private reimplementation) is still outstanding.
+
 **Traces To:** T007, T009, plan.md DA-G2, AD-004
 
 ---
@@ -566,7 +569,7 @@ _Depends: T011, T012_
 **Acceptance Criteria:**
 - [x] AC-G3.1: `confirmar` reads `marcar_no_ingresado` (boolean, default false) and forwards it as the third argument to `GuardarCruceConfirmadoAction::execute()`.
 - [x] AC-G3.2: With `marcar_no_ingresado=true`, the ingresante becomes `estado_match='no_ingresado'` with `alumno_id=NULL`; lote `total_pendientes` −1, `total_no_ingresado` +1. Any `alumno_id` present in the payload is ignored.
-- [x] AC-G3.3: With `marcar_no_ingresado` false/absent, `alumno_id` becomes required and must reference an existing **active** academia record (`estado IN (2,3,9,13,14) AND estado_aula=1` — same filter as `CalcularSimilitudesCabosAction`/`RealizarCruceExactoAction`); a missing/invalid/inactive `alumno_id` returns 422 (missing) or 404 (nonexistent or inactive matrícula, ERR-006) and the ingresante state is unchanged — never `alumno_id=0`.
+- [x] AC-G3.3: With `marcar_no_ingresado` false/absent, `alumno_id` becomes required and must reference an existing **active** academia record (`estado IN (0,2,3,9,13,14) AND estado_aula=1` — same filter as `CalcularSimilitudesCabosAction`/`RealizarCruceExactoAction`, widened 2026-07-07 to include RETIRADO(0) per T039; ANULADO(11)/TRASLADADO(12) remain excluded); a missing/invalid/inactive `alumno_id` returns 422 (missing) or 404 (nonexistent or inactive matrícula, ERR-006) and the ingresante state is unchanged — never `alumno_id=0`.
 - [x] AC-G3.4: No code path can persist `estado_match='confirmado_manual'` with `alumno_id` null or 0.
 - [x] **Follow-up fix (2026-07-07, post-review):** the `alumno_id` validation (existence + active-matrícula filter) was moved out of the controller into `GuardarCruceConfirmadoAction::execute()` (private `validarAlumnoId()`), per the "no business logic in controllers" constitution rule — the controller now only forwards the request and reflects the Action's `http_status`. The academia existence check is also wrapped in try/catch: on academia connection failure it returns `{success:false, error:'No se pudo establecer conexión con la base de datos de la academia. Contacte al administrador del sistema.'}` with HTTP 500 (ERR-003 message, consistent with the 500 convention already used by `health()`/`academiaAlumnos()`/`reprocesar()` for academia outages) instead of throwing an uncaught `QueryException`.
 
@@ -720,6 +723,142 @@ _Boundary: Actions_ · _Depends: T011, T026_ · **Priority:** P2 · **Status:** 
 _Boundary: Config_ · _Depends: T003_ · **Priority:** P3 · **Status:** Not Started
 
 `config/database.php`'s `academia` connection has no connection/query timeout, so a slow or half-open connection can hang a request indefinitely — only hard connection-refused failures are currently caught (see T030, ERR-003 handling). Add a sane timeout to the PDO options for this connection.
+
+---
+
+### T035 [P] - Fix Scrambled ESTADO_LABELS / LISTA-3 Estado Codes in ExportarExcelCruceAction
+
+_Boundary: Actions_ · _Depends: —_ · **Priority:** P0 · **Status:** Completed
+
+**Description:** Production bug reported live (2026-07-07): exported ESTADO/LISTA-3 columns were wrong for most rows. `ExportarExcelCruceAction::ESTADO_LABELS` had estado codes 9 and 14 swapped versus INV-06 (9 was labeled `FINALIZADO`, 14 labeled `SUSPENDIDO` — the exact opposite of the real hierarchy: MATRICULADO(2) > PAGADO(3) > FINALIZADO(14) > SUSPENDIDO(9) > RETIRADO(0) > TRASLADADO(12) > STAND BY(13) > ANULADO(11)), and was missing keys `0` (RETIRADO) and `12` (TRASLADADO) entirely (falling through to the raw numeric-string fallback in `resolveEstado()`). Fixed by replacing the table with the correct mapping (matching `CruceIngresantesController::academiaAlumnos()`). `LISTA3_ACTIVE_ESTADOS` had the same wrong belief that estado 9 = FINALIZADO (`[2, 3, 9]`); fixed to `[2, 3, 14]` per INV-06. Also corrected two stale/backwards comments: `calcLista3()`'s comment said "FINALIZADO (9)" (now "FINALIZADO (14)"), and `calcLista2()`'s comment said "Include RETIRADO (13) and SUSPENDIDO (14)" (both codes backwards — LISTA-2 does not filter by estado at all; comment corrected to note it is period-only and includes RETIRADO(0)/SUSPENDIDO(9) students per spec, unlike LISTA-3).
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/ExportarExcelCruceAction.php` [MODIFY] — `ESTADO_LABELS`, `LISTA3_ACTIVE_ESTADOS`, `calcLista2()`/`calcLista3()` comments
+- `tests/Unit/Actions/ExportarExcelCruceActionTest.php` [MODIFY] — added `t035_resolves_estado_label_per_inv06_hierarchy`, `t035_lista3_counts_finalizado_14_not_suspendido_9_as_active`
+
+**Acceptance Criteria:**
+- [x] `resolveEstado()` maps all 8 INV-06 estado codes (0, 2, 3, 9, 11, 12, 13, 14) to their correct labels.
+- [x] `calcLista3()` counts a FINALIZADO(14) student in a qualifying cycle as active; a SUSPENDIDO(9) student in the same cycle is not counted.
+- [x] Stale/backwards estado-code comments in `calcLista2()`/`calcLista3()` corrected to match INV-06.
+
+**Traces To:** INV-06, spec.md AC-007, context-bridge.md ~line 200, production incident (2026-07-07, "exportados aparecen mayormente como SUSPENDIDO")
+
+---
+
+### T036 [S] - Shared INV-06 Hierarchy Resolution for Duplicate Person Records (Exact + Fuzzy Matching)
+
+_Boundary: Actions_ · _Depends: —_ · **Priority:** P0 · **Status:** Completed
+
+**Description:** Production bug reported live (2026-07-07), root cause of "no respeta el orden de jerarquía establecido": `RealizarCruceExactoAction::getActiveAlumnos()`'s academia query has no `ORDER BY`, and appended every `alumno_matricula` row matching a normalized name under the same `by_name[$nameKey]` index with no deduplication — so a person re-enrolled across periods (multiple `alumno_matricula` records with different `estado`) resolved to whichever row the DB happened to return first (confirmed empirically: `findMatchByName()` iterates `$indices` in that arbitrary order and returns the first name-token match — not the highest-priority estado, not the most recent). `CalcularSimilitudesCabosAction::execute()` has an independent fallback query with the identical `estado IN (2,3,9,13,14) AND estado_aula=1` filter and the same lack of dedup, so a duplicate person could also surface twice in the fuzzy top-5 candidate list under two different `alumno_id`s.
+
+Fixed by extracting the INV-06 priority order into a new shared helper, `App\Actions\Cruce\ResolverEstadoHierarchy` (`pickBestEstado(array $estados): int`, `dedupeByIdentity(array $rows, callable $identityKey, callable $estadoAccessor): array`), and calling it from both actions to collapse rows sharing the same normalized full name (apellido paterno + materno + nombres) down to the single row with the INV-06-highest-priority estado, before match indices/scoring are built:
+- `RealizarCruceExactoAction::getActiveAlumnos()` now dedupes the raw academia rows by full-name identity before building `$alumnos`/`by_name`/`by_initial`.
+- `CalcularSimilitudesCabosAction::execute()`'s fallback query now also selects `am.estado` and dedupes the same way before the bigram/Levenshtein scoring loop.
+
+This is a deliberately scoped slice of T025 (fuzzy-match consolidation) — it only extracts the estado-hierarchy dedup piece; it does not perform T025's full "make `CalcularSimilitudesCabosAction` the single source of truth for the scoring formula" consolidation (`ProcessCsvBatchJob`'s separate fuzzy implementation is untouched). T025 remains Not Started for that broader scope.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/ResolverEstadoHierarchy.php` [NEW]
+- `app/Actions/Cruce/RealizarCruceExactoAction.php` [MODIFY] — `getActiveAlumnos()`
+- `app/Actions/Cruce/CalcularSimilitudesCabosAction.php` [MODIFY] — `execute()` fallback query
+- `tests/Unit/Actions/ResolverEstadoHierarchyTest.php` [NEW]
+- `tests/Unit/Actions/ConexionAcademiaTest.php` [MODIFY] — added `t036_resolves_duplicate_person_records_by_inv06_hierarchy_not_row_order`
+
+**Acceptance Criteria:**
+- [x] `ResolverEstadoHierarchy::pickBestEstado()` honors the exact INV-06 order: MATRICULADO(2) > PAGADO(3) > FINALIZADO(14) > SUSPENDIDO(9) > RETIRADO(0) > TRASLADADO(12) > STAND BY(13) > ANULADO(11).
+- [x] `ResolverEstadoHierarchy::dedupeByIdentity()` collapses duplicate-identity rows to the best-estado row regardless of input order; rows with distinct identities are untouched.
+- [x] A person with two `alumno_matricula` records (one MATRICULADO, one SUSPENDIDO, seeded with the SUSPENDIDO row first/lower-id so a naive "first row wins" implementation would fail) resolves to the MATRICULADO record via `RealizarCruceExactoAction::execute()`.
+- [x] `CalcularSimilitudesCabosAction`'s fallback query selects `am.estado` and dedupes by full-name identity before scoring, so it cannot surface the same person twice under two `alumno_id`s.
+- [x] No behavioral change for the existing academia fixtures (`AcademiaDbHelper`), which have no duplicate-identity rows — full existing suite for both actions still passes.
+
+**Traces To:** INV-06, US-002 AC-007, US-003 AC-008, test-cases.md TC-005, tasks.md T025 (scoped slice — see Description), production incident (2026-07-07, "no respeta el orden establecido")
+
+**Note (2026-07-07, code review follow-up):** T036's original identity key was the normalized full name (apellido paterno + materno + nombres), which a code review flagged as a CRITICAL defect — two distinct real students sharing an identical normalized name would be deterministically merged into one, silently dropping the other's `alumno_matricula` row. Fixed by adding `p.dni` to both queries' `SELECT` clauses and rekeying `dedupeByIdentity()` on `dni` (personas.dni, the real stable person identifier — matches the convention already used by `ExportarExcelCruceAction`) in both `RealizarCruceExactoAction::getActiveAlumnos()` and `CalcularSimilitudesCabosAction::execute()`. `ConexionAcademiaTest::t036_...` was updated so its duplicate-person fixture shares one `dni` (previously used two different `dni`s for what was meant to be the same person — itself a symptom of the name-keyed bug). Added companion regression tests: `ConexionAcademiaTest::it_does_not_merge_two_different_people_sharing_identical_normalized_full_name` and `CalcularSimilitudesCabosActionTest::it_collapses_duplicate_person_records_to_one_fuzzy_candidate_by_inv06_hierarchy` (the latter closing the gap noted in the now-stale acceptance criterion above, which had zero real test coverage for the fuzzy path's own dedup behavior).
+
+**Note (2026-07-07, superseded by T038 — PO verification against real production data):** T036's hierarchy-only resolution rule (highest INV-06 priority wins, with no regard for recency) was itself confirmed to be a production bug: a student currently RETIRADO was resolved/exported as PAGADO because an old (2022) PAGADO record outranked the real, current record purely by INV-06 priority. **T036's dedup logic is corrected by T038**: `ResolverEstadoHierarchy::dedupeByIdentity()` now resolves by MOST RECENT `alumno_matricula.fecha` first, using INV-06 hierarchy only as a tie-break. T036's original acceptance criteria (hierarchy resolves duplicate-identity rows, `dni`-based identity) remain valid and unchanged — only the winning rule when multiple records exist has changed. See T038 below and the corresponding correction notes in context-bridge.md (INV-06), spec.md (AC-007), and data-model.md (`alumno_matricula` §2.x).
+
+---
+
+### T037 [S] - Tie-Break Rule for Same-Priority Duplicate Estado Records (INV-06 Gap)
+
+_Boundary: Actions_ · _Depends: T036_ · **Priority:** P3 · **Status:** Resolved by T038 (residual gap re-scoped, see note below)
+
+**Description:** `ResolverEstadoHierarchy::dedupeByIdentity()`/`isHigherPriority()` uses a strict `<` priority comparison, so when two duplicate-identity (same `dni`) `alumno_matricula` records share the SAME (highest) INV-06 priority estado, the first-encountered row wins — deterministic given a fixed DB row order, but still row-order-dependent rather than driven by any documented business rule. INV-06 (context-bridge.md, spec.md AC-007) specifies the priority order between different estados; it does not specify a tie-break rule for two records tied on the same estado. Needs a product decision (e.g. most recent `alumno_matricula.id`, or most recent `fecha`) before this can be implemented deterministically and tested.
+
+**Traces To:** INV-06, spec.md AC-007, code review follow-up (2026-07-07) to T036/dni-based identity fix.
+
+**Re-evaluation (2026-07-07, T038 — PO verification against real production data):** the product decision this task was waiting on has been made: recency (`alumno_matricula.fecha`) is now the PRIMARY signal, with INV-06 hierarchy only as a tie-break — see T038. This resolves the common case this task worried about (two duplicate records with the same highest-priority estado, e.g. both MATRICULADO): they now resolve by recency first, so row order no longer decides the outcome in the typical case. **A narrower residual gap remains, now precisely scoped:** two records tied on BOTH the exact same `fecha` AND the same estado are still resolved by whichever row `dedupeByIdentity()` encounters first (row-order-dependent), and likewise two records that both lack a usable `fecha` and share the same estado. This residual case is rarer than T037's original framing (it now requires a genuine double-tie, not just a same-estado tie) and is judged low-risk enough to leave as `Not Started`/deferred rather than block T038; revisit only if real production data surfaces an actual same-date-same-estado duplicate.
+
+---
+
+### T038 [S] - Recency-First Resolution for Duplicate Person Records (Corrects T036 Hierarchy-Only Reading)
+
+_Boundary: Actions_ · _Depends: T036_ · **Priority:** P0 · **Status:** Completed
+
+**Description:** Production bug confirmed by the product owner against real production data (2026-07-07): a student who is currently RETIRADO (estado 0) was matched/exported showing PAGADO (3) instead, because the student has an OLD `alumno_matricula` record (2022) with estado PAGADO, and T036's dedup logic (`ResolverEstadoHierarchy::dedupeByIdentity()`) picked the record with the highest INV-06 hierarchy priority across a person's duplicate records with NO regard for recency. Since PAGADO(3) outranks RETIRADO(0) in `PRIORITY_ORDER`, the stale 2022 record won over the real current status.
+
+**Corrected business rule (PO, 2026-07-07):** the system must FIRST resolve to a person's MOST RECENT `alumno_matricula` record (by `alumno_matricula.fecha` — the "Enrollment date" column, already selected elsewhere in this codebase for the F-MATRICULA export column and reliably populated via `useCurrent()`/non-null in practice). The INV-06 `PRIORITY_ORDER` is used ONLY as a tie-break — when multiple contending records share the exact same most-recent date, or when none of them have a usable date at all. This REVERSES T036's hierarchy-only precedence and supersedes that reading; it does NOT change T036's `dni`-based identity key or the fact that `RealizarCruceExactoAction`/`CalcularSimilitudesCabosAction` share one resolution helper.
+
+Also investigated the related PO report "las listas sigue sin verse" (LISTA-1/2/3 export columns still not showing correctly, even after T035's ESTADO_LABELS/LISTA3_ACTIVE_ESTADOS fix). **Confirmed empirically (via `ExportarExcelCruceActionTest::t038_recency_fix_resolves_lista_columns_downstream_symptom`) to be the SAME root cause, not a separate bug:** `ExportarExcelCruceAction::calcLista1/2/3()` key off `periodo_nombre`/`estado` from whichever `alumno_matricula.id` ends up stored in `ingresante.alumno_id` — decided upstream by the same dedup this task fixes. Before this fix, dedup could resolve to a stale record whose `periodo_nombre` doesn't match any of the 2024+/Oct-2025+ keyword lists, making LISTA-1/2/3 incorrectly compute to 0 even though the person's real, current enrollment is in a qualifying period. The recency-first fix resolves this downstream symptom automatically — no separate change to `ExportarExcelCruceAction` was needed.
+
+**Scope boundary found during this fix (flagged, not addressed here):** `ESTADOS_ACTIVOS = [2, 3, 9, 13, 14]` — used identically in `RealizarCruceExactoAction::getActiveAlumnos()`, `CalcularSimilitudesCabosAction::execute()`'s fallback query, `GuardarCruceConfirmadoAction`, and `CruceIngresantesController::academiaAlumnos()` — excludes RETIRADO(0)/ANULADO(11)/TRASLADADO(12) from the SQL `WHERE` clause BEFORE dedup ever runs. If a person's ONLY historical record inside that active-estado filter is stale, and their true current status lives in a RETIRADO/ANULADO/TRASLADADO row the filter excludes entirely, this recency-first dedup fix cannot surface that — the row never reaches `dedupeByIdentity()`. Widening `ESTADOS_ACTIVOS` to also treat those codes as candidate-pool-eligible is a separate, larger business-rule change (it would also make previously-unmatchable RETIRADO/ANULADO/TRASLADADO people become match candidates for the first time) and was intentionally NOT made as part of this fix; flagged here for product/architecture follow-up. All new tests for this task therefore use estado pairs that are both already inside `ESTADOS_ACTIVOS`, which is the reachable code path this fix actually changes.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/ResolverEstadoHierarchy.php` [MODIFY] — `dedupeByIdentity()` gains an optional `$dateAccessor` parameter; new `isBetterCandidate()`/`toTimestamp()` private helpers implement recency-first resolution with INV-06 hierarchy as tie-break only. Omitting `$dateAccessor` preserves the exact pre-existing hierarchy-only behavior (backward compatible).
+- `app/Actions/Cruce/RealizarCruceExactoAction.php` [MODIFY] — `getActiveAlumnos()` now selects `am.fecha AS fecha_matricula` and passes a date accessor to `dedupeByIdentity()`.
+- `app/Actions/Cruce/CalcularSimilitudesCabosAction.php` [MODIFY] — `execute()`'s fallback query now also selects `am.fecha AS fecha_matricula` and passes a date accessor to `dedupeByIdentity()`.
+- `tests/Unit/Actions/ResolverEstadoHierarchyTest.php` [MODIFY] — added 5 new tests covering recency-wins, order-independence, dated-beats-undated, hierarchy-tie-break-on-date-tie-or-both-missing, and hierarchy-only-unchanged-when-date-accessor-omitted.
+- `tests/Unit/Actions/ConexionAcademiaTest.php` [MODIFY] — added `t038_resolves_to_most_recent_record_over_higher_hierarchy_estado`.
+- `tests/Unit/Actions/CalcularSimilitudesCabosActionTest.php` [MODIFY] — added `t038_fuzzy_dedup_resolves_to_most_recent_record_over_higher_hierarchy_estado`.
+- `tests/Unit/Actions/ExportarExcelCruceActionTest.php` [MODIFY] — added `t038_recency_fix_resolves_lista_columns_downstream_symptom` (also widened `setUpAcademiaSchema()`'s `personas`/`alumno_matricula` columns to support the combined getActiveAlumnos()+loadAcademiaData() pipeline test).
+
+**Acceptance Criteria:**
+- [x] `ResolverEstadoHierarchy::dedupeByIdentity()` resolves to the most-recent-dated row when a `$dateAccessor` is supplied, regardless of INV-06 hierarchy.
+- [x] A row with a usable date always beats a row with none, regardless of hierarchy.
+- [x] INV-06 hierarchy is used only as a tie-break, when contending rows share the exact same date or when neither has a usable date.
+- [x] Omitting `$dateAccessor` preserves the exact pre-existing hierarchy-only behavior (verified: all pre-existing `dedupeByIdentity()` tests from T036 still pass unmodified).
+- [x] `RealizarCruceExactoAction::execute()` resolves to a person's most recent `alumno_matricula` record over an older, higher-hierarchy-priority record (exact-match path).
+- [x] `CalcularSimilitudesCabosAction::execute()` resolves the same way (fuzzy-match path).
+- [x] Confirmed empirically that the "las listas sigue sin verse" symptom shares the same root cause and is resolved by this fix, with no separate change needed to `ExportarExcelCruceAction`.
+- [x] Full existing suite still passes with no new regressions beyond the 6 known pre-existing, unrelated failures in `ExportarExcelCruceActionTest` (private-method access / signature mismatches): 78 tests / 72 passed / 6 failed after this fix (was 78 tests / 66 passed / 12 failed with only the 6 new recency-dependent tests added but the recency logic disabled — i.e. RED confirmed before GREEN).
+
+**Traces To:** INV-06 correction, spec.md AC-007, context-bridge.md ~line 200 (INV-06), data-model.md `alumno_matricula` note (~line 277), tasks.md T036 (superseded reading), T037 (re-evaluated, see note above), production incident (2026-07-07, PO-verified against real production data, "estado RETIRADO se muestra como PAGADO" / "las listas sigue sin verse").
+
+---
+
+### T039 [S] - Widen ESTADOS_ACTIVOS to Include RETIRADO (Resolves T038 Scope Boundary)
+
+_Boundary: Actions_ · _Depends: T038_ · **Priority:** P0 · **Status:** Completed
+
+**Description:** Resolves the scope boundary explicitly flagged (not addressed) by T038: T038's recency-first dedup fix could not fully resolve the reported production bug, because `ESTADOS_ACTIVOS = [2, 3, 9, 13, 14]` filters `alumno_matricula` rows in the SQL `WHERE` clause BEFORE dedup/recency logic ever runs — a person whose only qualifying record was RETIRADO(0) never had that row enter the candidate pool at all, so recency-first resolution had nothing to compare it against; a stale, older PAGADO/etc. record (if any survived the filter) would win by default, or the person would surface as unmatched.
+
+**Product decision (PO, 2026-07-07):** widen `ESTADOS_ACTIVOS` to also include RETIRADO(0) as a valid matching candidate. **ANULADO(11) and TRASLADADO(12) are explicitly and deliberately EXCLUDED from this widening** — the PO reviewed all three codes flagged by T038 and approved RETIRADO only.
+
+**`estado_aula` interaction investigated:** `estado_aula = 1` (aula activa) is ANDed with the estado filter in every affected query. Per `data-model.md`/`context-bridge.md`, `estado_aula` tracks whether the **classroom/cycle (aula)** is active — an independent dimension from the student's own enrollment `estado`. No documented business rule ties `estado_aula` to `estado = RETIRADO`; a student can plausibly withdraw (RETIRADO) from a cohort whose aula/cycle is still open (`estado_aula = 1`), so a RETIRADO row is not systematically excluded by this second condition. No change made to the `estado_aula = 1` condition — it is orthogonal to this widening and stays as-is.
+
+**`GuardarCruceConfirmadoAction` decision:** since RETIRADO records are now valid candidates in the exact/fuzzy matchers, `GuardarCruceConfirmadoAction::ESTADOS_ACTIVOS` (used to validate a manually-submitted `alumno_id`) was widened identically, for consistency — a user must be able to manually confirm a match against a RETIRADO candidate the system itself now suggests.
+
+**`CruceIngresantesController::academiaAlumnos()` decision:** widened identically. This endpoint lists/browses academia alumnos for the same candidate universe as the matchers above (its own inline comment and `ExportarExcelCruceAction`'s `ESTADO_LABELS` cross-reference already treat it as part of the same candidate-pool concept); excluding RETIRADO here while accepting it in confirmation would be an inconsistent, surprising gap.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/RealizarCruceExactoAction.php` [MODIFY] — `ESTADOS_ACTIVOS` widened to `[0, 2, 3, 9, 13, 14]`.
+- `app/Actions/Cruce/CalcularSimilitudesCabosAction.php` [MODIFY] — inline fallback query `WHERE am.estado IN (...)` widened to `(0, 2, 3, 9, 13, 14)`.
+- `app/Actions/Cruce/GuardarCruceConfirmadoAction.php` [MODIFY] — `ESTADOS_ACTIVOS` widened to `[0, 2, 3, 9, 13, 14]`.
+- `app/Http/Controllers/CruceIngresantesController.php` [MODIFY] — `academiaAlumnos()`'s inline `WHERE am.estado IN (...)` widened to `(0, 2, 3, 9, 13, 14)`.
+- `tests/Unit/Actions/ConexionAcademiaTest.php` [MODIFY] — added `t039_widened_active_estados_surfaces_retirado_as_matching_candidate` (exact-match path, reproduces the original reported bug end-to-end: OLD PAGADO record vs. NEWER RETIRADO record — RETIRADO now wins).
+- `tests/Unit/Actions/CalcularSimilitudesCabosActionTest.php` [MODIFY] — added `t039_widened_active_estados_surfaces_retirado_as_fuzzy_candidate` (same scenario, fuzzy-match path).
+- `tests/Unit/Actions/GuardarCruceConfirmadoActionTest.php` [MODIFY] — added `acg_confirmar_accepts_alumno_id_with_retirado_estado` (manual confirmation against a RETIRADO `alumno_id` now succeeds instead of 404).
+
+**Acceptance Criteria:**
+- [x] `RealizarCruceExactoAction::getActiveAlumnos()` includes RETIRADO(0) rows in its candidate pool; ANULADO(11)/TRASLADADO(12) remain excluded.
+- [x] `CalcularSimilitudesCabosAction::execute()`'s fallback query includes RETIRADO(0) rows; ANULADO(11)/TRASLADADO(12) remain excluded.
+- [x] `GuardarCruceConfirmadoAction::execute()` accepts a manually-submitted `alumno_id` referencing a RETIRADO(0) record; ANULADO(11)/TRASLADADO(12) `alumno_id`s are still rejected (verified unchanged by `acg_confirmar_rejects_alumno_id_with_inactive_estado`, estado=11).
+- [x] `CruceIngresantesController::academiaAlumnos()` includes RETIRADO(0) rows for consistency with the above.
+- [x] `estado_aula = 1` condition investigated and confirmed orthogonal to `estado`/RETIRADO — left unchanged, no adjustment needed.
+- [x] Regression reproduces the ORIGINAL reported production scenario end-to-end (OLD PAGADO vs. NEWER RETIRADO) on both matching paths, previously impossible to test because the RETIRADO row was filtered out before dedup ever ran.
+- [x] Full existing suite still passes with no new regressions beyond the same 6 known pre-existing, unrelated failures in `ExportarExcelCruceActionTest`: 81 tests / 75 passed / 6 failed after this fix (was 78 tests / 72 passed / 6 failed before; 3 new tests added, all RED before the fix, all GREEN after).
+
+**Traces To:** T038 scope-boundary note, INV-06, spec.md AC-006, production incident (2026-07-07, PO-verified against real production data), PO decision (2026-07-07, RETIRADO approved / ANULADO+TRASLADADO explicitly rejected for this widening).
 
 ---
 

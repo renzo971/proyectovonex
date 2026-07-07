@@ -130,7 +130,7 @@ matriculas.id → ciclos.matricula_id
 ### Filtros para alumnos activos (usados en el matching)
 
 ```sql
-WHERE alumno_matricula.estado IN (2, 3, 9, 13, 14)   -- MATRICULADO, PAGADO, SUSPENDIDO, STAND BY, FINALIZADO
+WHERE alumno_matricula.estado IN (0, 2, 3, 9, 13, 14)   -- RETIRADO, MATRICULADO, PAGADO, SUSPENDIDO, STAND BY, FINALIZADO
   AND alumno_matricula.estado_aula = 1            -- aula activa
   AND EXISTS (SELECT 1 FROM ciclos                -- ciclo activo
               WHERE ciclos.matricula_id = matriculas.id
@@ -140,6 +140,8 @@ WHERE alumno_matricula.estado IN (2, 3, 9, 13, 14)   -- MATRICULADO, PAGADO, SUS
       WHERE matricularegular_id IS NOT NULL
   )
 ```
+
+> **Corrección (2026-07-07, decisión PO — tasks.md T039):** el filtro se amplió para incluir RETIRADO (0) como candidato válido de cruce, resolviendo el límite de alcance detectado en T038 (un registro RETIRADO nunca entraba al pool antes de que la deduplicación por recencia pudiera actuar sobre él). ANULADO (11) y TRASLADADO (12) permanecen excluidos — decisión deliberada y acotada del PO.
 
 ### Jerarquía de estados (INV-06 actualizado)
 
@@ -158,7 +160,7 @@ El campo `alumno_matricula.estado` es numérico. En la base de datos real de `ac
 
 *Nota:* Los valores `1` (PENDIENTE) y `4` (PRE-INSCRITO) también existen en la base de datos, pero no participan en esta jerarquía de resolución de estados para el cruce.
 
-Para la extracción inicial de la base de datos de Academia, el motor aplica un filtro de estados activos: `estado IN (2, 3, 9, 13, 14)` (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY, FINALIZADO), según se detalla en el filtro de la query. Sin embargo, al resolver alumnos con múltiples registros históricos en la base de datos, se debe utilizar la jerarquía completa descrita arriba.
+Para la extracción inicial de la base de datos de Academia, el motor aplica un filtro de estados activos: `estado IN (0, 2, 3, 9, 13, 14)` (RETIRADO, MATRICULADO, PAGADO, SUSPENDIDO, STAND BY, FINALIZADO — ampliado 2026-07-07 por decisión PO, tasks.md T039, para incluir RETIRADO; ANULADO(11)/TRASLADADO(12) permanecen excluidos), según se detalla en el filtro de la query. Sin embargo, al resolver alumnos con múltiples registros históricos en la base de datos, se debe utilizar la jerarquía completa descrita arriba.
 
 **Anti-Corruption Layer:** La normalización (`NormalizarTextoAction`) se aplica a los datos de Academia antes de cualquier comparación. El dominio nunca almacena strings crudos de Academia — solo formas normalizadas.
 
@@ -198,6 +200,7 @@ Reglas que el diseño técnico DEBE preservar. Cualquier implementación que las
 | INV-04 | Las filas idénticas dentro del mismo CSV se de-duplican antes de persistir | La de-duplicación ocurre en `ProcesarCargaCsvAction` ANTES de cualquier INSERT |
 | INV-05 | El filtro de OBSERVACION se aplica SOLO sobre el valor normalizado, nunca sobre el string crudo del CSV | La normalización precede al filtrado en el pipeline del job |
 | INV-06 | La jerarquía de estados de alumno es fija e inmutable. El orden de prioridad es: MATRICULADO (2) > PAGADO (3) > FINALIZADO (14) > SUSPENDIDO (9) > RETIRADO (0) > TRASLADADO (12) > STAND BY (13) > ANULADO (11). | Todo código que resuelva alumni con múltiples registros debe usar este orden exacto |
+> **Corrección (2026-07-07, verificación PO con datos de producción real):** la jerarquía anterior es INCOMPLETA como única regla de resolución para registros duplicados de un mismo alumno. Un caso real de producción mostró un alumno actualmente RETIRADO (0) resuelto/exportado como PAGADO (3), porque un registro `alumno_matricula` antiguo (2022) con estado PAGADO ganaba por jerarquía sobre el registro real y vigente (RETIRADO), sin considerar cuál es más reciente. **Nueva regla (supersede la lectura solo-jerarquía implementada en T036):** cuando una persona tiene más de un registro `alumno_matricula`, primero se debe identificar el registro MÁS RECIENTE (por `alumno_matricula.fecha`); la jerarquía INV-06 de arriba se usa ÚNICAMENTE como desempate cuando dos o más registros comparten la misma fecha más reciente (o cuando ninguno tiene fecha utilizable). Ver `ResolverEstadoHierarchy` (app/Actions/Cruce/ResolverEstadoHierarchy.php) y tasks.md T038.
 | INV-07 | La base `academia` es estrictamente de solo lectura para este sistema | Cero operaciones INSERT, UPDATE o DELETE sobre la conexión `academia` |
 | INV-08 | Las credenciales de `academia` nunca se hardcodean | La configuración de conexión se toma exclusivamente de variables de entorno `DB_ACADEMIA_*` |
 

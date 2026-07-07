@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Actions;
 
 use App\Actions\Cruce\ExportarExcelCruceAction;
+use App\Actions\Cruce\RealizarCruceExactoAction;
 use App\Models\Ingresante;
 use App\Models\LoteCruce;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +46,9 @@ class ExportarExcelCruceActionTest extends TestCase
     {
         Schema::connection('academia')->create('personas', function ($table) {
             $table->string('dni')->primary();
+            $table->string('nombres')->nullable();
+            $table->string('apellido_paterno')->nullable();
+            $table->string('apellido_materno')->nullable();
             $table->string('telefono')->nullable();
             $table->string('telefono2')->nullable();
         });
@@ -59,6 +63,7 @@ class ExportarExcelCruceActionTest extends TestCase
             $table->string('alumno_codigo');
             $table->unsignedBigInteger('aula_id');
             $table->smallInteger('estado');
+            $table->smallInteger('estado_aula')->default(1);
             $table->timestamp('fecha')->useCurrent();
         });
 
@@ -407,6 +412,59 @@ class ExportarExcelCruceActionTest extends TestCase
     }
 
     /**
+     * T035: resolveEstado() must map estado codes per the INV-06 hierarchy
+     * (context-bridge.md, spec.md AC-007), not the scrambled legacy
+     * ESTADO_LABELS table — codes 9 and 14 were swapped (9 is SUSPENDIDO,
+     * 14 is FINALIZADO, not the other way around), and 0 (RETIRADO) / 12
+     * (TRASLADADO) were missing entirely, falling through to the raw
+     * numeric-string fallback in resolveEstado().
+     * Traces to: INV-06, spec.md AC-007.
+     */
+    #[Test]
+    public function t035_resolves_estado_label_per_inv06_hierarchy(): void
+    {
+        $method = new ReflectionMethod(ExportarExcelCruceAction::class, 'resolveEstado');
+        $method->setAccessible(true);
+
+        $cases = [
+            0 => 'RETIRADO',
+            2 => 'MATRICULADO',
+            3 => 'PAGADO',
+            9 => 'SUSPENDIDO',
+            11 => 'ANULADO',
+            12 => 'TRASLADADO',
+            13 => 'STAND BY',
+            14 => 'FINALIZADO',
+        ];
+
+        foreach ($cases as $code => $expectedLabel) {
+            $academia = (object) ['am_estado' => $code];
+            $result = $method->invoke($this->action, $academia);
+            expect($result)->toBe($expectedLabel);
+        }
+    }
+
+    /**
+     * T035: calcLista3() must treat FINALIZADO as estado 14 per INV-06 (not
+     * 9, which is SUSPENDIDO). A FINALIZADO(14) student enrolled in a cycle
+     * active as of Feb 27, 2026 must count as LISTA-3 active; a
+     * SUSPENDIDO(9) student in the same cycle must not.
+     * Traces to: INV-06, spec.md L3/AC-014.
+     */
+    #[Test]
+    public function t035_lista3_counts_finalizado_14_not_suspendido_9_as_active(): void
+    {
+        $method = new ReflectionMethod(ExportarExcelCruceAction::class, 'calcLista3');
+        $method->setAccessible(true);
+
+        $finalizado = (object) ['am_estado' => 14, 'periodo_nombre' => 'VERANO 2026'];
+        $suspendido = (object) ['am_estado' => 9, 'periodo_nombre' => 'VERANO 2026'];
+
+        expect($method->invoke($this->action, $finalizado))->toBe(1);
+        expect($method->invoke($this->action, $suspendido))->toBe(0);
+    }
+
+    /**
      * Reuses the same gapped-key fixture shape as T030 (produced by
      * ->pluck('alumno_id')->unique()->toArray()) to confirm the literal
      * builder ignores array keys entirely and only cares about values, in
@@ -438,5 +496,108 @@ class ExportarExcelCruceActionTest extends TestCase
         $result = $this->invokeBuildPgArrayLiteral(['5', '10', 3]);
 
         expect($result)->toBe('{5,10,3}');
+    }
+
+    /**
+     * T038: Investigates whether "las listas sigue sin verse" (LISTA-1/2/3
+     * export columns showing 0 for students who should count as active) is
+     * the SAME root cause as the INV-06 recency-vs-hierarchy bug, or a
+     * separate issue.
+     *
+     * Confirmed SAME root cause: `calcLista1/2/3()` key off
+     * `periodo_nombre`/`estado` from whichever `alumno_matricula.id` ended
+     * up stored as `ingresante.alumno_id` — decided upstream by
+     * `RealizarCruceExactoAction::getActiveAlumnos()`'s dedup. Before this
+     * fix, dedup preferred the stale 2022 PAGADO(3) record (higher INV-06
+     * hierarchy) over the current 2026 MATRICULADO(2) record, so
+     * `loadAcademiaData()` resolved `periodo_nombre` to the OLD period
+     * ("VERANO 2022", which matches none of LISTA1_CUTOFF_KEYWORDS or
+     * LISTA2_KEYWORDS), making LISTA-1/2/3 incorrectly compute to 0 even
+     * though the person's real, current enrollment IS in a qualifying
+     * 2026 period. This test proves both halves: (1) `getActiveAlumnos()`
+     * now resolves to the recent record's id, and (2) feeding that id
+     * through the real `loadAcademiaData()` + `calcLista1/2/3()` pipeline
+     * yields the CORRECT (1/1/1) flags, while the stale id would have
+     * produced the WRONG (0/0/0) flags reported by the PO.
+     *
+     * Traces to: INV-06 correction, tasks.md T038, production incident
+     * (2026-07-07, "las listas sigue sin verse").
+     */
+    #[Test]
+    public function t038_recency_fix_resolves_lista_columns_downstream_symptom(): void
+    {
+        $this->setUpAcademiaSchema();
+
+        // setUpAcademiaSchema() already seeds periodo id=1 ("VERANO 2024",
+        // matricula id=1, aula id=1) — that period itself qualifies for
+        // LISTA1_CUTOFF_KEYWORDS, so it cannot be reused for the "old,
+        // non-qualifying" record here. Seed dedicated periodo/matricula/aula
+        // rows for both the genuinely-old (2022) and current (2026) periods.
+        DB::connection('academia')->table('periodos')->insert([
+            ['id' => 2, 'nombre' => 'VERANO 2022', 'ciclos' => '2022-I'],
+            ['id' => 3, 'nombre' => 'VERANO 2026', 'ciclos' => '2026-I'],
+        ]);
+        DB::connection('academia')->table('matriculas')->insert([
+            ['id' => 2, 'anio' => 2022, 'periodo_id' => 2, 'local_id' => 1],
+            ['id' => 3, 'anio' => 2026, 'periodo_id' => 3, 'local_id' => 1],
+        ]);
+        DB::connection('academia')->table('aulas')->insert([
+            ['id' => 2, 'matricula_id' => 2],
+            ['id' => 3, 'matricula_id' => 3],
+        ]);
+
+        DB::connection('academia')->table('personas')->insert([
+            'dni' => '98000001', 'nombres' => 'CARLA', 'apellido_paterno' => 'MORALES', 'apellido_materno' => 'RUIZ',
+        ]);
+        DB::connection('academia')->table('alumnos')->insert([
+            ['codigo' => 'ALUL01', 'persona_dni' => '98000001'],
+            ['codigo' => 'ALUL02', 'persona_dni' => '98000001'],
+        ]);
+        DB::connection('academia')->table('alumno_matricula')->insert([
+            // OLD (stale, 2022) — MATRICULADO(2), the HIGHEST INV-06 priority,
+            // deliberately outranking the newer record's estado, so a
+            // hierarchy-only resolution would (wrongly) pick this stale row.
+            // Points at the non-qualifying old period.
+            ['id' => 1000, 'alumno_codigo' => 'ALUL01', 'aula_id' => 2, 'estado' => 2, 'estado_aula' => 1, 'fecha' => '2022-03-15 00:00:00'],
+            // NEW (current, 2026) — FINALIZADO(14), a LOWER INV-06 priority
+            // than MATRICULADO, so only recency-first resolution picks this
+            // one. Still inside LISTA3_ACTIVE_ESTADOS=[2,3,14]. Points at the
+            // qualifying 2026 period.
+            ['id' => 1001, 'alumno_codigo' => 'ALUL02', 'aula_id' => 3, 'estado' => 14, 'estado_aula' => 1, 'fecha' => '2026-01-10 00:00:00'],
+        ]);
+
+        // (1) getActiveAlumnos() must resolve to the recent record (1001), not the stale one (1000).
+        $index = (new RealizarCruceExactoAction())->getActiveAlumnos();
+        $resolved = collect($index['alumnos'])->firstWhere('id', 1001);
+        $staleStillPresent = collect($index['alumnos'])->firstWhere('id', 1000);
+
+        expect($resolved)->not->toBeNull();
+        expect($staleStillPresent)->toBeNull();
+
+        // (2) Feeding the STALE id through the real export pipeline reproduces
+        // the reported bug: LISTA columns wrongly compute to 0.
+        $staleAcademia = $this->invokeLoadAcademiaData([1000])[1000];
+        $staleCalcLista1 = $this->invokePrivate('calcLista1', $staleAcademia);
+        $staleCalcLista2 = $this->invokePrivate('calcLista2', $staleAcademia);
+        $staleCalcLista3 = $this->invokePrivate('calcLista3', $staleAcademia);
+
+        expect([$staleCalcLista1, $staleCalcLista2, $staleCalcLista3])->toBe([0, 0, 0]);
+
+        // (3) Feeding the RECENT id (the one getActiveAlumnos() now actually
+        // resolves to) through the same pipeline yields the CORRECT flags.
+        $recentAcademia = $this->invokeLoadAcademiaData([1001])[1001];
+        $recentCalcLista1 = $this->invokePrivate('calcLista1', $recentAcademia);
+        $recentCalcLista2 = $this->invokePrivate('calcLista2', $recentAcademia);
+        $recentCalcLista3 = $this->invokePrivate('calcLista3', $recentAcademia);
+
+        expect([$recentCalcLista1, $recentCalcLista2, $recentCalcLista3])->toBe([1, 1, 1]);
+    }
+
+    private function invokePrivate(string $method, mixed ...$args): mixed
+    {
+        $reflection = new ReflectionMethod(ExportarExcelCruceAction::class, $method);
+        $reflection->setAccessible(true);
+
+        return $reflection->invoke($this->action, ...$args);
     }
 }

@@ -76,13 +76,17 @@ class CalcularSimilitudesCabosAction
 
         AcademiaDbHelper::ensureTablesAndSeed();
 
+        // 2026-07-07: PO decision — widened to include RETIRADO(0) as a
+        // valid matching candidate, mirroring RealizarCruceExactoAction's
+        // ESTADOS_ACTIVOS (see tasks.md T038/T039). ANULADO(11) and
+        // TRASLADADO(12) stay excluded — deliberate, scoped decision.
         try {
             $alumnos = DB::connection('academia')->select("
-                SELECT am.id, p.apellido_paterno, p.apellido_materno, p.nombres
+                SELECT am.id, p.dni, p.apellido_paterno, p.apellido_materno, p.nombres, am.estado, am.fecha AS fecha_matricula
                 FROM alumno_matricula am
                 JOIN alumnos a ON am.alumno_codigo = a.codigo
                 JOIN personas p ON a.persona_dni = p.dni
-                WHERE am.estado IN (2, 3, 9, 13, 14)
+                WHERE am.estado IN (0, 2, 3, 9, 13, 14)
                   AND am.estado_aula = 1
             ");
         } catch (\Exception $e) {
@@ -92,6 +96,33 @@ class CalcularSimilitudesCabosAction
                 'data' => ['candidates' => [], 'no_ingresado_option' => true],
             ];
         }
+
+        // INV-06: collapse duplicate alumno_matricula records for the same
+        // person (e.g. re-enrollment across periods) down to a single
+        // winning record BEFORE scoring, so the fuzzy candidate list can't
+        // surface the same person twice under two different alumno_ids.
+        // Shares the resolution logic with RealizarCruceExactoAction via
+        // ResolverEstadoHierarchy so the two matching paths can't drift.
+        //
+        // Winning rule (2026-07-07 correction — see ResolverEstadoHierarchy
+        // docblock and tasks.md T038): the MOST RECENT record (`am.fecha`)
+        // wins regardless of INV-06 hierarchy; the hierarchy is only a
+        // tie-break for records sharing the exact same date (or none at
+        // all). This supersedes the hierarchy-only reading from T036.
+        //
+        // Identity is `dni` (personas.dni), not the normalized full name:
+        // two distinct real students can share an identical normalized name,
+        // and name-based dedup would deterministically collapse them into
+        // one — the same wrong-person risk RealizarCruceExactoAction had to
+        // fix. The normalized name is still used below for the actual
+        // fuzzy/bigram scoring against the ingresante; it just no longer
+        // decides "same person" for dedup purposes.
+        $alumnos = ResolverEstadoHierarchy::dedupeByIdentity(
+            $alumnos,
+            static fn ($alumno) => $alumno->dni,
+            static fn ($alumno) => (int) ($alumno->estado ?? 0),
+            static fn ($alumno) => $alumno->fecha_matricula ?? null,
+        );
 
         $normPaterno = $this->normalizador->execute($ingresante->apellido_paterno ?? '');
         $initial = $normPaterno !== '' ? $normPaterno[0] : '';

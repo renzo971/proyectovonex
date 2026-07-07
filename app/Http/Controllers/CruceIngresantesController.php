@@ -115,6 +115,13 @@ class CruceIngresantesController extends Controller
     public function academiaAlumnos(): JsonResponse
     {
         try {
+            // 2026-07-07 (PO decision, tasks.md T038/T039): widened to
+            // include RETIRADO(0), mirroring the candidate-pool filter in
+            // RealizarCruceExactoAction/CalcularSimilitudesCabosAction, so
+            // this browse/search list stays consistent with which alumnos
+            // can now actually be confirmed (GuardarCruceConfirmadoAction
+            // accepts RETIRADO too). ANULADO(11)/TRASLADADO(12) stay
+            // excluded — deliberate, scoped decision.
             $alumnos = DB::connection('academia')->select("
                 SELECT
                     am.id AS alumno_id,
@@ -127,7 +134,7 @@ class CruceIngresantesController extends Controller
                 FROM alumno_matricula am
                 JOIN alumnos a ON am.alumno_codigo = a.codigo
                 JOIN personas p ON a.persona_dni = p.dni
-                WHERE am.estado IN (2, 3, 9, 13, 14)
+                WHERE am.estado IN (0, 2, 3, 9, 13, 14)
                   AND am.estado_aula = 1
                 ORDER BY p.apellido_paterno, p.apellido_materno, p.nombres
                 LIMIT 50

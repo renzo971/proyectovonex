@@ -278,7 +278,11 @@ erDiagram
 La jerarquía de estados completa en el schema de `academia` es:
 - MATRICULADO (2) > PAGADO (3) > FINALIZADO (14) > SUSPENDIDO (9) > RETIRADO (0) > TRASLADADO (12) > STAND BY (13) > ANULADO (11)
 
-El motor filtra solo los estados activos `estado IN (2, 3, 9, 13)` para el pool inicial del cruce, pero debe resolver la jerarquía completa al consolidar registros históricos.
+El motor filtra solo los estados activos `estado IN (0, 2, 3, 9, 13, 14)` para el pool inicial del cruce, pero debe resolver la jerarquía completa al consolidar registros históricos.
+
+**Corrección (2026-07-07, verificación PO con datos de producción real):** resolver únicamente por jerarquía (como se implementó en T036) es insuficiente y produjo un bug de producción confirmado: un alumno actualmente RETIRADO (0) fue resuelto/exportado como PAGADO (3) porque un registro `alumno_matricula` de 2022 con estado PAGADO ganó por jerarquía sobre el registro real y vigente. **Esto supersede la lectura solo-jerarquía implementada en T036.** Nueva regla: el campo `fecha` (columna documentada arriba, "Enrollment date") determina primero cuál registro es el vigente — el registro con la fecha MÁS RECIENTE gana; la jerarquía INV-06 de arriba se usa ÚNICAMENTE como desempate cuando dos o más registros contendientes comparten exactamente la misma fecha más reciente (o cuando ninguno tiene una fecha utilizable). Implementado en `App\Actions\Cruce\ResolverEstadoHierarchy::dedupeByIdentity()` (parámetro `$dateAccessor`). Ver tasks.md T038.
+
+**Corrección (2026-07-07, decisión PO — tasks.md T039):** T038 dejó un límite de alcance sin resolver: el filtro de estados activos (`ESTADOS_ACTIVOS`) excluía RETIRADO (0) del `WHERE` ANTES de que la deduplicación por recencia (T038) pudiera actuar, así que un alumno cuyo único registro vigente fuera RETIRADO nunca entraba al pool de candidatos. El PO decidió ampliar el filtro a `estado IN (0, 2, 3, 9, 13, 14)`, incluyendo RETIRADO (0) como candidato válido. **ANULADO (11) y TRASLADADO (12) permanecen excluidos deliberadamente** — decisión de producto acotada, no una ampliación general a todos los estados de la jerarquía.
 
 ---
 

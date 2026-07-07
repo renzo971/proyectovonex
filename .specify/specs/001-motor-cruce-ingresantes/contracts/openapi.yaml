@@ -385,9 +385,11 @@ paths:
     get:
       summary: List active alumnos from the academia DB
       description: |
-        Returns up to 50 active alumno_matricula records (estado IN 2,3,9,13,14; estado_aula=1)
-        joined against alumnos/personas, for manual lookup support in the UI.
-        Traceability: plan.md §4.1 GET /api/cruce/academia/alumnos, tasks.md T022, T028.
+        Returns up to 50 active alumno_matricula records (estado IN 0,2,3,9,13,14 — widened
+        2026-07-07 per PO decision to include RETIRADO(0); ANULADO(11)/TRASLADADO(12) remain
+        excluded; estado_aula=1) joined against alumnos/personas, for manual lookup support
+        in the UI.
+        Traceability: plan.md §4.1 GET /api/cruce/academia/alumnos, tasks.md T022, T028, T039.
       operationId: getAcademiaAlumnos
       security:
         - CookieAuth: []

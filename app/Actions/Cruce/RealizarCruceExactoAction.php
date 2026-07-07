@@ -12,7 +12,13 @@ class RealizarCruceExactoAction
 {
     private NormalizarTextoAction $normalizador;
 
-    private const ESTADOS_ACTIVOS = [2, 3, 9, 13, 14];
+    // 2026-07-07: PO decision — widened to include RETIRADO(0) as a valid
+    // matching candidate (production bug: a currently-RETIRADO student was
+    // resolved to a stale historical PAGADO record because RETIRADO rows
+    // were filtered out of the candidate pool before dedup/recency logic
+    // ever ran — see tasks.md T038/T039). ANULADO(11) and TRASLADADO(12)
+    // stay excluded; this is a deliberate, scoped decision — do not add them.
+    private const ESTADOS_ACTIVOS = [0, 2, 3, 9, 13, 14];
 
     public function __construct(?NormalizarTextoAction $normalizador = null)
     {
@@ -192,7 +198,7 @@ class RealizarCruceExactoAction
         $estados = implode(',', self::ESTADOS_ACTIVOS);
 
         $rows = DB::connection('academia')->select("
-            SELECT am.id, p.apellido_paterno, p.apellido_materno, p.nombres, am.estado
+            SELECT am.id, p.dni, p.apellido_paterno, p.apellido_materno, p.nombres, am.estado, am.fecha AS fecha_matricula
             FROM alumno_matricula am
             JOIN alumnos a ON am.alumno_codigo = a.codigo
             JOIN personas p ON a.persona_dni = p.dni
@@ -200,19 +206,70 @@ class RealizarCruceExactoAction
               AND am.estado_aula = 1
         ");
 
+        $candidates = [];
+        foreach ($rows as $row) {
+            $normPaterno = $this->normalizador->execute($row->apellido_paterno ?? '');
+            $normMaterno = $this->normalizador->execute($row->apellido_materno ?? '');
+            $normNombres = $this->normalizador->execute($row->nombres ?? '');
+
+            $candidates[] = [
+                'row' => $row,
+                'estado' => (int) $row->estado,
+                'fecha' => $row->fecha_matricula ?? null,
+                'norm_paterno' => $normPaterno,
+                'norm_materno' => $normMaterno,
+                'norm_nombres' => $normNombres,
+                'dni' => $row->dni,
+            ];
+        }
+
+        // INV-06: a person can have more than one alumno_matricula record
+        // across enrollment periods, and this query has no ORDER BY. Collapse
+        // duplicates of the same person down to a single winning record
+        // BEFORE building the match indices below, so exact-match resolution
+        // can no longer land on an arbitrary DB row (previously: whichever
+        // row happened to be returned first).
+        //
+        // Winning rule (2026-07-07 correction, PO verification against real
+        // production data — see ResolverEstadoHierarchy docblock and
+        // tasks.md T038): the MOST RECENT record (by `am.fecha`) wins,
+        // regardless of INV-06 hierarchy. The hierarchy is used ONLY as a
+        // tie-break when multiple records share the exact same date, or none
+        // have a usable date. This supersedes the hierarchy-only reading
+        // implemented in T036, which could let a stale historical record
+        // (e.g. an old PAGADO row) outrank the person's real current estado
+        // (e.g. a newer RETIRADO row) purely because PAGADO ranks higher in
+        // INV-06 — recency must win first.
+        //
+        // Identity is `dni` (personas.dni, joined through alumnos.persona_dni),
+        // not the normalized full name: two distinct real students can share
+        // an identical normalized name (common Peruvian surnames), and keying
+        // dedup on name alone would deterministically drop one of them instead
+        // of just picking arbitrarily between them — turning a rare
+        // coincidental name collision into a systematic wrong-person match.
+        // `dni` is the real, stable person identifier this codebase already
+        // uses elsewhere (see ExportarExcelCruceAction) to distinguish people;
+        // the normalized name is still used further below, but only for the
+        // fuzzy/exact NAME matching, never to decide "same person" for dedup.
+        $deduped = ResolverEstadoHierarchy::dedupeByIdentity(
+            $candidates,
+            static fn (array $candidate) => $candidate['dni'],
+            static fn (array $candidate) => $candidate['estado'],
+            static fn (array $candidate) => $candidate['fecha'],
+        );
+
         $alumnos = [];
         $byName = [];
         $byInitial = [];
 
-        foreach ($rows as $row) {
-            $idx = count($alumnos);
-            
-            $normPaterno = $this->normalizador->execute($row->apellido_paterno ?? '');
-            $normMaterno = $this->normalizador->execute($row->apellido_materno ?? '');
-            $normNombres = $this->normalizador->execute($row->nombres ?? '');
-            
+        foreach ($deduped as $candidate) {
+            $row = $candidate['row'];
+            $normPaterno = $candidate['norm_paterno'];
+            $normMaterno = $candidate['norm_materno'];
+            $normNombres = $candidate['norm_nombres'];
+
             $fullNameNormalized = trim($normPaterno . ' ' . $normMaterno . ' ' . $normNombres);
-            
+
             $len = strlen($fullNameNormalized);
             $bigramsHash = [];
             for ($i = 0; $i < $len - 1; $i++) {
@@ -222,6 +279,8 @@ class RealizarCruceExactoAction
                 }
                 $bigramsHash[$bg]++;
             }
+
+            $idx = count($alumnos);
 
             $alumnos[] = [
                 'id' => (int) $row->id,
@@ -237,7 +296,7 @@ class RealizarCruceExactoAction
 
             $nameKey = $normPaterno . '|' . $normMaterno;
             $byName[$nameKey][] = $idx;
-            
+
             $initial = $normPaterno !== '' ? $normPaterno[0] : '';
             if ($initial !== '') {
                 $byInitial[$initial][] = $idx;

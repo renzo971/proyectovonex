@@ -75,6 +75,7 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
     - De `personas`: `dni`, `nombres`, `apellido_paterno`, `apellido_materno`
     - De `alumno_matricula`: `id` (usado como `alumno_id`), `estado`, `fecha`
 - [ ] **AC-006:** Dado que la conexión está disponible, cuando se consultan los alumnos, entonces el sistema filtra solo los estados activos: `estado IN (2, 3, 9, 13, 14)` que corresponden a MATRICULADO, PAGADO, SUSPENDIDO, STAND BY y FINALIZADO respectivamente. Además aplica los filtros: `estado_aula = 1`, ciclo activo (`ciclos.fecha_fin >= hoy`), y excluye los registros originales cuyo id aparece como `matricularegular_id` en otra fila (la matrícula regular los supera).
+  > **Corrección (2026-07-07, decisión PO — tasks.md T039):** el filtro de estados activos se amplía a `estado IN (0, 2, 3, 9, 13, 14)`, incluyendo también RETIRADO (0), como candidato válido de cruce. ANULADO (11) y TRASLADADO (12) permanecen explícitamente excluidos — decisión de producto deliberada y acotada. Esto resuelve el límite de alcance detectado en T038: un registro RETIRADO nunca entraba al pool de candidatos para que la resolución por recencia (T038) pudiera compararlo.
 - [ ] **AC-007:** Dado un alumno con múltiples registros históricos en la base de datos `academia`, cuando se determina su estado para el reporte, entonces se resuelve eligiendo el estado de mayor prioridad según la jerarquía inmutable: MATRICULADO (2) → PAGADO (3) → FINALIZADO (14) → SUSPENDIDO (9) → RETIRADO (0) → TRASLADADO (12) → STAND BY (13) → ANULADO (11).
 
 > **Nota sobre el schema de academia:** La base `academia` no tiene una tabla `alumnos` plana con todos los campos. El schema real usa 3 tablas relacionadas: `personas` (PK: `dni`), `alumnos` (PK: `codigo`, FK: `persona_dni`), y `alumno_matricula` (PK: `id`, FK: `alumno_codigo` → `alumnos.codigo`). Ver `context-bridge.md` para el detalle completo.
@@ -92,15 +93,17 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
     LEFT JOIN aulas ON alumno_matricula.aula_id = aulas.id
     LEFT JOIN matriculas ON aulas.matricula_id = matriculas.id
     LEFT JOIN ciclos ON matriculas.id = ciclos.matricula_id AND ciclos.fecha_fin >= CURRENT_DATE
-    WHERE alumno_matricula.estado IN (2, 3, 9, 13, 14)
+    WHERE alumno_matricula.estado IN (0, 2, 3, 9, 13, 14)
       AND alumno_matricula.estado_aula = 1
       AND ciclos.id IS NOT NULL
       AND alumno_matricula.id NOT IN (
         SELECT matricularegular_id FROM alumno_matricula WHERE matricularegular_id IS NOT NULL
       )
     ```
+  > **Corrección (2026-07-07, T039):** `estado IN (...)` amplía a incluir `0` (RETIRADO). Ver AC-006 arriba.
 - Para optimizar el matching exacto, los 6,000+ alumnos activos se cargan en un hash map por `apellido_paterno|apellido_materno` para lookup O(1), en vez de iterar todos contra todos (O(N×M)).
 - La jerarquía de estados (AC-007) es inmutable según INV-06 del Context Bridge (constitution.md Art. IV §4.7); cualquier cambio requiere enmienda constitucional documentada. La jerarquía real es: MATRICULADO (2) → PAGADO (3) → FINALIZADO (14) → SUSPENDIDO (9) → RETIRADO (0) → TRASLADADO (12) → STAND BY (13) → ANULADO (11).
+  > **Corrección (2026-07-07, verificación PO con datos de producción real):** esta jerarquía por sí sola es insuficiente para resolver duplicados de `alumno_matricula` — un registro antiguo (2022) con estado PAGADO ganaba incorrectamente por jerarquía sobre el registro real y vigente de un alumno RETIRADO. **Nueva regla (supersede la lectura solo-jerarquía implementada en T036):** el registro MÁS RECIENTE (por `alumno_matricula.fecha`) gana primero; la jerarquía de arriba se usa solo como desempate cuando los registros contendientes comparten la misma fecha más reciente (o ninguno tiene fecha utilizable). Ver context-bridge.md INV-06 y tasks.md T038.
 - Las credenciales de conexión se gestionan exclusivamente mediante variables de entorno (`.env`) — Art. 4 de la Constitución.
 
 ---

@@ -167,7 +167,7 @@
 
 **Dado:** La conexión a la BD `academia` está configurada.
 **Cuando:** `RealizarCruceExactoAction` inicia el proceso.
-**Entonces:** Se valida la conexión antes de consultar; si la conexión es exitosa, se obtienen solo alumnos con `estado IN (2, 3, 9, 13, 14)` (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY, FINALIZADO), `estado_aula = 1`, sin filtro por ciclo ni exclusión de `matricularegular_id`, y se resuelve el estado de mayor prioridad según la jerarquía numérica.
+**Entonces:** Se valida la conexión antes de consultar; si la conexión es exitosa, se obtienen solo alumnos con `estado IN (0, 2, 3, 9, 13, 14)` (RETIRADO, MATRICULADO, PAGADO, SUSPENDIDO, STAND BY, FINALIZADO — ampliado 2026-07-07, decisión PO, tasks.md T039, para incluir RETIRADO; ANULADO(11)/TRASLADADO(12) permanecen excluidos), `estado_aula = 1`, sin filtro por ciclo ni exclusión de `matricularegular_id`, y se resuelve el estado de mayor prioridad según la jerarquía numérica.
 
 **Datos de Prueba (schema real — 3 tablas):**
 

@@ -37,14 +37,17 @@ class ExportarExcelCruceAction
         'AREA',         // X - EAP mapped to A-E per UNMSM rules
     ];
 
-    // Estado IDs that count as active (same as RealizarCruceExactoAction)
+    // Estado label per INV-06 hierarchy (context-bridge.md, spec.md AC-007).
+    // Must stay in sync with CruceIngresantesController::academiaAlumnos().
     private const ESTADO_LABELS = [
+        0  => 'RETIRADO',
         2  => 'MATRICULADO',
         3  => 'PAGADO',
-        9  => 'FINALIZADO',
-        13 => 'RETIRADO',
-        14 => 'SUSPENDIDO',
-        4  => 'ANULADO',
+        9  => 'SUSPENDIDO',
+        11 => 'ANULADO',
+        12 => 'TRASLADADO',
+        13 => 'STAND BY',
+        14 => 'FINALIZADO',
     ];
 
     // Periods that qualify as "Verano 2024 or later" for LISTA-1
@@ -54,8 +57,9 @@ class ExportarExcelCruceAction
     // Periods that qualify for LISTA-2 (active around Feb 2026 or Oct 2025 cycles)
     private const LISTA2_KEYWORDS = ['OCTUBRE 2025', 'NOVIEMBRE 2025', 'DICIEMBRE 2025', 'VERANO 2026', 'REPASO 2026', 'ENERO 2026', 'FEBRERO 2026', 'MARZO 2026'];
 
-    // States that are "active" for LISTA-3 (at Feb 27, 2026)
-    private const LISTA3_ACTIVE_ESTADOS = [2, 3, 9]; // MATRICULADO, PAGADO, FINALIZADO
+    // States that are "active" for LISTA-3 (at Feb 27, 2026) per INV-06:
+    // MATRICULADO (2), PAGADO (3), FINALIZADO (14).
+    private const LISTA3_ACTIVE_ESTADOS = [2, 3, 14];
 
     /**
      * Eagerly loads academia data for a lote's matched alumni. Must be
@@ -257,9 +261,11 @@ class ExportarExcelCruceAction
         }
 
         $periodoNombre = strtoupper(trim((string) ($academia->periodo_nombre ?? '')));
-        $estado = (int) ($academia->am_estado ?? 0);
 
-        // Include RETIRADO (13) and SUSPENDIDO (14) per spec
+        // LISTA-2 is period-only: unlike LISTA-3 it does not filter by
+        // estado, so students who are RETIRADO (0) or SUSPENDIDO (9) in one
+        // of the qualifying cycles are still counted, per spec (tasks.md
+        // LISTA-2 definition).
         foreach (self::LISTA2_KEYWORDS as $keyword) {
             if (str_contains($periodoNombre, $keyword)) {
                 return 1;
@@ -277,7 +283,7 @@ class ExportarExcelCruceAction
 
         $estado = (int) ($academia->am_estado ?? 0);
 
-        // Active as of Feb 27, 2026: MATRICULADO (2), PAGADO (3), FINALIZADO (9)
+        // Active as of Feb 27, 2026 per INV-06: MATRICULADO (2), PAGADO (3), FINALIZADO (14)
         if (!in_array($estado, self::LISTA3_ACTIVE_ESTADOS, true)) {
             return 0;
         }

@@ -13,9 +13,19 @@ class GuardarCruceConfirmadoAction
     /**
      * Estados de matrícula considerados activos para validación de cruce.
      * Debe coincidir con el filtro usado en CalcularSimilitudesCabosAction
-     * y RealizarCruceExactoAction (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY, FINALIZADO).
+     * y RealizarCruceExactoAction (MATRICULADO, PAGADO, SUSPENDIDO, STAND BY,
+     * FINALIZADO, RETIRADO).
+     *
+     * 2026-07-07 (PO decision, tasks.md T038/T039): widened to include
+     * RETIRADO(0). Since RETIRADO records are now valid matching candidates
+     * in the fuzzy/exact matchers above, a user manually confirming a match
+     * suggested by those matchers must not be blocked here for the same
+     * alumno_id — otherwise a legitimately-suggested RETIRADO candidate
+     * could never be confirmed through the assisted-validation flow.
+     * ANULADO(11) and TRASLADADO(12) stay excluded — deliberate, scoped
+     * decision.
      */
-    private const ESTADOS_ACTIVOS = [2, 3, 9, 13, 14];
+    private const ESTADOS_ACTIVOS = [0, 2, 3, 9, 13, 14];
 
     private const ALUMNO_INVALIDO_MENSAJE = 'El alumno seleccionado no existe en la base de datos.';
 

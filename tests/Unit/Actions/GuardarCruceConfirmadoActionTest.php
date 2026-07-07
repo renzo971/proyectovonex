@@ -366,4 +366,48 @@ class GuardarCruceConfirmadoActionTest extends TestCase
         $ingresante->refresh();
         expect($ingresante->estado_match)->toBe('pendiente');
     }
+
+    /**
+     * T039: Scope-boundary follow-up to T038 (PO decision, 2026-07-07) —
+     * `ESTADOS_ACTIVOS` is widened to also include RETIRADO(0), since
+     * RETIRADO records are now valid matching candidates elsewhere in the
+     * pipeline (RealizarCruceExactoAction, CalcularSimilitudesCabosAction).
+     * For consistency, manually confirming a match against a RETIRADO
+     * alumno_id must now be accepted instead of rejected as invalid — a
+     * user assisting the assisted-validation flow can legitimately pick a
+     * RETIRADO candidate suggested by the fuzzy/exact matcher.
+     * ANULADO(11)/TRASLADADO(12) remain excluded (see
+     * acg_confirmar_rejects_alumno_id_with_inactive_estado above).
+     */
+    #[Test]
+    public function acg_confirmar_accepts_alumno_id_with_retirado_estado(): void
+    {
+        AcademiaDbHelper::ensureTablesAndSeed();
+
+        $retiradoId = 9003;
+        DB::connection('academia')->table('alumno_matricula')->insert([
+            'id' => $retiradoId,
+            'alumno_codigo' => 'ALU001',
+            'aula_id' => 1,
+            'estado' => 0, // RETIRADO — now inside the widened active estado set
+            'estado_aula' => 1,
+        ]);
+
+        $lote = LoteCruce::factory()->create(['fecha_examen' => '2026-06-10']);
+        $ingresante = Ingresante::factory()->create([
+            'lote_cruce_id' => $lote->id,
+            'estado_match' => 'pendiente',
+        ]);
+
+        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+            'alumno_id' => $retiradoId,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson(['success' => true]);
+
+        $ingresante->refresh();
+        expect($ingresante->estado_match)->toBe('confirmado_manual');
+        expect($ingresante->alumno_id)->toBe($retiradoId);
+    }
 }
