@@ -3,7 +3,7 @@
 **ID de Feature:** 001-motor-cruce-ingresantes
 **Creado:** 2026-06-24
 **Autor:** Diego Castillo
-**Estado:** Borrador
+**Estado:** Aprobado
 
 > Glosario de siglas:
 > - **US:** Historia de Usuario
