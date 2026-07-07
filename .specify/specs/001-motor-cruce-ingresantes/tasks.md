@@ -2,7 +2,7 @@
 
 **Feature ID:** 001-motor-cruce-ingresantes
 **Created:** 2026-06-25
-**Status:** Planning
+**Status:** Completed
 
 ---
 
@@ -13,9 +13,9 @@
 | Phase 1: Foundation | 4 | 16h | Completed |
 | Phase 2: Core Implementation | 11 | 56h | Completed |
 | Phase 3: Frontend & Integration | 3 | 16h | Completed |
-| Phase 4: Phase 2 / Deferred | 2 | 12h | Not Started |
-| Post-Implementation | 2 | 10h | In Progress |
-| Test Tasks [T] | 3 | 24h | In Progress |
+| Phase 4: Phase 2 / Deferred | 2 | 12h | Completed |
+| Post-Implementation | 2 | 10h | Completed |
+| Test Tasks [T] | 3 | 24h | Completed |
 | **Total** | **25** | **134h** | |
 
 **Legend:**
@@ -747,13 +747,13 @@ graph TD
 | T011 | Completed | S2 | S2 | Confirmación manual + no_ingresado |
 | T012 | Completed | S2 | S2 | POST confirmar con validación de alumno_id |
 | T013 | Completed | S2 | S2 | Lotes endpoints con nuevo ordenamiento |
-| T022 | In Progress | S2 | | Health, academia/alumnos, limpiar, reprocesar |
-| T023 | In Progress | S2 | | Bulk load alumnos, eliminar N+1 |
-| T016 | Not Started | | | |
-| T017 | Not Started | | | |
-| T018 | Not Started | | | |
-| T014 | Not Started | | | |
-| T015 | Not Started | | | |
-| T019 | In Progress | S2 | | Unit tests core domain |
-| T020 | Not Started | | | |
-| T021 | Not Started | | | |
+| T022 | Completed | S2 | S2 | Utilidades de base de datos implementadas |
+| T023 | Completed | S2 | S2 | Optimización de queries a base de datos de academia |
+| T016 | Completed | S3 | S3 | Componente de subida de archivos implementado |
+| T017 | Completed | S3 | S3 | Renderizado de candidatos con búsqueda de nombres e ID de alumno |
+| T018 | Completed | S3 | S3 | Integración general de React con polling y visualización de progreso asíncrono |
+| T014 | Completed | S4 | S4 | Exportador de Excel CSV con 24 columnas (AC-014) |
+| T015 | Completed | S4 | S4 | Endpoint de descarga de archivo CSV enriquecido |
+| T019 | Completed | S2 | S2 | Tests unitarios de dominio ejecutados y válidos |
+| T020 | Completed | S2 | S2 | Pruebas de integración HTTP del flujo completo |
+| T021 | Completed | S3 | S3 | Pruebas de carga de archivo grande e inyección de fórmulas |
