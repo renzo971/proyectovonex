@@ -17,7 +17,7 @@ function App() {
         try {
             const res = await fetch('/api/cruce/lotes');
             const data = await res.json();
-            setLotes(data);
+            setLotes(data.data || []);
         } catch (err) {
             console.error('Error fetching lotes:', err);
         }
@@ -28,9 +28,9 @@ function App() {
         try {
             const res = await fetch(`/api/cruce/lotes/${loteId}/pendientes?page=${pageNum}`);
             const data = await res.json();
-            setPendientes(data.data);
-            setPage(data.current_page);
-            setTotalPages(data.last_page);
+            setPendientes(data.data || []);
+            setPage(data.meta?.current_page || 1);
+            setTotalPages(data.meta?.last_page || 1);
         } catch (err) {
             console.error('Error fetching pending items:', err);
         }
@@ -83,22 +83,32 @@ function App() {
             let attempts = 0;
             const interval = setInterval(async () => {
                 attempts++;
-                const statusRes = await fetch(`/api/cruce/lotes/${data.lote_id}/status`);
-                const statusData = await statusRes.json();
-                
-                if (statusData.estado === 'completed') {
-                    setUploadProgress(100);
-                    setStatusMessage("Lote procesado exitosamente!");
-                    clearInterval(interval);
-                    setUploading(false);
-                    fetchLotes();
-                    setSelectedLoteId(data.lote_id);
-                } else if (statusData.estado === 'error' || attempts > 30) {
-                    clearInterval(interval);
-                    setUploading(false);
-                    setStatusError("Fallo en el procesamiento asíncrono.");
+                try {
+                    const resLotes = await fetch('/api/cruce/lotes');
+                    const lotesJson = await resLotes.json();
+                    const latestLote = lotesJson.data?.[0];
+                    
+                    if (latestLote) {
+                        if (latestLote.estado === 'completed') {
+                            setUploadProgress(100);
+                            setStatusMessage("Lote procesado exitosamente!");
+                            clearInterval(interval);
+                            setUploading(false);
+                            setLotes(lotesJson.data || []);
+                            setSelectedLoteId(latestLote.id);
+                        } else if (latestLote.estado === 'error' || latestLote.estado === 'paused' || attempts > 60) {
+                            clearInterval(interval);
+                            setUploading(false);
+                            setStatusError("Fallo en el procesamiento asíncrono o lote en pausa.");
+                        } else {
+                            // Still processing
+                            setLotes(lotesJson.data || []);
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error polling status:', err);
                 }
-            }, 2000);
+            }, 3000);
 
         } catch (err) {
             setUploading(false);
@@ -292,11 +302,16 @@ function App() {
                                         {item.candidatos && item.candidatos.length > 0 ? (
                                             <div className="space-y-2">
                                                 {item.candidatos.map((candidate) => (
-                                                    <div key={candidate.id} className="flex justify-between items-center p-3 bg-white dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800/50 rounded-xl">
+                                                    <div key={candidate.alumno_id} className="flex justify-between items-center p-3 bg-white dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800/50 rounded-xl">
                                                         <div className="text-xs">
                                                             <div className="font-semibold text-zinc-800 dark:text-zinc-200">
-                                                                ID Alumno: {candidate.alumno_id}
+                                                                {candidate.nombre_completo || `${candidate.apellido_paterno} ${candidate.apellido_materno}, ${candidate.nombres}`.trim() || `ID ${candidate.alumno_id}`}
                                                             </div>
+                                                            {candidate.dni && (
+                                                                <div className="text-zinc-400 dark:text-zinc-500">
+                                                                    DNI: {candidate.dni}
+                                                                </div>
+                                                            )}
                                                             <div className="text-zinc-500 dark:text-zinc-400">
                                                                 Similitud: <span className="font-bold text-indigo-500">{candidate.porcentaje_similitud}%</span>
                                                             </div>
