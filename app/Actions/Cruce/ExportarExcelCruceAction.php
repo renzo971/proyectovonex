@@ -57,9 +57,16 @@ class ExportarExcelCruceAction
     // States that are "active" for LISTA-3 (at Feb 27, 2026)
     private const LISTA3_ACTIVE_ESTADOS = [2, 3, 9]; // MATRICULADO, PAGADO, FINALIZADO
 
-    public function execute(LoteCruce $lote): \Generator
+    /**
+     * Eagerly loads academia data for a lote's matched alumni. Must be
+     * called (and any exception caught) BEFORE the caller starts an HTTP
+     * stream/download response, since `execute()`'s generator body would
+     * otherwise only run this query lazily, after headers are already
+     * flushed to the client (see Fix 1, pre-commit review: production
+     * ERR_INVALID_RESPONSE when the academia connection failed mid-stream).
+     */
+    public function loadAcademiaDataFor(LoteCruce $lote): array
     {
-        // Load all academia data for matched alumni in one query to avoid N+1
         $alumnoIds = DB::table('ingresantes')
             ->where('lote_cruce_id', $lote->id)
             ->whereIn('estado_match', ['confirmado_automatico', 'confirmado_manual'])
@@ -69,9 +76,17 @@ class ExportarExcelCruceAction
             ->toArray();
 
         // Build academia data map: alumno_matricula.id => enriched row
-        $academiaData = $this->loadAcademiaData($alumnoIds);
+        return $this->loadAcademiaData($alumnoIds);
+    }
 
-        // Stream ingresantes
+    /**
+     * Streams enriched rows for a lote. `$academiaData` must be pre-loaded
+     * via `loadAcademiaDataFor()` BEFORE calling this method — no academia
+     * DB access happens inside this generator body, so it is safe to call
+     * from within a streamDownload() callback.
+     */
+    public function execute(LoteCruce $lote, array $academiaData): \Generator
+    {
         $ingresantes = DB::table('ingresantes')
             ->where('lote_cruce_id', $lote->id)
             ->whereIn('estado_match', ['confirmado_automatico', 'confirmado_manual'])
@@ -86,15 +101,21 @@ class ExportarExcelCruceAction
         }
     }
 
+    /**
+     * Maximum number of ids per chunk for the non-Postgres (e.g. sqlite test) IN() fallback.
+     * Keeps each query well under typical driver bound-parameter ceilings.
+     */
+    private const FALLBACK_CHUNK_SIZE = 900;
+
     private function loadAcademiaData(array $alumnoMatriculaIds): array
     {
         if (empty($alumnoMatriculaIds)) {
             return [];
         }
 
-        $placeholders = implode(',', array_fill(0, count($alumnoMatriculaIds), '?'));
+        $connection = DB::connection('academia');
 
-        $rows = DB::connection('academia')->select("
+        $selectSql = "
             SELECT
                 am.id                   AS am_id,
                 p.dni,
@@ -113,8 +134,39 @@ class ExportarExcelCruceAction
             JOIN matriculas m         ON m.id = au.matricula_id
             JOIN periodos per         ON per.id = m.periodo_id
             LEFT JOIN locales l       ON l.id = m.local_id
-            WHERE am.id IN ({$placeholders})
-        ", $alumnoMatriculaIds);
+            WHERE am.id %s
+        ";
+
+        if ($connection->getDriverName() === 'pgsql') {
+            // Single bound parameter regardless of list size — avoids Laravel's
+            // Illuminate\Database\Connection::bindValues() positional binding
+            // (binds non-string keys at position $key + 1), which throws
+            // SQLSTATE[HY093] once the ids array has non-sequential keys
+            // (e.g. after ->pluck()->unique()->toArray()) and/or exceeds the
+            // number of literal "?" placeholders actually present in the SQL.
+            $rows = $connection->select(
+                sprintf($selectSql, '= ANY(?::bigint[])'),
+                [$this->buildPgArrayLiteral($alumnoMatriculaIds)]
+            );
+        } else {
+            // Non-Postgres fallback (e.g. sqlite in-memory used by the test suite,
+            // see phpunit.xml DB_ACADEMIA_DRIVER=sqlite): Postgres' ANY(?::bigint[])
+            // array literal isn't understood here, so keep a chunked IN (...) query.
+            // array_values() re-indexes to sequential integer keys first, which is
+            // itself enough to fix the positional-binding bug for this driver;
+            // chunking is an extra safety margin against the driver's own bound
+            // parameter ceiling on very large lists.
+            $ids = array_values($alumnoMatriculaIds);
+            $rows = [];
+
+            foreach (array_chunk($ids, self::FALLBACK_CHUNK_SIZE) as $chunk) {
+                $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+                $rows = array_merge(
+                    $rows,
+                    $connection->select(sprintf($selectSql, "IN ({$placeholders})"), $chunk)
+                );
+            }
+        }
 
         $map = [];
         foreach ($rows as $row) {
@@ -122,6 +174,22 @@ class ExportarExcelCruceAction
         }
 
         return $map;
+    }
+
+    /**
+     * Builds a Postgres `bigint[]` array literal (e.g. "{1,2,3}") from a
+     * list of ids, independent of any DB connection/driver so it can be
+     * unit-tested directly (Fix 2, pre-commit review: the pgsql query path
+     * itself has no test coverage since phpunit.xml forces the sqlite
+     * fallback driver for the academia connection).
+     *
+     * Values are coerced via array_map('intval', ...) so the method is
+     * safe-by-construction rather than relying on callers to only ever
+     * pass clean integers.
+     */
+    private function buildPgArrayLiteral(array $ids): string
+    {
+        return '{' . implode(',', array_map('intval', $ids)) . '}';
     }
 
     private function buildRow(object $ing, ?object $academia): array

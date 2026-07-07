@@ -358,13 +358,28 @@ class CruceIngresantesController extends Controller
         ]);
     }
 
-    public function exportar(int $loteId, \App\Actions\Cruce\ExportarExcelCruceAction $action): StreamedResponse
+    public function exportar(int $loteId, \App\Actions\Cruce\ExportarExcelCruceAction $action): StreamedResponse|JsonResponse
     {
         $lote = LoteCruce::findOrFail($loteId);
 
+        // Load academia data EAGERLY and catchably, BEFORE starting the
+        // stream: streamDownload() flushes response headers (200 + CSV)
+        // before its callback body ever runs, so if the academia lookup
+        // (previously only performed lazily inside the generator) fails,
+        // the client would already have received 200 + CSV headers and
+        // then a truncated/corrupted body (ERR_INVALID_RESPONSE).
+        try {
+            $academiaData = $action->loadAcademiaDataFor($lote);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+
         $filename = 'cruce_lote_' . $lote->id . '_' . now()->format('Y-m-d_His') . '.csv';
 
-        return response()->streamDownload(function () use ($lote, $action) {
+        return response()->streamDownload(function () use ($lote, $action, $academiaData) {
             $handle = fopen('php://output', 'w');
 
             // BOM for Excel UTF-8 compatibility
@@ -372,7 +387,7 @@ class CruceIngresantesController extends Controller
 
             fputcsv($handle, \App\Actions\Cruce\ExportarExcelCruceAction::HEADERS, ';');
 
-            foreach ($action->execute($lote) as $row) {
+            foreach ($action->execute($lote, $academiaData) as $row) {
                 // Sanitize against formula injection (=, +, -, @)
                 $safe = array_map(function ($cell) {
                     $str = (string) $cell;
