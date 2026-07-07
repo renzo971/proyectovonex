@@ -1,18 +1,18 @@
 # Analysis Report: 001-motor-cruce-ingresantes
 
-**Date:** 2026-07-01
+**Date:** 2026-07-07
 **Phase:** 3.3 — Consistency Analysis
 **Analyst:** Analysis Agent
-**Run:** 7 (post-remediation delta — resolved state hierarchy, padres schema, and updated threshold to 70%)
+**Run:** 8 (final verification of 24-column Excel export and candidates UI integration)
 **Verdict:** PASS
 
-> **Context:** This run documents the resolution of the inconsistencies highlighted in Run 6, specifically the padres table schema mapping, state hierarchy validation, and alignment of the 70% fuzzy matching threshold.
+> **Context:** This run documents the final verification of the implemented feature. It validates the 24-column Excel CSV export, the correction of candidate displays in the UI utilizing batch database lookups from the Academia connection, and the alignment of all system configurations.
 
 ---
 
 ## Executive Summary
 
-Run 7 confirms that all artifacts are fully aligned. The schema gap for `CEL-APODERADO` was resolved by documenting the secondary `padres` relation in the `context-bridge.md`. The state-hierarchy was verified, and the fuzzy match threshold has been successfully updated to a strict 70% minimum across all specifications, schemas, task definitions, and test cases. The paginated pending list endpoint will return entries ordered with candidates suggestions (similitud >= 70%) at the beginning and unmatched entries at the end. All systems are green for test creation and implementation.
+Run 8 confirms that all components have been fully implemented, integrated, and verified. The Excel/CSV export correctly produces 24 columns mapping the required student information (DNI, Sede, Ciclo, Fecha de matrícula, Celulares) using raw queries to the secondary connection and matches the business invariants. The UI now displays candidate names and DNIs rather than raw database IDs, avoiding N+1 performance bottlenecks through batch processing. All requirements have been successfully coded, tested, and documented.
 
 ---
 
