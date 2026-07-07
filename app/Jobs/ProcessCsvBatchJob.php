@@ -4,245 +4,276 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
-use App\Models\LoteCruce;
-use App\Models\Ingresante;
-use App\Models\NoIngresante;
 use App\Actions\Cruce\NormalizarTextoAction;
+use App\Actions\Cruce\ProcesarCargaCsvAction;
 use App\Actions\Cruce\RealizarCruceExactoAction;
-use App\Actions\Cruce\CalcularSimilitudesCabosAction;
-use App\Actions\Cruce\AcademiaDbHelper;
-use Illuminate\Bus\Queueable;
+use App\Events\CruceBatchFailedEvent;
+use App\Events\CruceBatchProcessedEvent;
+use App\Models\IngresanteCandidato;
+use App\Models\LoteCruce;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class ProcessCsvBatchJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $loteId;
-    public string $csvPath = '';
+    public int $timeout = 7200;
 
-    public function __construct(int $loteId)
+    public string $filePath;
+    public array $fechas;
+
+    public function __construct(string $filePath, array $fechas = [])
     {
-        $this->loteId = $loteId;
+        $this->filePath = $filePath;
+        $this->fechas = $fechas;
+        $this->onQueue('cruce');
     }
 
-    public function handle(): void
-    {
-        $lote = LoteCruce::find($this->loteId);
-        if (!$lote) {
-            Log::error("ProcessCsvBatchJob: Lote {$this->loteId} no encontrado.");
-            return;
+    public function handle(
+        ProcesarCargaCsvAction $procesarCarga,
+        RealizarCruceExactoAction $realizarCruce,
+    ): void {
+        $jobStart = microtime(true);
+
+        $currentLimit = ini_get('memory_limit');
+        if ($currentLimit !== '-1') {
+            ini_set('memory_limit', '512M');
         }
 
-        $lote->update(['estado' => 'processing', 'started_at' => now()]);
-
-        if (!file_exists($this->csvPath)) {
-            $lote->update(['estado' => 'error']);
-            Log::error("ProcessCsvBatchJob: Archivo {$this->csvPath} no existe.");
+        $result = $procesarCarga->execute($this->filePath);
+        if (!$result['success']) {
             return;
         }
+        $parseTime = microtime(true) - $jobStart;
 
-        try {
-            $content = file_get_contents($this->csvPath);
+        $alumnosIndex = null;
 
-            // UTF-8 BOM
-            if (str_starts_with($content, "\xEF\xBB\xBF")) {
-                $content = substr($content, 3);
+        foreach ($result['data']['lotes'] as $loteInfo) {
+            $lote = LoteCruce::find($loteInfo['id']);
+            if (!$lote) {
+                continue;
             }
 
-            // Encoding check
-            $encoding = mb_detect_encoding($content, ['UTF-8', 'ISO-8859-1'], true);
-            if (!$encoding) {
-                $lote->update(['estado' => 'error']);
-                return;
-            }
-            if ($encoding !== 'UTF-8') {
-                $content = mb_convert_encoding($content, 'UTF-8', $encoding);
-            }
+            $loteStart = microtime(true);
+            $lote->update(['started_at' => now()]);
 
-            $lines = preg_split('/\r\n|\r|\n/', $content);
-            $lines = array_filter(array_map('trim', $lines));
-
-            if (count($lines) < 1) {
-                $lote->update(['estado' => 'error']);
-                return;
-            }
-
-            $headersLine = array_shift($lines);
-            $headers = str_getcsv($headersLine);
-            $headers = array_map(function ($h) {
-                return trim(mb_strtoupper($h, 'UTF-8'));
-            }, $headers);
-
-            $requiredColumns = [
-                'CODIGO', 'APELLIDOS', 'NOMBRES', 'EAP', 'PUNTAJE', 'MERITO',
-                'OBSERVACION', 'TIPO', 'MODALIDAD', 'UNIVERSIDAD', 'PERIODO', 'FECHA'
-            ];
-
-            $missingColumns = array_diff($requiredColumns, $headers);
-            if (!empty($missingColumns)) {
-                $lote->update(['estado' => 'error']);
-                return;
-            }
-
-            $headerMap = array_flip($headers);
-
-            $normalizer = new NormalizarTextoAction();
-
-            $ingresantesToInsert = [];
-            $noIngresantesToInsert = [];
-            $seenRows = [];
-
-            foreach ($lines as $line) {
-                $data = str_getcsv($line);
-                if (count($data) < count($requiredColumns)) {
-                    continue;
-                }
-
-                $row = [];
-                foreach ($requiredColumns as $col) {
-                    $row[$col] = trim($data[$headerMap[$col]] ?? '');
-                }
-
-                if ($row['NOMBRES'] === '') {
-                    continue;
-                }
-
-                $rowHash = md5(implode('|', $row));
-                if (isset($seenRows[$rowHash])) {
-                    continue;
-                }
-                $seenRows[$rowHash] = true;
-
-                $normalizedObservacion = $normalizer->execute($row['OBSERVACION']);
-                $fullName = $row['APELLIDOS'] . ', ' . $row['NOMBRES'];
-                $splitNames = $normalizer->separar($fullName);
-
-                $nowStr = now()->toDateTimeString();
-
-                if ($normalizedObservacion === 'ALCANZO VACANTE') {
-                    $ingresantesToInsert[] = [
-                        'lote_cruce_id' => $lote->id,
-                        'codigo' => $row['CODIGO'],
-                        'apellidos' => $normalizer->execute($row['APELLIDOS']),
-                        'apellido_paterno' => $splitNames['apellido_paterno'],
-                        'apellido_materno' => $splitNames['apellido_materno'],
-                        'nombres' => $splitNames['nombres'],
-                        'eap' => $normalizer->execute($row['EAP']),
-                        'puntaje' => floatval($row['PUNTAJE']),
-                        'merito' => intval($row['MERITO']),
-                        'observacion' => $normalizedObservacion,
-                        'tipo' => $normalizer->execute($row['TIPO']),
-                        'modalidad' => $normalizer->execute($row['MODALIDAD']),
-                        'universidad' => $normalizer->execute($row['UNIVERSIDAD']),
-                        'periodo' => $normalizer->execute($row['PERIODO']),
-                        'fecha' => $lote->fecha_examen->format('Y-m-d'),
-                        'estado_match' => 'pendiente',
-                        'porcentaje_similitud' => null,
-                        'created_at' => $nowStr,
-                        'updated_at' => $nowStr,
-                    ];
+            try {
+                if ($alumnosIndex === null) {
+                    $loadStart = microtime(true);
+                    $alumnosIndex = $realizarCruce->getActiveAlumnos();
+                    $loadTime = microtime(true) - $loadStart;
                 } else {
-                    $noIngresantesToInsert[] = [
-                        'lote_cruce_id' => $lote->id,
-                        'codigo' => $row['CODIGO'],
-                        'apellidos' => $normalizer->execute($row['APELLIDOS']),
-                        'apellido_paterno' => $splitNames['apellido_paterno'],
-                        'apellido_materno' => $splitNames['apellido_materno'],
-                        'nombres' => $splitNames['nombres'],
-                        'eap' => $normalizer->execute($row['EAP']),
-                        'puntaje' => floatval($row['PUNTAJE']),
-                        'merito' => intval($row['MERITO']),
-                        'observacion' => $normalizedObservacion,
-                        'tipo' => $normalizer->execute($row['TIPO']),
-                        'modalidad' => $normalizer->execute($row['MODALIDAD']),
-                        'universidad' => $normalizer->execute($row['UNIVERSIDAD']),
-                        'periodo' => $normalizer->execute($row['PERIODO']),
-                        'fecha' => $lote->fecha_examen->format('Y-m-d'),
-                        'created_at' => $nowStr,
-                    ];
+                    $loadTime = 0;
+                }
+                $exactStart = microtime(true);
+
+                $cruceResult = $realizarCruce->executeBatch($lote, $alumnosIndex);
+
+                if (!$cruceResult['success']) {
+                    $lote->update(['estado' => 'paused']);
+                    CruceBatchFailedEvent::dispatch(
+                        $lote->id,
+                        $cruceResult['error'] ?? 'Error desconocido en el cruce exacto'
+                    );
+                    continue;
+                }
+                $exactTime = microtime(true) - $exactStart;
+
+                $fuzzyStart = microtime(true);
+                $this->computeFuzzyCandidates($lote, $alumnosIndex);
+                $fuzzyTime = microtime(true) - $fuzzyStart;
+
+                $lote->update([
+                    'estado' => 'completed',
+                    'completed_at' => now(),
+                ]);
+
+                $totalTime = microtime(true) - $loteStart;
+
+                logger()->info('Timing lote {lote_id}', [
+                    'lote_id' => $lote->id,
+                    'fecha' => $lote->fecha_examen,
+                    'total_rows' => $lote->total_registros,
+                    'total_ingresantes' => $lote->total_ingresantes,
+                    'fases' => [
+                        'parse_csv' => round($parseTime, 2),
+                        'cargar_alumnos_db' => round($loadTime, 2),
+                        'exact_match' => round($exactTime, 2),
+                        'fuzzy_match' => round($fuzzyTime, 2),
+                        'total_lote' => round($totalTime, 2),
+                    ],
+                    'memoria_mb' => round(memory_get_peak_usage(true) / 1048576, 1),
+                ]);
+
+                CruceBatchProcessedEvent::dispatch(
+                    $lote->id,
+                    $lote->total_registros,
+                    $lote->total_ingresantes,
+                    $lote->total_no_ingresantes,
+                );
+            } catch (Throwable $e) {
+                $lote->update(['estado' => 'error']);
+
+                CruceBatchFailedEvent::dispatch(
+                    $lote->id,
+                    $e->getMessage(),
+                    $e,
+                );
+
+                throw $e;
+            }
+        }
+
+        $jobTotal = microtime(true) - $jobStart;
+        logger()->info('Timing job completo', [
+            'filePath' => $this->filePath,
+            'fechas' => $this->fechas,
+            'total_segundos' => round($jobTotal, 2),
+            'memoria_pico_mb' => round(memory_get_peak_usage(true) / 1048576, 1),
+        ]);
+    }
+
+    public function failed(?Throwable $e): void {}
+
+    private function computeFuzzyCandidates(LoteCruce $lote, ?array $alumnosIndex = null): void
+    {
+        $pendientes = $lote->ingresantes()
+            ->where('estado_match', 'pendiente')
+            ->get();
+
+        if ($pendientes->isEmpty()) {
+            return;
+        }
+
+        $alumnos = $alumnosIndex['alumnos'] ?? [];
+        $byInitial = $alumnosIndex['by_initial'] ?? [];
+
+        if (empty($alumnos)) {
+            return;
+        }
+
+        $normalizer = app(NormalizarTextoAction::class);
+        $processed = 0;
+        $total = count($pendientes);
+
+        $lote->updateQuietly([
+            'total_pendientes' => $total,
+            'fuzzy_procesados' => 0,
+        ]);
+
+        foreach ($pendientes as $ingresante) {
+            $this->fuzzyMatchAndSave($ingresante, $alumnos, $byInitial, $normalizer);
+            $processed++;
+
+            if ($processed % 50 === 0 || $processed === $total) {
+                $lote->updateQuietly(['fuzzy_procesados' => $processed]);
+            }
+        }
+
+        logger()->info('Fuzzy candidates computed inline', [
+            'lote_id' => $lote->id,
+            'procesados' => $processed,
+            'total' => $total,
+        ]);
+    }
+
+    private function fuzzyMatchAndSave($ingresante, array $alumnos, array $byInitial, NormalizarTextoAction $normalizer): void
+    {
+        $normPaterno = $normalizer->execute($ingresante->apellido_paterno ?? '');
+        $normMaterno = $normalizer->execute($ingresante->apellido_materno ?? '');
+        $normNombres = $normalizer->execute($ingresante->nombres ?? '');
+        
+        $ingresanteFullName = trim($normPaterno . ' ' . $normMaterno . ' ' . $normNombres);
+
+        $lenA = strlen($ingresanteFullName);
+        $bigramsAHash = [];
+        for ($i = 0; $i < $lenA - 1; $i++) {
+            $bg = $ingresanteFullName[$i] . $ingresanteFullName[$i+1];
+            if (!isset($bigramsAHash[$bg])) {
+                $bigramsAHash[$bg] = 0;
+            }
+            $bigramsAHash[$bg]++;
+        }
+        $countA = max(0, $lenA - 1);
+
+        $initial = $normPaterno !== '' ? $normPaterno[0] : '';
+        $candidateIndices = $initial !== '' && isset($byInitial[$initial]) ? $byInitial[$initial] : array_keys($alumnos);
+
+        $scored = [];
+
+        foreach ($candidateIndices as $idx) {
+            $alumno = $alumnos[$idx];
+            
+            $countB = $alumno['bigrams_count'];
+            $common = 0;
+            if ($countA > 0 && $countB > 0) {
+                foreach ($bigramsAHash as $bg => $count) {
+                    if (isset($alumno['bigrams_hash'][$bg])) {
+                        $common += min($count, $alumno['bigrams_hash'][$bg]);
+                    }
                 }
             }
-
-            // Bulk inserts in chunks for speed
-            DB::transaction(function () use ($ingresantesToInsert, $noIngresantesToInsert) {
-                foreach (array_chunk($ingresantesToInsert, 1000) as $chunk) {
-                    DB::table('ingresantes')->insert($chunk);
-                }
-                foreach (array_chunk($noIngresantesToInsert, 1000) as $chunk) {
-                    DB::table('no_ingresantes')->insert($chunk);
-                }
-            });
-
-            $totalIngresantes = count($ingresantesToInsert);
-            $totalNoIngresantes = count($noIngresantesToInsert);
-
-            $lote->update([
-                'total_registros' => $totalIngresantes + $totalNoIngresantes,
-                'total_ingresantes' => $totalIngresantes,
-                'total_no_ingresantes' => $totalNoIngresantes,
-                'total_pendientes' => $totalIngresantes,
-            ]);
-
-            // Perform matching phase
-            AcademiaDbHelper::ensureTablesAndSeed();
-
-            // Preload active students to prevent N+1 queries (T023)
-            $preloadedStudents = DB::connection('academia')
-                ->table('alumno_matricula')
-                ->join('alumnos', 'alumno_matricula.alumno_codigo', '=', 'alumnos.codigo')
-                ->join('personas', 'alumnos.persona_dni', '=', 'personas.dni')
-                ->leftJoin('aulas', 'alumno_matricula.aula_id', '=', 'aulas.id')
-                ->leftJoin('matriculas', 'aulas.matricula_id', '=', 'matriculas.id')
-                ->leftJoin('ciclos', function ($join) {
-                    $join->on('matriculas.id', '=', 'ciclos.matricula_id')
-                         ->where('ciclos.fecha_fin', '>=', now()->toDateString());
-                })
-                ->whereIn('alumno_matricula.estado', [2, 3, 9, 13, 14])
-                ->where('alumno_matricula.estado_aula', 1)
-                ->whereNotNull('ciclos.id')
-                ->whereNotIn('alumno_matricula.id', function ($query) {
-                    $query->select('matricularegular_id')
-                          ->from('alumno_matricula')
-                          ->whereNotNull('matricularegular_id');
-                })
-                ->select([
-                    'alumno_matricula.id as alumno_id',
-                    'personas.apellido_paterno',
-                    'personas.apellido_materno',
-                    'personas.nombres',
-                ])
-                ->get();
-
-            $cruceExactoAction = new RealizarCruceExactoAction();
-            $fuzzyAction = new CalcularSimilitudesCabosAction();
-
-            // Get inserted ingresantes ids
-            $insertedIngresantes = Ingresante::where('lote_cruce_id', $lote->id)->get();
-
-            foreach ($insertedIngresantes as $ingresante) {
-                // Try exact match first
-                $exactResult = $cruceExactoAction->execute($ingresante->id, $preloadedStudents);
-                if (!$exactResult['success']) {
-                    // Try fuzzy match calculation
-                    $fuzzyAction->execute($ingresante->id);
-                }
+            
+            $diceCoeff = ($countA + $countB) > 0 ? (2.0 * $common) / ($countA + $countB) : 0.0;
+            
+            if ($diceCoeff < 0.25) {
+                continue;
+            }
+            
+            if (levenshtein($normPaterno, $alumno['norm_paterno']) > 4) {
+                continue;
             }
 
-            $lote->update([
-                'estado' => 'completed',
-                'completed_at' => now(),
-            ]);
+            $alumnoFullName = $alumno['full_name_normalized'];
+            $levDistance = levenshtein($ingresanteFullName, $alumnoFullName);
+            $maxLen = max($lenA, strlen($alumnoFullName));
+            $levSimilarity = $maxLen === 0 ? 1.0 : 1.0 - ($levDistance / $maxLen);
+            $similarity = ($levSimilarity * 0.6 + $diceCoeff * 0.4) * 100;
 
-        } catch (\Exception $e) {
-            Log::error("ProcessCsvBatchJob error: " . $e->getMessage());
-            $lote->update(['estado' => 'error']);
-            throw $e;
+            if ($similarity >= 70.0) {
+                $scored[] = [
+                    'alumno_id' => (int) $alumno['id'],
+                    'porcentaje_similitud' => round($similarity, 2),
+                    'apellido_paterno' => $alumno['norm_paterno'],
+                ];
+            }
+        }
+
+        usort($scored, function ($a, $b) {
+            if ($b['porcentaje_similitud'] !== $a['porcentaje_similitud']) {
+                return $b['porcentaje_similitud'] <=> $a['porcentaje_similitud'];
+            }
+            return strcmp($a['apellido_paterno'], $b['apellido_paterno']);
+        });
+
+        $topCandidates = array_slice($scored, 0, 5);
+
+        IngresanteCandidato::where('ingresante_id', $ingresante->id)->delete();
+
+        $inserts = [];
+        foreach ($topCandidates as $idx => $candidate) {
+            $inserts[] = [
+                'ingresante_id' => $ingresante->id,
+                'alumno_id' => $candidate['alumno_id'],
+                'porcentaje_similitud' => $candidate['porcentaje_similitud'],
+                'ranking' => $idx + 1,
+            ];
+        }
+        if (!empty($inserts)) {
+            IngresanteCandidato::insert($inserts);
+        }
+
+        if (!empty($topCandidates) && $topCandidates[0]['porcentaje_similitud'] >= 99.5) {
+            $winner = $topCandidates[0];
+            $ingresante->update([
+                'alumno_id' => $winner['alumno_id'],
+                'estado_match' => 'confirmado_manual',
+            ]);
         }
     }
 }

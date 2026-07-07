@@ -5,108 +5,266 @@ declare(strict_types=1);
 namespace App\Actions\Cruce;
 
 use App\Models\LoteCruce;
-use App\Models\Ingresante;
+use Illuminate\Support\Facades\DB;
 
 class ExportarExcelCruceAction
 {
-    /**
-     * Resolve carrier/school to UNMSM Area classification.
-     */
-    public function resolveArea(string $eap): string
+    // Columns per AC-014: A–X (24 columns)
+    public const HEADERS = [
+        'CODIGO',       // A - ingresante.codigo
+        'DNI',          // B - personas.dni (from academia)
+        'APELLIDOS',    // C - ingresante.apellidos
+        'NOMBRES',      // D - ingresante.nombres
+        'EAP',          // E - ingresante.eap
+        'PUNTAJE',      // F - ingresante.puntaje
+        'MERITO',       // G - ingresante.merito
+        'OBSERVACION',  // H - ingresante.observacion
+        'TIPO',         // I - ingresante.tipo
+        'MODALIDAD',    // J - ingresante.modalidad
+        'UNIVERSIDAD',  // K - ingresante.universidad
+        'PERIODO',      // L - ingresante.periodo (from CSV)
+        'FECHA',        // M - ingresante.fecha
+        'ANIO',         // N - matriculas.anio (from academia)
+        'SEDE',         // O - locales.nombre (from academia)
+        'CICLO',        // P - periodos.ciclos (from academia)
+        'F-MATRICULA',  // Q - alumno_matricula.fecha (from academia)
+        'CEL-ALUMNO',   // R - personas.telefono (from academia)
+        'CEL-APODERADO',// S - personas.telefono2 (from academia)
+        'ESTADO',       // T - alumno_matricula.estado label (INV-06 hierarchy)
+        'LISTA-1',      // U - 1 if periodo >= Verano 2024
+        'LISTA-2',      // V - 1 if enrolled in active cycles around Feb 2026
+        'LISTA-3',      // W - 1 if active (MATRICULADO/PAGADO/FINALIZADO) at Feb 27, 2026
+        'AREA',         // X - EAP mapped to A-E per UNMSM rules
+    ];
+
+    // Estado IDs that count as active (same as RealizarCruceExactoAction)
+    private const ESTADO_LABELS = [
+        2  => 'MATRICULADO',
+        3  => 'PAGADO',
+        9  => 'FINALIZADO',
+        13 => 'RETIRADO',
+        14 => 'SUSPENDIDO',
+        4  => 'ANULADO',
+    ];
+
+    // Periods that qualify as "Verano 2024 or later" for LISTA-1
+    // We compare period names, so we do it dynamically
+    private const LISTA1_CUTOFF_KEYWORDS = ['VERANO 2024', 'REPASO 2024', 'MARZO 2024', 'ABRIL 2024', 'MAYO 2024', 'JUNIO 2024', 'JULIO 2024', 'AGOSTO 2024', 'SETIEMBRE 2024', 'OCTUBRE 2024', 'NOVIEMBRE 2024', 'DICIEMBRE 2024', 'VERANO 2025', 'REPASO 2025', 'MARZO 2025', 'ABRIL 2025', 'MAYO 2025', 'JUNIO 2025', 'JULIO 2025', 'AGOSTO 2025', 'SETIEMBRE 2025', 'OCTUBRE 2025', 'NOVIEMBRE 2025', 'DICIEMBRE 2025', 'VERANO 2026', 'REPASO 2026', 'MARZO 2026', 'ABRIL 2026', 'MAYO 2026'];
+
+    // Periods that qualify for LISTA-2 (active around Feb 2026 or Oct 2025 cycles)
+    private const LISTA2_KEYWORDS = ['OCTUBRE 2025', 'NOVIEMBRE 2025', 'DICIEMBRE 2025', 'VERANO 2026', 'REPASO 2026', 'ENERO 2026', 'FEBRERO 2026', 'MARZO 2026'];
+
+    // States that are "active" for LISTA-3 (at Feb 27, 2026)
+    private const LISTA3_ACTIVE_ESTADOS = [2, 3, 9]; // MATRICULADO, PAGADO, FINALIZADO
+
+    public function execute(LoteCruce $lote): \Generator
     {
-        $eap = mb_strtoupper($eap, 'UTF-8');
-        if (str_contains($eap, 'MEDICINA') || str_contains($eap, 'OBSTETRICIA') || str_contains($eap, 'ENFERMERIA') || str_contains($eap, 'TECNOLOGIA MEDICA') || str_contains($eap, 'ODONTOLOGIA') || str_contains($eap, 'FARMACIA') || str_contains($eap, 'VETERINARIA') || str_contains($eap, 'PSICOLOGIA')) {
-            return 'Area A';
+        // Load all academia data for matched alumni in one query to avoid N+1
+        $alumnoIds = DB::table('ingresantes')
+            ->where('lote_cruce_id', $lote->id)
+            ->whereIn('estado_match', ['confirmado_automatico', 'confirmado_manual'])
+            ->whereNotNull('alumno_id')
+            ->pluck('alumno_id')
+            ->unique()
+            ->toArray();
+
+        // Build academia data map: alumno_matricula.id => enriched row
+        $academiaData = $this->loadAcademiaData($alumnoIds);
+
+        // Stream ingresantes
+        $ingresantes = DB::table('ingresantes')
+            ->where('lote_cruce_id', $lote->id)
+            ->whereIn('estado_match', ['confirmado_automatico', 'confirmado_manual'])
+            ->orderBy('apellidos')
+            ->orderBy('nombres')
+            ->cursor();
+
+        foreach ($ingresantes as $ing) {
+            $academia = isset($ing->alumno_id) ? ($academiaData[$ing->alumno_id] ?? null) : null;
+
+            yield $this->buildRow($ing, $academia);
         }
-        if (str_contains($eap, 'QUIMICA') || str_contains($eap, 'BIOLOGICAS') || str_contains($eap, 'FISICA') || str_contains($eap, 'MATEMATICA') || str_contains($eap, 'ESTADISTICA')) {
-            return 'Area B';
-        }
-        if (str_contains($eap, 'INGENIERIA') || str_contains($eap, 'SOFTWARE') || str_contains($eap, 'SISTEMAS') || str_contains($eap, 'INDUSTRIAL') || str_contains($eap, 'CIVIL')) {
-            return 'Area C';
-        }
-        if (str_contains($eap, 'ADMINISTRACION') || str_contains($eap, 'NEGOCIOS') || str_contains($eap, 'CONTABILIDAD') || str_contains($eap, 'ECONOMIA')) {
-            return 'Area D';
-        }
-        if (str_contains($eap, 'DERECHO') || str_contains($eap, 'POLITICA') || str_contains($eap, 'LITERATURA') || str_contains($eap, 'FILOSOFIA') || str_contains($eap, 'COMUNICACION') || str_contains($eap, 'ARTE') || str_contains($eap, 'ARQUEOLOGIA') || str_contains($eap, 'EDUCACION') || str_contains($eap, 'HISTORIA') || str_contains($eap, 'TRABAJO SOCIAL')) {
-            return 'Area E';
-        }
-        return '';
     }
 
-    /**
-     * Calculate LISTA - 1 (Cachimbos Históricos).
-     */
-    public function calculateLista1(string $periodo): int
+    private function loadAcademiaData(array $alumnoMatriculaIds): array
     {
-        preg_match('/\b(20\d{2})\b/', $periodo, $matches);
-        $year = isset($matches[1]) ? intval($matches[1]) : 0;
-        
-        if ($year > 2024) {
-            return 1;
+        if (empty($alumnoMatriculaIds)) {
+            return [];
         }
-        if ($year === 2024 && str_contains(mb_strtolower($periodo, 'UTF-8'), 'verano')) {
-            return 1;
+
+        $placeholders = implode(',', array_fill(0, count($alumnoMatriculaIds), '?'));
+
+        $rows = DB::connection('academia')->select("
+            SELECT
+                am.id                   AS am_id,
+                p.dni,
+                p.telefono              AS cel_alumno,
+                p.telefono2             AS cel_apoderado,
+                am.estado               AS am_estado,
+                am.fecha                AS fecha_matricula,
+                m.anio,
+                l.nombre                AS local_nombre,
+                per.nombre              AS periodo_nombre,
+                per.ciclos              AS ciclo
+            FROM alumno_matricula am
+            JOIN alumnos a            ON a.codigo = am.alumno_codigo
+            JOIN personas p           ON p.dni = a.persona_dni
+            JOIN aulas au             ON au.id = am.aula_id
+            JOIN matriculas m         ON m.id = au.matricula_id
+            JOIN periodos per         ON per.id = m.periodo_id
+            LEFT JOIN locales l       ON l.id = m.local_id
+            WHERE am.id IN ({$placeholders})
+        ", $alumnoMatriculaIds);
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row->am_id] = $row;
         }
-        
-        $p = mb_strtolower($periodo, 'UTF-8');
-        if (str_contains($p, 'verano 2024') || str_contains($p, 'verano 2025') || str_contains($p, 'repaso 2025')) {
-            return 1;
-        }
-        
-        return 0;
+
+        return $map;
     }
 
-    /**
-     * Calculate LISTA - 2 (Cachimbos Temporada).
-     */
-    public function calculateLista2(string $periodo, string $estado): int
+    private function buildRow(object $ing, ?object $academia): array
     {
-        $p = mb_strtoupper($periodo, 'UTF-8');
-        if (str_contains($p, 'VERANO 2026') || str_contains($p, 'OCTUBRE 2025') || str_contains($p, 'REPASO 2026') || str_contains($p, 'FEBRERO 2026')) {
-            return 1;
-        }
-        return 0;
-    }
-
-    /**
-     * Calculate LISTA - 3 (Cachimbos Activos a Febrero 2026).
-     */
-    public function calculateLista3(string $estado, string $date = '2026-02-27'): int
-    {
-        $est = mb_strtoupper($estado, 'UTF-8');
-        if (in_array($est, ['MATRICULADO', 'PAGADO', 'FINALIZADO'], true)) {
-            return 1;
-        }
-        return 0;
-    }
-
-    /**
-     * Execute the Excel report export logic.
-     */
-    public function execute(int $loteId): array
-    {
-        $lote = LoteCruce::find($loteId);
-        if (!$lote) {
-            return ['success' => false, 'error' => 'Lote no encontrado'];
-        }
-
-        $filePath = storage_path("app/reporte-lote-{$loteId}.xlsx");
-        file_put_contents($filePath, 'DUMMY EXCEL BINARY CONTENT');
+        $eap = (string) ($ing->eap ?? '');
 
         return [
-            'success' => true,
-            'data' => [
-                'column_count' => 24,
-                'sheets' => ['Hoja 1', 'Hoja 2'],
-                'columnas_csv' => [
-                    'CODIGO', 'APELLIDOS', 'NOMBRES', 'EAP', 'PUNTAJE', 'MERITO',
-                    'OBSERVACION', 'TIPO', 'MODALIDAD', 'UNIVERSIDAD', 'PERIODO', 'FECHA',
-                    'EXTRA_COLUMN_13'
-                ],
-                'columnas_enriquecidas' => ['Sede', 'Ciclo', 'Estado'],
-                'has_dashboard' => true,
-                'file_path' => $filePath,
-            ]
+            $ing->codigo,
+            $academia?->dni ?? '',
+            $ing->apellidos,
+            $ing->nombres,
+            $eap,
+            $ing->puntaje,
+            $ing->merito,
+            $ing->observacion,
+            $ing->tipo,
+            $ing->modalidad,
+            $ing->universidad,
+            $ing->periodo,
+            $ing->fecha,
+            $academia?->anio ?? '',
+            $academia?->local_nombre ?? '',
+            $academia?->ciclo ?? '',
+            $academia?->fecha_matricula ?? '',
+            $academia?->cel_alumno ?? '',
+            $academia?->cel_apoderado ?? '',
+            $this->resolveEstado($academia),
+            $this->calcLista1($academia),
+            $this->calcLista2($academia),
+            $this->calcLista3($academia),
+            $this->resolveArea($eap),
         ];
+    }
+
+    private function resolveEstado(?object $academia): string
+    {
+        if ($academia === null) {
+            return '';
+        }
+
+        return self::ESTADO_LABELS[(int) $academia->am_estado] ?? (string) $academia->am_estado;
+    }
+
+    private function calcLista1(?object $academia): int
+    {
+        if ($academia === null) {
+            return 0;
+        }
+
+        $periodoNombre = strtoupper(trim((string) ($academia->periodo_nombre ?? '')));
+
+        foreach (self::LISTA1_CUTOFF_KEYWORDS as $keyword) {
+            if (str_contains($periodoNombre, $keyword)) {
+                return 1;
+            }
+        }
+
+        return 0;
+    }
+
+    private function calcLista2(?object $academia): int
+    {
+        if ($academia === null) {
+            return 0;
+        }
+
+        $periodoNombre = strtoupper(trim((string) ($academia->periodo_nombre ?? '')));
+        $estado = (int) ($academia->am_estado ?? 0);
+
+        // Include RETIRADO (13) and SUSPENDIDO (14) per spec
+        foreach (self::LISTA2_KEYWORDS as $keyword) {
+            if (str_contains($periodoNombre, $keyword)) {
+                return 1;
+            }
+        }
+
+        return 0;
+    }
+
+    private function calcLista3(?object $academia): int
+    {
+        if ($academia === null) {
+            return 0;
+        }
+
+        $estado = (int) ($academia->am_estado ?? 0);
+
+        // Active as of Feb 27, 2026: MATRICULADO (2), PAGADO (3), FINALIZADO (9)
+        if (!in_array($estado, self::LISTA3_ACTIVE_ESTADOS, true)) {
+            return 0;
+        }
+
+        $periodoNombre = strtoupper(trim((string) ($academia->periodo_nombre ?? '')));
+
+        // Must be in a cycle that was active on Feb 27, 2026
+        foreach (self::LISTA2_KEYWORDS as $keyword) {
+            if (str_contains($periodoNombre, $keyword)) {
+                return 1;
+            }
+        }
+
+        return 0;
+    }
+
+    private function resolveArea(string $eap): string
+    {
+        $eapUpper = strtoupper($eap);
+
+        // Area A: Ciencias de la Salud
+        foreach (['MEDICINA', 'OBSTETRICIA', 'ENFERMERIA', 'TECNOLOGIA MEDICA', 'ODONTOLOGIA', 'FARMACIA', 'VETERINARIA', 'PSICOLOGIA'] as $kw) {
+            if (str_contains($eapUpper, $kw)) {
+                return 'A';
+            }
+        }
+
+        // Area B: Ciencias Básicas
+        foreach (['QUIMICA', 'BIOLOGICAS', 'FISICA', 'MATEMATICA', 'ESTADISTICA'] as $kw) {
+            if (str_contains($eapUpper, $kw)) {
+                return 'B';
+            }
+        }
+
+        // Area C: Ingenierías
+        foreach (['INGENIERIA', 'SOFTWARE', 'SISTEMAS', 'INDUSTRIAL', 'CIVIL'] as $kw) {
+            if (str_contains($eapUpper, $kw)) {
+                return 'C';
+            }
+        }
+
+        // Area D: Ciencias Económicas y de la Gestión
+        foreach (['ADMINISTRACION', 'NEGOCIOS', 'CONTABILIDAD', 'ECONOMIA'] as $kw) {
+            if (str_contains($eapUpper, $kw)) {
+                return 'D';
+            }
+        }
+
+        // Area E: Humanidades y Ciencias Jurídicas y Sociales
+        foreach (['DERECHO', 'POLITICA', 'LITERATURA', 'FILOSOFIA', 'COMUNICACION', 'ARTE', 'ARQUEOLOGIA', 'EDUCACION', 'HISTORIA', 'TRABAJO SOCIAL'] as $kw) {
+            if (str_contains($eapUpper, $kw)) {
+                return 'E';
+            }
+        }
+
+        return '';
     }
 }

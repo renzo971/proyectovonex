@@ -10,10 +10,10 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 Route::post('/cruce/upload', [CruceIngresantesController::class, 'upload']);
-Route::get('/cruce/lotes', [CruceIngresantesController::class, 'getLotes']);
-Route::get('/cruce/lotes/{lote_id}/status', [CruceIngresantesController::class, 'getLoteStatus']);
-Route::get('/cruce/lotes/{lote_id}/pendientes', [CruceIngresantesController::class, 'getPendientes']);
-Route::get('/cruce/ingresantes/{id}/candidatos', [CruceIngresantesController::class, 'getCandidatos']);
+Route::get('/cruce/lotes', [CruceIngresantesController::class, 'lotes']);
+Route::get('/cruce/lotes/{lote_id}/status', [CruceIngresantesController::class, 'loteStatus']);
+Route::get('/cruce/lotes/{lote_id}/pendientes', [CruceIngresantesController::class, 'pendientes']);
+Route::get('/cruce/ingresantes/{id}/candidatos', [CruceIngresantesController::class, 'candidatos']);
 
 // Register both confirm path options to support tests and frontend
 Route::post('/cruce/ingresantes/{id}/confirmar', [CruceIngresantesController::class, 'confirmar']);

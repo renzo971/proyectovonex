@@ -10,19 +10,17 @@ use Illuminate\Support\Facades\DB;
 
 class RealizarCruceExactoAction
 {
-    /**
-     * Perform exact match cruce for an ingresante against the academia DB.
-     */
-    public function execute(int $ingresanteId, ?iterable $preloadedStudents = null): array
+    private NormalizarTextoAction $normalizador;
+
+    private const ESTADOS_ACTIVOS = [2, 3, 9, 13, 14];
+
+    public function __construct(?NormalizarTextoAction $normalizador = null)
     {
-        $ingresante = Ingresante::find($ingresanteId);
-        if (!$ingresante) {
-            return ['success' => false, 'error' => 'Ingresante no encontrado'];
-        }
+        $this->normalizador = $normalizador ?? new NormalizarTextoAction();
+    }
 
-        $lote = $ingresante->loteCruce;
-
-        // Ensure academia connection works (or fail gracefully)
+    public function execute(int $ingresanteId): array
+    {
         $isTestConnectionFailure = false;
         if (app()->runningUnitTests()) {
             $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 15);
@@ -35,102 +33,217 @@ class RealizarCruceExactoAction
         }
 
         if ($isTestConnectionFailure) {
-            if ($lote) {
-                $lote->update(['estado' => 'En Pausa']);
+            $ingresante = Ingresante::find($ingresanteId);
+            if ($ingresante && $ingresante->loteCruce) {
+                $ingresante->loteCruce->update(['estado' => 'En Pausa']);
             }
-            return ['success' => false, 'error' => 'Error de conexión con la BD Academia'];
-        }
-
-        try {
-            DB::connection('academia')->getPdo();
-            AcademiaDbHelper::ensureTablesAndSeed();
-        } catch (\Exception $e) {
-            if ($lote) {
-                $lote->update(['estado' => 'En Pausa']);
-            }
-            return ['success' => false, 'error' => 'Error de conexión con la BD Academia: ' . $e->getMessage()];
-        }
-
-        if ($preloadedStudents !== null) {
-            $candidates = [];
-            foreach ($preloadedStudents as $student) {
-                if ($student->apellido_paterno === $ingresante->apellido_paterno &&
-                    $student->apellido_materno === $ingresante->apellido_materno) {
-                    $candidates[] = $student;
-                }
-            }
-        } else {
-            // Fetch candidates with exact matching surnames
-            $candidates = DB::connection('academia')
-                ->table('alumno_matricula')
-                ->join('alumnos', 'alumno_matricula.alumno_codigo', '=', 'alumnos.codigo')
-                ->join('personas', 'alumnos.persona_dni', '=', 'personas.dni')
-                ->leftJoin('aulas', 'alumno_matricula.aula_id', '=', 'aulas.id')
-                ->leftJoin('matriculas', 'aulas.matricula_id', '=', 'matriculas.id')
-            ->leftJoin('ciclos', function ($join) {
-                $join->on('matriculas.id', '=', 'ciclos.matricula_id')
-                     ->where('ciclos.fecha_fin', '>=', now()->toDateString());
-            })
-            ->whereIn('alumno_matricula.estado', [2, 3, 9, 13, 14])
-            ->where('alumno_matricula.estado_aula', 1)
-            ->whereNotNull('ciclos.id')
-            ->whereNotIn('alumno_matricula.id', function ($query) {
-                $query->select('matricularegular_id')
-                      ->from('alumno_matricula')
-                      ->whereNotNull('matricularegular_id');
-            })
-            ->where('personas.apellido_paterno', $ingresante->apellido_paterno)
-            ->where('personas.apellido_materno', $ingresante->apellido_materno)
-            ->select([
-                'alumno_matricula.id as alumno_id',
-                'personas.apellido_paterno',
-                'personas.apellido_materno',
-                'personas.nombres',
-                'alumno_matricula.estado',
-            ])
-            ->get();
-        }
-
-        $ingresanteFirstName = explode(' ', trim($ingresante->nombres))[0];
-        
-        $matched = null;
-        foreach ($candidates as $cand) {
-            $candFirstName = explode(' ', trim($cand->nombres))[0];
-            if ($ingresanteFirstName === $candFirstName) {
-                $matched = $cand;
-                break;
-            }
-        }
-
-        if ($matched) {
-            // Update match state allowing INV-01 automatic confirm bypass
-            Ingresante::$allowAutomaticConfirm = true;
-            try {
-                $ingresante->update([
-                    'alumno_id' => $matched->alumno_id,
-                    'estado_match' => 'confirmado_automatico',
-                ]);
-            } finally {
-                Ingresante::$allowAutomaticConfirm = false;
-            }
-
-            if ($lote) {
-                $lote->increment('total_match_exacto');
-                $lote->decrement('total_pendientes');
-            }
-
-            $resultData = $ingresante->toArray();
-            $resultData['alumno_nombre_completo'] = trim("{$matched->apellido_paterno} {$matched->apellido_materno} {$matched->nombres}");
-
             return [
-                'success' => true,
-                'data' => $resultData,
+                'success' => false,
+                'error' => 'Error de conexión con la BD academia.',
             ];
         }
 
+        try {
+            DB::connection('academia')->select('SELECT 1');
+        } catch (\Exception $e) {
+            $ingresante = Ingresante::find($ingresanteId);
+            if ($ingresante) {
+                $lote = $ingresante->loteCruce;
+                if ($lote) {
+                    $lote->update(['estado' => 'En Pausa']);
+                }
+            }
+
+            return [
+                'success' => false,
+                'error' => 'Error de conexión con la BD academia.',
+            ];
+        }
+
+        $ingresante = Ingresante::findOrFail($ingresanteId);
+
+        $alumnosIndex = $this->getActiveAlumnos();
+
+        $matched = $this->findMatchByName($ingresante, $alumnosIndex['alumnos'], $alumnosIndex['by_name']);
+
+        if ($matched) {
+            $ingresante->updateQuietly([
+                'alumno_id' => $matched['id'],
+                'estado_match' => 'confirmado_automatico',
+                'porcentaje_similitud' => 100.00,
+            ]);
+
+            $lote = $ingresante->loteCruce;
+            if ($lote) {
+                $lote->increment('total_match_exacto');
+            }
+
+            $nombreCompleto = ($matched['apellido_paterno'] ?? '') . ' ' .
+                ($matched['apellido_materno'] ?? '') . ' ' .
+                ($matched['nombres'] ?? '');
+
+            return [
+                'success' => true,
+                'data' => [
+                    'estado_match' => 'confirmado_automatico',
+                    'alumno_id' => $matched['id'],
+                    'alumno_nombre_completo' => trim($nombreCompleto),
+                ],
+            ];
+        }
+
+        $ingresante->update([
+            'estado_match' => 'pendiente',
+        ]);
+
         return [
-            'success' => false,
-            'error' => 'No se encontró coincidencia exacta',
+            'success' => true,
+            'data' => [
+                'estado_match' => 'pendiente',
+                'alumno_id' => null,
+            ],
         ];
+    }
+
+    public function executeBatch(LoteCruce $lote, ?array $alumnosIndex = null): array
+    {
+        try {
+            DB::connection('academia')->select('SELECT 1');
+        } catch (\Exception $e) {
+            $lote->update(['estado' => 'paused']);
+            return [
+                'success' => false,
+                'error' => 'Error de conexión con la BD academia.',
+            ];
+        }
+
+        if ($alumnosIndex === null) {
+            $alumnosIndex = $this->getActiveAlumnos();
+        }
+
+        $ingresantes = $lote->ingresantes()
+            ->where('estado_match', 'pendiente')
+            ->get();
+
+        $alumnos = $alumnosIndex['alumnos'];
+        $byName = $alumnosIndex['by_name'];
+
+        $matchCount = 0;
+
+        foreach ($ingresantes as $ingresante) {
+            $matched = $this->findMatchByName($ingresante, $alumnos, $byName);
+
+            if ($matched) {
+                $ingresante->updateQuietly([
+                    'alumno_id' => $matched['id'],
+                    'estado_match' => 'confirmado_automatico',
+                    'porcentaje_similitud' => 100.00,
+                ]);
+                $matchCount++;
+            }
+        }
+
+        $lote->update([
+            'total_match_exacto' => $matchCount,
+        ]);
+
+        return [
+            'success' => true,
+            'data' => [
+                'total_matched' => $matchCount,
+            ],
+        ];
+    }
+
+    private function findMatchByName(Ingresante $ingresante, array $alumnos, array $byName): ?array
+    {
+        $normalizedPaterno = $this->normalizador->execute($ingresante->apellido_paterno);
+        $normalizedMaterno = $this->normalizador->execute($ingresante->apellido_materno);
+        $normalizedNombres = $this->normalizador->execute($ingresante->nombres);
+
+        $key = $normalizedPaterno . '|' . $normalizedMaterno;
+        $indices = $byName[$key] ?? [];
+
+        if (empty($indices)) {
+            return null;
+        }
+
+        $nombreTokens = explode(' ', $normalizedNombres);
+
+        foreach ($indices as $idx) {
+            $candidate = $alumnos[$idx];
+            $candidateNombres = $this->normalizador->execute($candidate['nombres']);
+            $candidateTokens = explode(' ', $candidateNombres);
+
+            foreach ($nombreTokens as $nameToken) {
+                if (in_array($nameToken, $candidateTokens, true)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public function getActiveAlumnos(): array
+    {
+        AcademiaDbHelper::ensureTablesAndSeed();
+
+        $estados = implode(',', self::ESTADOS_ACTIVOS);
+
+        $rows = DB::connection('academia')->select("
+            SELECT am.id, p.apellido_paterno, p.apellido_materno, p.nombres, am.estado
+            FROM alumno_matricula am
+            JOIN alumnos a ON am.alumno_codigo = a.codigo
+            JOIN personas p ON a.persona_dni = p.dni
+            WHERE am.estado IN ({$estados})
+              AND am.estado_aula = 1
+        ");
+
+        $alumnos = [];
+        $byName = [];
+        $byInitial = [];
+
+        foreach ($rows as $row) {
+            $idx = count($alumnos);
+            
+            $normPaterno = $this->normalizador->execute($row->apellido_paterno ?? '');
+            $normMaterno = $this->normalizador->execute($row->apellido_materno ?? '');
+            $normNombres = $this->normalizador->execute($row->nombres ?? '');
+            
+            $fullNameNormalized = trim($normPaterno . ' ' . $normMaterno . ' ' . $normNombres);
+            
+            $len = strlen($fullNameNormalized);
+            $bigramsHash = [];
+            for ($i = 0; $i < $len - 1; $i++) {
+                $bg = $fullNameNormalized[$i] . $fullNameNormalized[$i+1];
+                if (!isset($bigramsHash[$bg])) {
+                    $bigramsHash[$bg] = 0;
+                }
+                $bigramsHash[$bg]++;
+            }
+
+            $alumnos[] = [
+                'id' => (int) $row->id,
+                'apellido_paterno' => $row->apellido_paterno,
+                'apellido_materno' => $row->apellido_materno,
+                'nombres' => $row->nombres,
+                'estado' => (int) $row->estado,
+                'norm_paterno' => $normPaterno,
+                'full_name_normalized' => $fullNameNormalized,
+                'bigrams_hash' => $bigramsHash,
+                'bigrams_count' => max(0, $len - 1),
+            ];
+
+            $nameKey = $normPaterno . '|' . $normMaterno;
+            $byName[$nameKey][] = $idx;
+            
+            $initial = $normPaterno !== '' ? $normPaterno[0] : '';
+            if ($initial !== '') {
+                $byInitial[$initial][] = $idx;
+            }
+        }
+
+        return ['alumnos' => $alumnos, 'by_name' => $byName, 'by_initial' => $byInitial];
     }
 }

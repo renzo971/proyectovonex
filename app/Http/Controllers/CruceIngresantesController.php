@@ -4,246 +4,451 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
-use App\Models\LoteCruce;
-use App\Models\Ingresante;
-use App\Jobs\ProcessCsvBatchJob;
-use App\Actions\Cruce\NormalizarTextoAction;
 use App\Actions\Cruce\CalcularSimilitudesCabosAction;
 use App\Actions\Cruce\GuardarCruceConfirmadoAction;
-use App\Actions\Cruce\ExportarExcelCruceAction;
-use Illuminate\Http\Request;
+use App\Actions\Cruce\ProcesarCargaCsvAction;
+use App\Jobs\ProcessCsvBatchJob;
+use App\Models\Ingresante;
+use App\Models\LoteCruce;
 use Illuminate\Http\JsonResponse;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CruceIngresantesController extends Controller
 {
-    protected NormalizarTextoAction $normalizer;
-
-    public function __construct()
-    {
-        $this->normalizer = new NormalizarTextoAction();
-    }
-
-    /**
-     * Upload and enqueue CSV batch processing.
-     */
     public function upload(Request $request): JsonResponse
     {
         if (!$request->hasFile('file')) {
-            return response()->json(['success' => false, 'error' => 'No se subió ningún archivo'], 422);
+            return response()->json([
+                'success' => false,
+                'error' => 'No se envió ningún archivo.',
+            ], 422);
         }
 
         $file = $request->file('file');
 
-        // Size check (20MB limit)
         if ($file->getSize() > 20 * 1024 * 1024) {
-            return response()->json(['success' => false, 'error' => 'El archivo supera el tamaño máximo permitido (20 MB).'], 413);
-        }
-
-        $path = $file->getRealPath();
-        $content = file_get_contents($path);
-
-        // UTF-8 BOM
-        if (str_starts_with($content, "\xEF\xBB\xBF")) {
-            $content = substr($content, 3);
-        }
-
-        $encoding = mb_detect_encoding($content, ['UTF-8', 'ISO-8859-1'], true);
-        if (!$encoding) {
-            return response()->json(['success' => false, 'error' => 'El archivo no puede leerse con la codificación detectada. Se acepta UTF-8 o ISO-8859-1.'], 422);
-        }
-        if ($encoding !== 'UTF-8') {
-            $content = mb_convert_encoding($content, 'UTF-8', $encoding);
-        }
-
-        $lines = preg_split('/\r\n|\r|\n/', $content);
-        $lines = array_filter(array_map('trim', $lines));
-
-        if (count($lines) < 1) {
-            return response()->json(['success' => false, 'error' => 'Archivo CSV vacío'], 422);
-        }
-
-        $headersLine = array_shift($lines);
-        $headers = str_getcsv($headersLine);
-        $headers = array_map(function ($h) {
-            return trim(mb_strtoupper($h, 'UTF-8'));
-        }, $headers);
-
-        $requiredColumns = [
-            'CODIGO', 'APELLIDOS', 'NOMBRES', 'EAP', 'PUNTAJE', 'MERITO',
-            'OBSERVACION', 'TIPO', 'MODALIDAD', 'UNIVERSIDAD', 'PERIODO', 'FECHA'
-        ];
-
-        $missingColumns = array_diff($requiredColumns, $headers);
-        if (!empty($missingColumns)) {
             return response()->json([
                 'success' => false,
-                'error' => 'El archivo CSV no contiene las columnas requeridas: ' . implode(', ', $missingColumns) . '. Verifique el formato e intente nuevamente.'
+                'error' => 'El archivo supera el tamaño máximo permitido (20 MB).',
+            ], 413);
+        }
+
+        if (!$file->getClientOriginalExtension() === 'csv' && $file->getMimeType() !== 'text/csv') {
+            return response()->json([
+                'success' => false,
+                'error' => 'El archivo debe ser un CSV.',
             ], 422);
         }
 
-        $headerMap = array_flip($headers);
+        $path = $file->store('csv-uploads');
 
-        $dates = [];
-        $hasAlcanzoVacante = false;
-
-        foreach ($lines as $line) {
-            $data = str_getcsv($line);
-            if (count($data) < count($requiredColumns)) {
-                continue;
-            }
-
-            $obs = trim($data[$headerMap['OBSERVACION']] ?? '');
-            $normalizedObs = $this->normalizer->execute($obs);
-            if ($normalizedObs === 'ALCANZO VACANTE') {
-                $hasAlcanzoVacante = true;
-            }
-
-            $date = trim($data[$headerMap['FECHA']] ?? '');
-            if ($date !== '') {
-                $dates[$date] = true;
-            }
-        }
-
-        if (!$hasAlcanzoVacante) {
-            return response()->json([
-                'success' => false,
-                'error' => "El archivo no contiene registros con observación 'ALCANZO VACANTE'. Verifique el contenido del CSV."
-            ], 422);
-        }
-
-        // Store CSV to a persistent temporary path for the queue job
-        $savedPath = $file->storeAs('tmp', 'upload-' . time() . '-' . uniqid() . '.csv');
-        $absolutePath = storage_path('app/' . $savedPath);
-
-        $firstLote = null;
-
-        foreach (array_keys($dates) as $date) {
-            $loteExists = LoteCruce::where('fecha_examen', $date)->exists();
-            if ($loteExists) {
-                continue;
-            }
-
-            $lote = LoteCruce::create([
-                'fecha_examen' => $date,
-                'estado' => 'processing',
-                'started_at' => now(),
-            ]);
-
-            if ($firstLote === null) {
-                $firstLote = $lote;
-            }
-
-            // Dispatch job
-            $job = new ProcessCsvBatchJob($lote->id);
-            $job->csvPath = $absolutePath;
-            dispatch($job);
-        }
-
-        if ($firstLote === null) {
-            // All dates were already processed
-            return response()->json([
-                'success' => false,
-                'error' => 'Todas las fechas del CSV ya existen en el historial de lotes procesados.'
-            ], 422);
-        }
+        ProcessCsvBatchJob::dispatch(Storage::path($path));
 
         return response()->json([
-            'lote_id' => $firstLote->id,
+            'success' => true,
             'estado' => 'processing',
-            'message' => 'El archivo CSV está siendo procesado en segundo plano.'
+            'message' => 'Archivo encolado para procesamiento.',
         ], 202);
     }
 
-    /**
-     * Get all processed batches.
-     */
-    public function getLotes(): JsonResponse
+    public function health(): JsonResponse
     {
-        $lotes = LoteCruce::orderBy('created_at', 'desc')->get();
-        return response()->json($lotes);
-    }
+        $checks = [];
 
-    /**
-     * Get status and stats of a batch.
-     */
-    public function getLoteStatus(int $loteId): JsonResponse
-    {
-        $lote = LoteCruce::findOrFail($loteId);
-        return response()->json($lote);
-    }
+        $checks[] = [
+            'name' => 'conexion_academia',
+            'status' => 'checking',
+        ];
 
-    /**
-     * List unmatched pending resolution.
-     */
-    public function getPendientes(Request $request, int $loteId): JsonResponse
-    {
-        $perPage = (int) $request->query('per_page', 15);
-        $paginator = Ingresante::where('lote_cruce_id', $loteId)
-            ->where('estado_match', 'pendiente')
-            ->with('candidatos')
-            ->paginate($perPage);
+        try {
+            DB::connection('academia')->select('SELECT 1 AS alive');
+            $checks[] = [
+                'name' => 'conexion_academia',
+                'status' => 'ok',
+                'message' => 'Conexión exitosa a BD academia',
+            ];
+        } catch (\Exception $e) {
+            $checks[] = [
+                'name' => 'conexion_academia',
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+
+        $checks[] = [
+            'name' => 'consulta_alumnos',
+            'status' => 'checking',
+        ];
+
+        try {
+            $count = DB::connection('academia')
+                ->table('alumno_matricula')
+                ->whereIn('estado', [2, 3, 9, 13])
+                ->where('estado_aula', 1)
+                ->count();
+
+            $checks[] = [
+                'name' => 'consulta_alumnos',
+                'status' => 'ok',
+                'message' => "{$count} alumnos activos encontrados",
+            ];
+        } catch (\Exception $e) {
+            $checks[] = [
+                'name' => 'consulta_alumnos',
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+
+        $allOk = collect($checks)->every(fn ($c) => ($c['status'] ?? '') === 'ok');
 
         return response()->json([
-            'data' => $paginator->items(),
-            'current_page' => $paginator->currentPage(),
-            'last_page' => $paginator->lastPage(),
-            'per_page' => $paginator->perPage(),
-            'total' => $paginator->total(),
+            'success' => $allOk,
+            'checks' => $checks,
+            'timestamp' => now()->toIso8601String(),
         ]);
     }
 
-    /**
-     * Query or compute candidates for a single applicant.
-     */
-    public function getCandidatos(int $id): JsonResponse
+    public function academiaAlumnos(): JsonResponse
     {
-        $action = new CalcularSimilitudesCabosAction();
+        try {
+            $alumnos = DB::connection('academia')->select("
+                SELECT
+                    am.id AS alumno_id,
+                    p.apellido_paterno,
+                    p.apellido_materno,
+                    p.nombres,
+                    p.dni,
+                    am.estado,
+                    am.estado_aula
+                FROM alumno_matricula am
+                JOIN alumnos a ON am.alumno_codigo = a.codigo
+                JOIN personas p ON a.persona_dni = p.dni
+                WHERE am.estado IN (2, 3, 9, 13, 14)
+                  AND am.estado_aula = 1
+                ORDER BY p.apellido_paterno, p.apellido_materno, p.nombres
+                LIMIT 50
+            ");
+
+            $estados = [
+                0 => 'RETIRADO',
+                2 => 'MATRICULADO',
+                3 => 'PAGADO',
+                9 => 'SUSPENDIDO',
+                11 => 'ANULADO',
+                12 => 'TRASLADADO',
+                13 => 'STAND BY',
+                14 => 'FINALIZADO',
+            ];
+
+            $data = array_map(function ($row) use ($estados) {
+                return [
+                    'alumno_id' => (int) $row->alumno_id,
+                    'apellido_paterno' => $row->apellido_paterno,
+                    'apellido_materno' => $row->apellido_materno,
+                    'nombres' => $row->nombres,
+                    'dni' => $row->dni,
+                    'estado_num' => (int) $row->estado,
+                    'estado_texto' => $estados[(int) $row->estado] ?? 'DESCONOCIDO',
+                ];
+            }, $alumnos);
+
+            return response()->json([
+                'success' => true,
+                'total' => count($data),
+                'data' => $data,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function candidatos(int $id): JsonResponse
+    {
+        $ingresante = Ingresante::findOrFail($id);
+
+        $action = app(CalcularSimilitudesCabosAction::class);
         $result = $action->execute($id);
 
         if (!$result['success']) {
-            return response()->json(['error' => $result['error']], 500);
+            return response()->json($result, 500);
         }
 
-        return response()->json($result['data']['candidates']);
+        $candidates = array_map(function ($c) {
+            return [
+                'alumno_id' => $c['alumno_id'],
+                'nombre_completo' => $c['nombre_completo'] ?? '',
+                'apellido_paterno' => $c['apellido_paterno'] ?? '',
+                'apellido_materno' => $c['apellido_materno'] ?? '',
+                'nombres' => $c['nombres'] ?? '',
+                'porcentaje_similitud' => $c['porcentaje_similitud'],
+            ];
+        }, $result['data']['candidates']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'candidates' => $candidates,
+                'no_ingresado_option' => $result['data']['no_ingresado_option'],
+            ],
+        ]);
     }
 
-    /**
-     * Confirm match manually or mark as no_ingresado.
-     */
     public function confirmar(Request $request, int $id): JsonResponse
     {
-        $action = new GuardarCruceConfirmadoAction();
-        $result = $action->execute(
-            $id,
-            $request->input('alumno_id') !== null ? (int)$request->input('alumno_id') : null,
-            (bool) $request->input('marcar_no_ingresado', false)
-        );
+        $request->validate([
+            'alumno_id' => 'nullable|integer',
+        ]);
 
-        if (!$result['success']) {
-            return response()->json(['error' => $result['error']], 404);
+        $action = app(GuardarCruceConfirmadoAction::class);
+        $result = $action->execute($id, $request->integer('alumno_id'));
+
+        $status = isset($result['http_status']) ? $result['http_status'] : ($result['success'] ? 200 : 422);
+
+        return response()->json($result, $status);
+    }
+
+    public function lotes(Request $request): JsonResponse
+    {
+        $query = LoteCruce::query();
+
+        $q = trim((string) $request->query('q', ''));
+        if ($q !== '') {
+            $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $q) . '%';
+            $query->where('fecha_examen', 'ilike', $like);
+        }
+
+        $lotes = $query->orderBy('created_at', 'desc')
+            ->paginate($request->integer('per_page', 50));
+
+        return response()->json([
+            'success' => true,
+            'data' => $lotes->items(),
+            'meta' => [
+                'current_page' => $lotes->currentPage(),
+                'last_page' => $lotes->lastPage(),
+                'per_page' => $lotes->perPage(),
+                'total' => $lotes->total(),
+            ],
+        ]);
+    }
+
+    public function loteStatus(int $loteId): JsonResponse
+    {
+        $lote = LoteCruce::findOrFail($loteId);
+
+        $data = $lote->toArray();
+        $data['fuzzy_progress'] = null;
+
+        if (($lote->total_pendientes ?? 0) > 0) {
+            $processed = min($lote->fuzzy_procesados ?? 0, $lote->total_pendientes);
+            $data['fuzzy_progress'] = round(($processed / $lote->total_pendientes) * 100, 1);
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Coincidencia confirmada exitosamente.',
-            'data' => $result['data'],
-            'ingresante' => $result['data'],
+            'data' => $data,
         ]);
     }
 
-    /**
-     * Export batch results to Excel.
-     */
-    public function exportar(int $loteId): BinaryFileResponse|JsonResponse
+    public function pendientes(Request $request, int $loteId): JsonResponse
     {
-        $action = new ExportarExcelCruceAction();
-        $result = $action->execute($loteId);
+        $lote = LoteCruce::findOrFail($loteId);
 
-        if (!$result['success']) {
-            return response()->json(['error' => $result['error']], 404);
+        $query = $lote->ingresantes()
+            ->where('estado_match', 'pendiente');
+
+        $q = trim((string) $request->query('q', ''));
+        if ($q !== '') {
+            $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $q) . '%';
+            $query->where(function ($w) use ($like) {
+                $w->where('codigo', 'ilike', $like)
+                    ->orWhere('apellido_paterno', 'ilike', $like)
+                    ->orWhere('apellido_materno', 'ilike', $like)
+                    ->orWhere('nombres', 'ilike', $like)
+                    ->orWhere('apellidos', 'ilike', $like)
+                    ->orWhere('eap', 'ilike', $like);
+            });
         }
 
-        return response()->download($result['data']['file_path'], "reporte-lote-{$loteId}.xlsx");
+        $pendientes = $query
+            ->whereHas('candidatos', function ($q) {
+                $q->where('porcentaje_similitud', '>=', 80);
+            })
+            ->with(['candidatos' => function ($q) {
+                $q->where('porcentaje_similitud', '>=', 80)->orderBy('ranking');
+            }])
+            ->withCount('candidatos')
+            ->addSelect([
+                'max_similitud' => \App\Models\IngresanteCandidato::selectRaw('COALESCE(MAX(porcentaje_similitud), 0)')
+                    ->whereColumn('ingresante_id', 'ingresantes.id'),
+            ])
+            ->orderByDesc('max_similitud')
+            ->orderBy('apellido_paterno')
+            ->orderBy('apellido_materno')
+            ->paginate($request->integer('per_page', 50));
+
+        // Batch-load academia names for all candidate alumno_ids (avoid N+1)
+        $items = $pendientes->items();
+        $allAlumnoIds = collect($items)
+            ->flatMap(fn ($ing) => $ing->candidatos->pluck('alumno_id'))
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $academiaNames = [];
+        if (!empty($allAlumnoIds)) {
+            try {
+                $rows = DB::connection('academia')->select(
+                    'SELECT am.id, p.apellido_paterno, p.apellido_materno, p.nombres, a.persona_dni as dni
+                     FROM alumno_matricula am
+                     JOIN alumnos a ON am.alumno_codigo = a.codigo
+                     JOIN personas p ON a.persona_dni = p.dni
+                     WHERE am.id IN (' . implode(',', $allAlumnoIds) . ')'
+                );
+                foreach ($rows as $row) {
+                    $academiaNames[(int) $row->id] = $row;
+                }
+            } catch (\Exception $e) {
+                // silent — candidates will show IDs if academia is unavailable
+            }
+        }
+
+        // Enrich each ingresante's candidatos with academia name data
+        $enriched = array_map(function ($ing) use ($academiaNames) {
+            $data = $ing->toArray();
+            $data['candidatos'] = $ing->candidatos->map(function ($c) use ($academiaNames) {
+                $aData = $academiaNames[$c->alumno_id] ?? null;
+                return [
+                    'alumno_id'          => $c->alumno_id,
+                    'ranking'            => $c->ranking,
+                    'porcentaje_similitud' => (float) $c->porcentaje_similitud,
+                    'apellido_paterno'   => $aData->apellido_paterno ?? '',
+                    'apellido_materno'   => $aData->apellido_materno ?? '',
+                    'nombres'            => $aData->nombres ?? '',
+                    'dni'                => $aData->dni ?? '',
+                    'nombre_completo'    => $aData
+                        ? trim("{$aData->apellido_paterno} {$aData->apellido_materno}, {$aData->nombres}")
+                        : "ID {$c->alumno_id}",
+                ];
+            })->values()->toArray();
+            return $data;
+        }, $items);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $enriched,
+            'meta'    => [
+                'current_page' => $pendientes->currentPage(),
+                'last_page'    => $pendientes->lastPage(),
+                'per_page'     => $pendientes->perPage(),
+                'total'        => $pendientes->total(),
+            ],
+        ]);
+    }
+
+    public function exportar(int $loteId, \App\Actions\Cruce\ExportarExcelCruceAction $action): StreamedResponse
+    {
+        $lote = LoteCruce::findOrFail($loteId);
+
+        $filename = 'cruce_lote_' . $lote->id . '_' . now()->format('Y-m-d_His') . '.csv';
+
+        return response()->streamDownload(function () use ($lote, $action) {
+            $handle = fopen('php://output', 'w');
+
+            // BOM for Excel UTF-8 compatibility
+            fprintf($handle, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+            fputcsv($handle, \App\Actions\Cruce\ExportarExcelCruceAction::HEADERS, ';');
+
+            foreach ($action->execute($lote) as $row) {
+                // Sanitize against formula injection (=, +, -, @)
+                $safe = array_map(function ($cell) {
+                    $str = (string) $cell;
+                    if ($str !== '' && in_array($str[0], ['=', '+', '-', '@'], true)) {
+                        $str = "'" . $str;
+                    }
+                    return $str;
+                }, $row);
+
+                fputcsv($handle, $safe, ';');
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+    public function limpiar(): JsonResponse
+    {
+        try {
+            DB::statement('TRUNCATE TABLE ingresante_candidatos, no_ingresantes, ingresantes, lotes_cruce RESTART IDENTITY CASCADE');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Base de datos de cruce limpiada correctamente.',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function reprocesar(int $loteId): JsonResponse
+    {
+        $lote = LoteCruce::findOrFail($loteId);
+
+        try {
+            $action = app(\App\Actions\Cruce\RealizarCruceExactoAction::class);
+            $result = $action->executeBatch($lote);
+
+            if (!$result['success']) {
+                return response()->json([
+                    'success' => false,
+                    'error' => $result['error'] ?? 'Error en matching exacto',
+                ], 500);
+            }
+
+            $pendientes = $lote->ingresantes()
+                ->where('estado_match', 'pendiente')
+                ->get();
+
+            $fuzzyAction = app(\App\Actions\Cruce\CalcularSimilitudesCabosAction::class);
+            $computados = 0;
+
+            foreach ($pendientes as $ingresante) {
+                $fuzzyAction->execute($ingresante->id);
+                $computados++;
+            }
+
+            $lote->update([
+                'estado' => 'completed',
+                'completed_at' => now(),
+                'total_match_exacto' => $lote->ingresantes()->where('estado_match', 'confirmado_automatico')->count(),
+                'total_pendientes' => $lote->ingresantes()->where('estado_match', 'pendiente')->count(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'exact_match' => $result['data']['total_matched'] ?? 0,
+                    'fuzzy_computados' => $computados,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 }
