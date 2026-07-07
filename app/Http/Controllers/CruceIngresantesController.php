@@ -278,17 +278,15 @@ class CruceIngresantesController extends Controller
         }
 
         $pendientes = $query
-            ->whereHas('candidatos', function ($q) {
-                $q->where('porcentaje_similitud', '>=', 80);
-            })
             ->with(['candidatos' => function ($q) {
-                $q->where('porcentaje_similitud', '>=', 80)->orderBy('ranking');
+                $q->orderBy('ranking');
             }])
             ->withCount('candidatos')
             ->addSelect([
                 'max_similitud' => \App\Models\IngresanteCandidato::selectRaw('COALESCE(MAX(porcentaje_similitud), 0)')
                     ->whereColumn('ingresante_id', 'ingresantes.id'),
             ])
+            ->orderByDesc('candidatos_count')
             ->orderByDesc('max_similitud')
             ->orderBy('apellido_paterno')
             ->orderBy('apellido_materno')
