@@ -22,6 +22,7 @@ class LoteCruce extends Model
         'total_match_exacto',
         'total_pendientes',
         'total_no_ingresado',
+        'fuzzy_procesados',
         'estado',
         'started_at',
         'completed_at',
