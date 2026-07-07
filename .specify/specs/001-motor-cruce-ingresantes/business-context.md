@@ -71,7 +71,7 @@ Este feature es exitoso cuando:
 | Attribute | Description |
 |-----------|-------------|
 | **Role** | Analista de Marketing y Difusión |
-| **Goals** | Descargar reportes consolidados en Excel con gráficos analíticos incorporados y segmentadores por sede, ciclo y fecha de examen para evaluar el rendimiento de la academia. |
+| **Goals** | Descargar reportes CSV consolidados (compatibles con Excel) con datos enriquecidos por sede, ciclo y fecha de examen para evaluar el rendimiento de la academia. |
 | **Pain Points** | Falta de acceso oportuno a los datos oficiales de ingresantes, reportes incompletos o sin información de valor de negocio como la sede de origen. |
 
 ---
@@ -85,7 +85,7 @@ Este feature es exitoso cuando:
 |fr-02| El sistema debe consultar directamente la base de datos `academia` PostgreSQL para obtener alumnos matriculados. | Must Have | |
 |fr-03| El sistema debe emparejar ingresantes con alumnos usando un motor de coincidencia en dos fases (exacta y difusa). | Must Have | |
 |fr-04| El sistema debe proveer una interfaz interactiva en React para validar manualmente los ingresantes en estado `pendiente`. | Should Have | |
-|fr-05| El sistema debe generar un reporte consolidado en formato Excel con gráficos analíticos dinámicos y métricas por sede/ciclo. | Nice to Have | |
+|fr-05| El sistema debe generar un reporte consolidado en formato CSV (compatible con Excel) con datos enriquecidos por sede/ciclo. **[Ajustado 2026-07-07]:** no incluye gráficos ni segunda hoja — confirmado como aceptable por el PO. | Nice to Have | |
 
 ### 5.2 Non-Functional Requirements
 
@@ -108,7 +108,7 @@ Este feature es exitoso cuando:
 - ✅ Normalización estricta (conversión a MAYÚSCULAS, remoción de tildes y conversión obligatoria de Ñ a N).
 - ✅ Algoritmo de coincidencia exacta por apellidos y primer nombre, y coincidencia difusa (Levenshtein) con umbral del 70%.
 - ✅ Interfaz en React para la resolución manual de cabos sueltos.
-- ✅ Exportación a Excel con dos hojas (data enriquecida y gráficos analíticos).
+- ✅ Exportación a CSV consolidado con data enriquecida (compatible con Excel vía BOM UTF-8 + delimitador `;`). **[Ajustado 2026-07-07]:** una sola hoja/archivo — no incluye gráficos analíticos, confirmado como aceptable por el PO.
 
 ### 6.2 Explicitly Out of Scope
 

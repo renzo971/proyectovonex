@@ -1,21 +1,50 @@
 # Clarifications Log: Motor de Cruce Automático de Ingresantes UNMSM
 
 **Feature ID:** 001-motor-cruce-ingresantes
-**Sessions:** 1
-**Status:** In Progress
+**Sessions:** 2
+**Status:** In Progress — 1 pregunta abierta (CQ-004)
 
 ---
 
 ## Summary
 
-**Total Questions:** 3
+**Total Questions:** 4
 **Resolved:** 3
-**Pending:** 0
+**Pending:** 1 (CQ-004)
 
 **Key Decisions:**
 1. El filtro por OBSERVACION (`ALCANZO VACANTE`) se aplica siempre sobre el texto normalizado, enrutando a `ingresantes` o `no_ingresantes` (dual table).
 2. De-duplicación automática de filas idénticas dentro del mismo CSV de origen para asegurar la calidad de la data analítica.
 3. Ante fallo de conexión a `academia` durante el cruce, el lote se marca `paused` (recuperable); ante fallo catastrófico del job, se marca `error` (requiere intervención manual).
+
+---
+
+## Session 3: 2026-07-07 (Post-Implementation Gap Remediation)
+
+**Participants:** Architect Agent, Reconciliation Agent
+**Duration:** N/A (asynchronous audit)
+
+### Questions Raised
+
+#### CQ-004: Autenticación ausente en todos los endpoints `/api/cruce/*`
+
+**Category:** Security / Architecture
+**Route To:** PO + Security Owner
+**Status:** OPEN — pendiente de decisión humana
+
+**Question:**
+El código auditado (`routes/api.php`) registra todos los endpoints `cruce` (`upload`, `lotes`, `status`, `pendientes`, `candidatos`, `confirmar` ×2, `exportar`, y los de utilidad `health`/`academia/alumnos`/`limpiar`/`reprocesar`) **sin ningún middleware de autenticación o autorización**, contradiciendo plan.md §4.1 ("Auth Required: Yes") y §5.1/§5.2 (Sanctum + matriz de roles admin/admisiones/marketing). Estos endpoints exponen y mutan PII (nombres, código de postulante, referencias a alumno) y permiten acciones destructivas (`limpiar` trunca toda la data de cruce; `reprocesar` re-ejecuta jobs).
+
+¿Se debe implementar auth (`auth:sanctum` + roles admin/admisiones/marketing) en todos los endpoints `/api/cruce/*` ahora, diferirlo a un sprint posterior, o aceptar formalmente el riesgo por [razón a documentar por el PO/Security Owner]?
+
+**Options Considered (plan.md DA-G5):**
+1. **Opción A (recomendada):** Aplicar `auth:sanctum` + autorización por rol/ability al grupo de rutas `cruce` según la matriz de §5.2 (escritura: admin/admisiones; exportación: +marketing; destructivas `limpiar`/`reprocesar`: solo admin). Requiere que el SPA se autentique (Sanctum cookie/token).
+2. **Opción B:** Aceptar el riesgo formalmente con una razón documentada, acotada en el tiempo, y controles compensatorios (ej. restricción a nivel de red), firmado por el PO/Security Owner.
+
+**Decision:** **Sin resolver.** Requiere sign-off humano explícito antes de cerrarse en cualquier dirección — no se diseña ni se implementa una solución de auth sin esa decisión (Architect "Ask First" boundary).
+
+**Decided By:** — (pendiente)
+**Date:** — (pendiente)
 
 ---
 
@@ -131,7 +160,7 @@ Evita la polución de datos duplicados en las tablas analíticas y asegura que l
 
 These questions require further investigation or stakeholder input:
 
-No hay preguntas pendientes.
+- **CQ-004** (Session 3, 2026-07-07): Auth ausente en todos los endpoints `/api/cruce/*` — requiere sign-off explícito del PO/Security Owner (implementar / diferir / aceptar riesgo formalmente). Ver plan.md DA-G5.
 
 ---
 
@@ -161,5 +190,5 @@ No hay preguntas diferidas en esta sesión.
 - [x] QA Lead: Diego Castillo y Yerson - Technical feasibility confirmed
 - [x] FA: Diego Castillo y Yerson - Requirements complete
 
-**Clarification Phase Status:** Gate 1 Complete — 3 preguntas resueltas (2026-06-25)
+**Clarification Phase Status:** Gate 1 Complete — 3 preguntas resueltas (2026-06-25). **Nota (2026-07-07):** CQ-004 fue añadida durante el pase de remediación de brechas post-implementación (Session 3); no reabre Gate 1, pero bloquea el cierre formal del gap de seguridad DA-G5 hasta que se resuelva.
 

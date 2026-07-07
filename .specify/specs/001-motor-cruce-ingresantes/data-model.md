@@ -150,9 +150,11 @@ erDiagram
 |--------|------|-------------|-------------|
 | `id` | BIGINT | PK, AUTO_INCREMENT | Unique identifier |
 | `lote_cruce_id` | BIGINT | FK, NOT NULL | Reference to `lotes_cruce` |
-| `alumno_id` | BIGINT | NULLABLE | Reference to logical alumno |
+| `alumno_id` | BIGINT | NULLABLE | Reference to logical alumno. **Invariant (DA-G3):** must be `NULL` when `estado_match ∈ {pendiente, no_ingresado}` and `NOT NULL` when `estado_match ∈ {confirmado_automatico, confirmado_manual}`. Value `0` is never valid. |
 | `codigo` | VARCHAR | NOT NULL | Applicant registration code (`CODIGO` from CSV) |
-| `apellidos` | VARCHAR | NOT NULL | Normalized apellidos (`APELLIDOS` from CSV) |
+| `apellidos` | VARCHAR | NOT NULL | Normalized apellidos, full string (`APELLIDOS` from CSV) |
+| `apellido_paterno` | VARCHAR | NULLABLE | Normalized paternal surname, split from `apellidos` by `NormalizarTextoAction`. Used as a sort key in the `pendientes` list (DA-G1). |
+| `apellido_materno` | VARCHAR | NULLABLE | Normalized maternal surname, split from `apellidos`. Used as a sort key in the `pendientes` list (DA-G1). |
 | `nombres` | VARCHAR | NOT NULL | Normalized names (`NOMBRES` from CSV) |
 | `eap` | VARCHAR | NOT NULL | Academic Professional School (`EAP` from CSV) |
 | `puntaje` | DECIMAL(8,3) | NOT NULL | Score obtained (`PUNTAJE` from CSV) |
@@ -170,6 +172,7 @@ erDiagram
 
 **Indexes:**
 - `idx_ingresantes_nombres_apellidos` - Composite search index: `(apellidos, nombres)`.
+- `idx_ingresantes_paterno_materno_nombres` - Composite index `(apellido_paterno, apellido_materno, nombres)`; serves the tie-break sort of the `pendientes` list (DA-G1).
 - `idx_ingresantes_lote_cruce_id` - FK index.
 
 ---
@@ -205,7 +208,7 @@ erDiagram
 
 ### 2.4 Entity: IngresanteCandidato
 
-**Description:** Lazy-computed cache of fuzzy match candidates for a `pendiente` ingresante. Populated on first call to `GET /cruce/ingresantes/{id}/candidatos`; subsequent calls return this cached data directly.
+**Description:** Fuzzy match candidates for a `pendiente` ingresante, computed **EAGER** inside `ProcessCsvBatchJob` immediately after the exact-match phase (see plan AD-001) and persisted via bulk `insert`. `GET /cruce/ingresantes/{id}/candidatos` is a pure SELECT — it never computes in the request.
 
 **Table:** `ingresante_candidatos`
 
@@ -219,8 +222,9 @@ erDiagram
 | `created_at` | TIMESTAMP | NOT NULL, DEFAULT NOW() | Record creation (when first computed) |
 
 **Indexes:**
-- `idx_ingresante_candidatos_ingresante_id` - FK index on `ingresante_id`.
-- `idx_ingresante_candidatos_ranking` - Composite index on `(ingresante_id, ranking)` for ordered lookups.
+- `UNIQUE (ingresante_id, ranking)` — the composite unique constraint present in the deployed migration. Its `ingresante_id`-leading order also serves both the FK lookup and the correlated `COUNT`/`MAX` subqueries of the `pendientes` list (DA-G1), so a separate single-column FK index is redundant at the documented volume (§7.1).
+
+> **⚠ Constraint drift (DA-G4 — confirmed 2026-07-07):** The **deployed** migration `2026_07_05_000004_create_ingresante_candidatos_table.php` does **not** implement the `CHECK (porcentaje_similitud >= 70.00)` or `CHECK (ranking BETWEEN 1 AND 5)` constraints shown in the DDL of §5.1 below, nor the two separate indexes originally documented here. A corrective data-integrity migration must add the two CHECK constraints (canonical floor = **70.00**, per plan Threshold Reconciliation). See plan.md DA-G4.
 
 **Relationships:**
 - `ingresante_id` → `ingresantes` (type: N:1, ON DELETE CASCADE)
@@ -228,7 +232,7 @@ erDiagram
 
 **Notes:**
 - A given `ingresante_id` will have at most 5 rows (one per ranking position).
-- If no candidates exceed the 70% threshold, zero rows are inserted and the endpoint returns an empty array.
+- If no candidates exceed the 70% threshold, zero rows are inserted and the endpoint returns an empty array. Such an ingresante still appears in the `pendientes` list, sorted last (DA-G1).
 - Rows are never updated — if a re-computation is needed, delete and re-insert.
 
 
@@ -298,10 +302,12 @@ El motor filtra solo los estados activos `estado IN (2, 3, 9, 13)` para el pool 
 
 | Value | Description |
 |-------|-------------|
-| `pendiente` | Awaiting review in UI |
-| `confirmado_automatico` | Resolved automatically via exact matching |
-| `confirmado_manual` | Resolved manually by user selection |
-| `no_ingresado` | Declared a non-student |
+| `pendiente` | Awaiting review in UI (`alumno_id` NULL) |
+| `confirmado_automatico` | Resolved automatically via exact matching (`alumno_id` NOT NULL) |
+| `confirmado_manual` | Resolved manually by user selection (`alumno_id` NOT NULL) |
+| `no_ingresado` | Declared a non-student — the admin discarded all candidates (`alumno_id` NULL) |
+
+> **Invariant (DA-G3):** the "Mark as No Match" flow resolves to `no_ingresado` with `alumno_id = NULL` — **no new enum value is required.** A `confirmado_*` state always carries a valid, existing `alumno_id`; the value `0` is never persisted. See plan.md DA-G3.
 
 ---
 
@@ -311,6 +317,9 @@ El motor filtra solo los estados activos `estado IN (2, 3, 9, 13)` para el pool 
 |--------|-------|------|---------------|
 | `LoteCruce` | `fecha_examen` | Must be a valid ISO-8601 date, and not exist in `lotes_cruce` | "La fecha de examen ya fue procesada en un lote anterior." |
 | `Ingresante` | `codigo` | Must not be empty | "El código del postulante es obligatorio." |
+| `Ingresante` | `alumno_id` | Must be `NULL` when `estado_match ∈ {pendiente, no_ingresado}`; must be a valid, existing academia `alumno_id` when `estado_match ∈ {confirmado_automatico, confirmado_manual}`. Never `0`. (DA-G3) | "El alumno seleccionado no existe en la base de datos." (HTTP 404, ERR-006) |
+| `IngresanteCandidato` | `porcentaje_similitud` | `>= 70.00` (canonical floor; enforced by DB CHECK after DA-G4) | — (never inserted below threshold) |
+| `IngresanteCandidato` | `ranking` | Integer `1..5` (enforced by DB CHECK after DA-G4) | — |
 
 ---
 
@@ -412,6 +421,8 @@ CREATE INDEX idx_ingresante_candidatos_ingresante_id ON ingresante_candidatos(in
 CREATE INDEX idx_ingresante_candidatos_ranking ON ingresante_candidatos(ingresante_id, ranking);
 ```
 
+> **⚠ Deployed-migration drift (DA-G4, DA-G1 — confirmed 2026-07-07):** The DDL above is the *intended* target. The migration actually deployed (`2026_07_05_000004_...`) creates only `UNIQUE(ingresante_id, ranking)` and **omits** the two `CHECK` constraints and the two separate indexes shown here. The `UNIQUE(ingresante_id, ranking)` index alone is sufficient for lookups/subqueries at the documented volume; the missing piece requiring action is the two `CHECK` constraints (`porcentaje_similitud >= 70.00`, `ranking BETWEEN 1 AND 5`). A corrective migration adds them. See plan.md DA-G4.
+
 ---
 
 ## 6. Seed Data
@@ -465,3 +476,19 @@ No database seeds are required for production, as the engine dynamically process
 
 - [x] Data Architect: Renzo Santos - Date: 2026-06-25
 - [x] DBA Review: Renzo Santos - Date: 2026-06-25
+
+---
+
+## 10. Post-Implementation Gap Remediation — Data-Model Notes (2026-07-07)
+
+Consolidated data-model impact of the gap remediation designed in plan.md "Design Addendum". Only the gaps with a data-model dimension are listed.
+
+| Gap | Data-model impact | Change already reflected above |
+|-----|-------------------|--------------------------------|
+| **DA-G1** | `ingresantes.apellido_paterno` / `apellido_materno` are real columns (nullable) used as sort keys; the `pendientes` list must not exclude zero-candidate rows. | §2.2 columns + index added; §2.4 Notes clarified. |
+| **DA-G3** | No new `MatchStatus` value. Invariant added: `no_ingresado ⇒ alumno_id NULL`; `confirmado_* ⇒ alumno_id NOT NULL`; `alumno_id = 0` is never valid. | §2.2 `alumno_id`, §3.2 note, §4 validation rows. |
+| **DA-G4** | Two DB `CHECK` constraints missing from the deployed migration must be added by a corrective migration: `porcentaje_similitud >= 70.00` and `ranking BETWEEN 1 AND 5`. Canonical similarity floor = **70.00** (the `30.00` in tasks.md T001 is wrong). | §2.4 drift note, §4 validation rows, §5.1 drift note. |
+
+**Canonical threshold (cross-artifact):** 70.00% is the single acceptance threshold for a candidate to be persisted. The 80% figure elsewhere is a *display* concern (disputed — see plan.md DA-G1), and the 30% figure in tasks.md T001 is an error to be reconciled.
+
+**Not a data-model change:** DA-G2 (duplicate algorithm), DA-G5 (route auth), and DA-G6 (test anti-patterns) are code/architecture/security concerns with no schema impact; see plan.md.

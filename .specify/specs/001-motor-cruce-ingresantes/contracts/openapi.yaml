@@ -3,10 +3,11 @@ info:
   title: Motor de Cruce Automático de Ingresantes UNMSM - API Contract
   description: |
     This API contract governs the integration between the React client and Laravel backend
-    for Phase 2.2 of the UNMSM applicant cross-matching motor. 
+    for Phase 2.2 of the UNMSM applicant cross-matching motor.
     It supports CSV batch uploads, progress monitoring, resolving ambiguous matches,
-    and downloading enriched Excel reports.
-  version: 1.0.0
+    and downloading enriched CSV reports (compatible with Excel via BOM UTF-8 + ';' delimiter,
+    not a native .xlsx file).
+  version: 1.1.0
   license:
     name: Proprietary
     url: https://vonex.edu.pe/license
@@ -305,11 +306,13 @@ paths:
 
   /cruce/lotes/{lote_id}/exportar:
     get:
-      summary: Export processed batch results to Excel
+      summary: Export processed batch results to CSV
       description: |
-        Generates and downloads a binary Excel file (.xlsx) containing the enriched matching reports.
+        Generates and streams a CSV file (';' delimiter, UTF-8 BOM prefix for MS Excel compatibility)
+        containing the enriched matching report (24 columns). This is a plain CSV stream (`fputcsv`),
+        not a native .xlsx file — no second sheet or embedded charts.
         Traceability: US-005 (AC-014, AC-015).
-      operationId: exportarExcel
+      operationId: exportarCsv
       security:
         - CookieAuth: []
         - BearerAuth: []
@@ -323,12 +326,185 @@ paths:
             format: int64
       responses:
         '200':
-          description: Excel spreadsheet stream.
+          description: CSV report stream (';' delimiter, UTF-8 BOM prefix).
           content:
-            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+            text/csv:
               schema:
                 type: string
                 format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /cruce/health:
+    get:
+      summary: Health check for cruce dependencies
+      description: |
+        Reports the status of the academia DB connection and a sample query against active
+        alumno_matricula records. No authentication required.
+        Traceability: plan.md §4.1 GET /api/cruce/health, tasks.md T022, T028.
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Health check result. `success` is true only if every check status is `ok`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  checks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          example: conexion_academia
+                        status:
+                          type: string
+                          enum: [checking, ok, error]
+                        message:
+                          type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+                required:
+                  - success
+                  - checks
+                  - timestamp
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /cruce/academia/alumnos:
+    get:
+      summary: List active alumnos from the academia DB
+      description: |
+        Returns up to 50 active alumno_matricula records (estado IN 2,3,9,13,14; estado_aula=1)
+        joined against alumnos/personas, for manual lookup support in the UI.
+        Traceability: plan.md §4.1 GET /api/cruce/academia/alumnos, tasks.md T022, T028.
+      operationId: getAcademiaAlumnos
+      security:
+        - CookieAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of active alumnos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  total:
+                    type: integer
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        alumno_id:
+                          type: integer
+                          format: int64
+                        apellido_paterno:
+                          type: string
+                        apellido_materno:
+                          type: string
+                        nombres:
+                          type: string
+                        dni:
+                          type: string
+                        estado_num:
+                          type: integer
+                        estado_texto:
+                          type: string
+                          enum: [MATRICULADO, PAGADO, FINALIZADO, SUSPENDIDO, RETIRADO, TRASLADADO, STAND BY, ANULADO, DESCONOCIDO]
+                required:
+                  - success
+                  - total
+                  - data
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /cruce/limpiar:
+    delete:
+      summary: Wipe all cruce data for a fresh start
+      description: |
+        Truncates ingresante_candidatos, no_ingresantes, ingresantes, and lotes_cruce (RESTART IDENTITY CASCADE).
+        Destructive — admin only.
+        Traceability: plan.md §4.1 DELETE /api/cruce/limpiar, tasks.md T022, T028.
+      operationId: limpiarCruce
+      security:
+        - CookieAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Cruce data wiped successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - success
+                  - message
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /cruce/lotes/{lote_id}/reprocesar:
+    post:
+      summary: Re-process a batch
+      description: |
+        Re-runs exact match (RealizarCruceExactoAction::executeBatch) and fuzzy match
+        (CalcularSimilitudesCabosAction, per-ingresante) for the pending ingresantes of the lote,
+        then marks the lote as completed again.
+        Traceability: plan.md §4.1 POST /api/cruce/lotes/{lote_id}/reprocesar, tasks.md T022, T028.
+      operationId: reprocesarLote
+      security:
+        - CookieAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: lote_id
+          in: path
+          required: true
+          description: ID of the batch lote
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Batch re-processed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      exact_match:
+                        type: integer
+                      fuzzy_computados:
+                        type: integer
+                required:
+                  - success
+                  - data
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':

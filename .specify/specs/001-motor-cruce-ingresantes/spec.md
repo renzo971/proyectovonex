@@ -6,13 +6,13 @@
 **PO:** Samuel Cisneros
 **Equipo:** Grupo V2 (Vonex)
 **Status:** Implemented
-**Versión:** 3.0.0
+**Versión:** 3.1.0
 
 ---
 
 ## Executive Summary (≤150 palabras)
 
-El motor de cruce automatiza la validación de identidades de los ingresantes de la UNMSM contra la base de datos de la academia Vonex (PostgreSQL). El sistema procesa un CSV (~27,000 filas × 12 columnas) subido por el administrador mediante un job asíncrono en cola Redis. Normaliza los campos y aplica el filtro `ALCANZO VACANTE`: los registros que lo cumplen se persisten en la tabla `ingresantes`; los demás, en `no_ingresantes`. Luego realiza un cruce en dos fases: un match exacto automático (2 apellidos + 1 nombre) y una fase de coincidencia difusa asistida por interfaz React para los cabos sueltos. Finalmente, genera un reporte consolidado en Excel con data enriquecida y un dashboard interactivo de analítica.
+El motor de cruce automatiza la validación de identidades de los ingresantes de la UNMSM contra la base de datos de la academia Vonex (PostgreSQL). El sistema procesa un CSV (~27,000 filas × 12 columnas) subido por el administrador mediante un job asíncrono en cola Redis. Normaliza los campos y aplica el filtro `ALCANZO VACANTE`: los registros que lo cumplen se persisten en la tabla `ingresantes`; los demás, en `no_ingresantes`. Luego realiza un cruce en dos fases: un match exacto automático (2 apellidos + 1 nombre) y una fase de coincidencia difusa — calculada **eagerly** dentro del mismo job batch, no bajo demanda — asistida por interfaz React para los cabos sueltos. Finalmente, genera un reporte CSV consolidado con data enriquecida, compatible con MS Excel (delimitador `;`, BOM UTF-8).
 
 ---
 
@@ -117,8 +117,8 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 #### Acceptance Criteria
 
 - [ ] **AC-008:** Dado un ingresante en el lote, cuando sus 2 apellidos (paterno y materno) y al menos 1 nombre coinciden exactamente con un alumno de la academia tras la normalización, entonces el sistema asocia automáticamente al ingresante con el `alumno_id` correspondiente, establece el estado `confirmado_automatico` y continúa sin intervención del usuario.
-- [ ] **AC-009:** Dado un ingresante que no obtiene match exacto, cuando el motor calcula la similitud comparando la frecuencia de letras y la distancia de Levenshtein contra los alumnos de la academia, entonces genera una lista ordenada de mayor a menor probabilidad con hasta 5 candidatos potenciales y marca al ingresante como `pendiente`. Solo se consideran candidatos con un porcentaje de similitud del **70% para arriba**; los que tengan menos del 70% de similitud son ignorados. En la vista de coincidencia manual, únicamente se listarán y procesarán de manera interactiva aquellos ingresantes que cuenten con al menos un candidato con similitud **mayor o igual al 80%** (ordenados descendentemente por similitud máxima), ignorando los demás en esta etapa de validación asistida.
-- [ ] **AC-010:** Dado un ingresante en estado `pendiente`, cuando ningún alumno supera el umbral de similitud del **70%**, entonces la lista de candidatos estará vacía y el sistema expondrá la opción "Sin coincidencias encontradas — Marcar como No Ingresado" en la interfaz. El mismo comportamiento aplicará si el ingresante tiene candidatos pero ninguno supera el **80%** para la vista interactiva.
+- [ ] **AC-009:** Dado un ingresante que no obtiene match exacto, cuando el motor calcula la similitud comparando la frecuencia de letras y la distancia de Levenshtein contra los alumnos de la academia, entonces genera una lista ordenada de mayor a menor probabilidad con hasta 5 candidatos potenciales y marca al ingresante como `pendiente`. Solo se consideran candidatos con un porcentaje de similitud del **70% para arriba** (umbral canónico único); los que tengan menos del 70% de similitud son ignorados y nunca se persisten. **[Corregido 2026-07-07 — Design Addendum DA-G1]:** La vista de coincidencia manual (`GET /lotes/{id}/pendientes`) lista **todos** los ingresantes `pendiente` del lote, sin excluir a quienes no alcancen el 80% ni a quienes no tengan candidatos; el orden es `candidatos_count DESC, max_similitud DESC, apellido_paterno ASC, apellido_materno ASC`, de modo que los ingresantes con más candidatos y mayor similitud aparecen primero y los que no tienen ninguno quedan al final. El 80% ya no es un filtro de exclusión — a lo sumo puede mostrarse como un badge no-exclusionario ("alta confianza ≥80%") en la UI. Ver tasks.md T024.
+- [ ] **AC-010:** Dado un ingresante en estado `pendiente`, cuando ningún alumno supera el umbral de similitud del **70%**, entonces la lista de candidatos estará vacía y el sistema expondrá la opción "Sin coincidencias encontradas — Marcar como No Ingresado" en la interfaz. **[Corregido 2026-07-07 — DA-G1]:** este ingresante de todas formas aparece en `pendientes`, ordenado al final (ver AC-009); ya no existe un umbral del 80% que lo oculte de la vista interactiva.
 
 - [ ] **AC-003a:** El sistema debe procesar lotes grandes con tiempos de ejecución medibles; ver AC-001f para el objetivo de rendimiento de procesamiento por lote.
 
@@ -189,10 +189,10 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 ---
 
-### US-005: Exportación de Reporte Consolidado en Excel
+### US-005: Exportación de Reporte Consolidado en CSV
 
 **As a** Usuario de negocio (administración/marketing)
-**I want** descargar un archivo Excel con los datos de ingresantes procesados y analítica visual incorporada
+**I want** descargar un archivo CSV consolidado (compatible con MS Excel) con los datos de ingresantes procesados
 **So that** pueda distribuir resultados y analizar métricas por fecha de examen sin herramientas adicionales
 
 **Priority:** P3 (Nice to Have)
@@ -200,15 +200,14 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 
 #### Acceptance Criteria
 
-- [ ] **AC-014:** Dado un lote procesado (con matches confirmados), cuando el administrador presiona el botón "Exportar Excel" en la interfaz React, entonces se descarga un archivo CSV compatible con Excel delimitado por punto y coma (`;`) y pre-configurado con BOM UTF-8. El reporte consolidado contiene en sus columnas la información del ingresante unida a los campos clave del alumno emparejado.
+- [ ] **AC-014:** Dado un lote procesado (con matches confirmados), cuando el administrador presiona el botón de exportación ("📥 Reporte Final") en la interfaz React, entonces se descarga un archivo **CSV** (no `.xlsx` nativo) compatible con Excel delimitado por punto y coma (`;`) y pre-configurado con BOM UTF-8. El reporte consolidado contiene en sus columnas la información del ingresante unida a los campos clave del alumno emparejado.
 - [ ] **AC-015:** El reporte exportado incluye a todos los ingresantes con estado `confirmado_automatico` y `confirmado_manual` correspondientes al lote consultado.
-- [ ] **AC-016:** Dado el archivo Excel descargado, cuando el usuario abre la **Hoja 2** (requiere extensión y formato xlsx nativo), entonces encuentra gráficos analíticos pre-construidos (distribución por estado, por sede, por ciclo) y segmentadores dinámicos que filtran todas las métricas por fecha de examen.
+- [ ] ~~**AC-016:**~~ **[Removido 2026-07-07 — confirmado por PO]:** Esta AC pedía una segunda hoja (`.xlsx` nativo) con gráficos analíticos y segmentadores. El export real es un stream CSV plano (`fputcsv`, sin dependencia de PhpSpreadsheet) y el PO confirmó que esto es aceptable tal cual; la Hoja 2 con gráficos era aspiracional y **no se implementa ni se programa como trabajo futuro**. Ver plan.md AD-005 y Design Addendum.
 
 #### Technical Notes
 
-- La exportación es responsabilidad de `ExportarExcelCruceAction.php` y el endpoint `GET /api/cruce/lotes/{loteId}/exportar`.
-- **Formato del archivo:** El botón en React invoca directamente la descarga del flujo estructurado vía `StreamedResponse`. Se inyecta el prefijo BOM (`\xEF\xBB\xBF`) y se usa delimitador `;` para asegurar la apertura automática en MS Excel bajo codificación estándar.
-- Utilizar una librería PHP compatible con Excel (ej. PhpSpreadsheet) si se requiere extender la generación a hojas xlsx nativas con gráficos integrados en la Hoja 2.
+- La exportación es responsabilidad de `ExportarExcelCruceAction.php` (nombre de clase heredado; produce CSV, no `.xlsx`) y el endpoint `GET /api/cruce/lotes/{loteId}/exportar`.
+- **Formato del archivo:** El botón en React invoca directamente la descarga del flujo estructurado vía `StreamedResponse` (`fputcsv`, `Content-Type: text/csv; charset=UTF-8`). Se inyecta el prefijo BOM (`\xEF\xBB\xBF`) y se usa delimitador `;` para asegurar la apertura automática en MS Excel bajo codificación estándar. No hay Hoja 2 ni gráficos — ver AC-016 (removida).
 - **Cálculo de Listas (AC-014):**
     - **L1 (LISTA - 1):** Valida si el registro de matrícula en `academia` tiene un ciclo (`periodo`) igual o posterior a "Verano 2024".
     - **L2 (LISTA - 2):** Valida si el ciclo (`periodo`) del alumno es un ciclo activo a febrero 2026, o bien un ciclo de verano 2026 (ej. "VERANO 2026", "REPASO 2026") o de octubre 2025 (ej. "OCTUBRE 2025"), sin importar si el estado es `RETIRADO` o `SUSPENDIDO`.
@@ -324,9 +323,9 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | `no_ingresantes`        | Tabla de BD que almacena los registros del CSV que **no** cumplen el filtro de `OBSERVACION`; conservados para auditoría y trazabilidad del lote                        |             Schema analítico |
 | `ProcessCsvBatchJob`    | Job de Laravel despachado a la cola Redis que orquesta la importación, normalización y enrutamiento dual del CSV                                                        |                      Técnico |
 | `Redis Queue`           | Servicio de cola basado en Redis usado como driver de `QUEUE_CONNECTION` en Laravel para procesar jobs asíncronos fuera del ciclo HTTP                                  |                      Técnico |
-| `LISTA - 1`             | Indicador binario en el reporte Excel para alumnos Vonex matriculados desde el ciclo Verano 2024 hasta la actualidad.                                                   |           Dominio de negocio |
-| `LISTA - 2`             | Indicador binario en el reporte Excel para alumnos matriculados en ciclos activos a febrero 2026, verano 2026 o ciclos de octubre 2025 (incluye retirados/suspendidos). |           Dominio de negocio |
-| `LISTA - 3`             | Indicador binario en el reporte Excel para alumnos con matrícula activa al 27 de febrero de 2026.                                                                       |           Dominio de negocio |
+| `LISTA - 1`             | Indicador binario en el reporte CSV para alumnos Vonex matriculados desde el ciclo Verano 2024 hasta la actualidad.                                                   |           Dominio de negocio |
+| `LISTA - 2`             | Indicador binario en el reporte CSV para alumnos matriculados en ciclos activos a febrero 2026, verano 2026 o ciclos de octubre 2025 (incluye retirados/suspendidos). |           Dominio de negocio |
+| `LISTA - 3`             | Indicador binario en el reporte CSV para alumnos con matrícula activa al 27 de febrero de 2026.                                                                       |           Dominio de negocio |
 | `AREA`                  | Clasificación de la carrera profesional (EAP) según la distribución oficial de áreas académicas de la UNMSM (Áreas A, B, C, D, E).                                      |           Dominio de negocio |
 
 ---
@@ -368,6 +367,8 @@ El motor de cruce automatiza la validación de identidades de los ingresantes de
 | 2.7.0   | 2026-06-25 | Equipo V2 (Auditoría SDD-Enterprise)   | Auditoría de cumplimiento: fórmula de similitud formalizada en AC-009 (Levenshtein × 0.6 + Dice bigramas × 0.4); EC-007 y ERR-003 unificados a estado `paused` (CQ-003); NFR-006 corregido de `pausado` a `paused`.                                                                                                                                                                                                                                         |
 | 2.8.0   | 2026-07-02 | Equipo V2 (Antigravity)                | Hiper-optimización de Fuzzy Match: reducción del 98.8% en tiempo de procesamiento (de 41 min a 29s). Añadidas notas técnicas a US-003: pre-cálculo de strings y mapas de bigramas O(1), blocking por inicial de apellido paterno, pruning Dice < 0.25 y fail-fast Levenshtein de apellido paterno. Batch inserts aplicados para carga de DB.                                                                                                                |
 | 2.9.0   | 2026-07-03 | Equipo V2 (Antigravity)                | Ajustes en Match Manual y Exportación: (1) Se filtran pendientes para mostrar interactiva y únicamente ingresantes con candidatos que posean similitud >= 80% ordenados descendentemente. (2) Implementación del endpoint e interfaz de descarga CSV con delimitador ';' y BOM UTF-8 para compatibilidad directa con Excel.                                                                                                                                 |
+| 3.0.0   | 2026-07-05 | Equipo V2                              | Feature marcada `Implemented`. Auditoría de código confirma pipeline completo end-to-end (upload → normalización → match exacto/difuso → resolución manual → export CSV).                                                                                                                                                                                                                                                                                |
+| 3.1.0   | 2026-07-07 | Architect Agent / Reconciliation Agent | **Post-Implementation Gap Remediation:** (1) AC-009/AC-010 corregidas per Design Addendum DA-G1 — el filtro de exclusión ≥80% en `pendientes` se reemplaza por orden no-exclusionario (`candidatos_count DESC, max_similitud DESC, apellidos ASC`); el 70% permanece como único umbral canónico de persistencia. (2) US-005/AC-014 renombrada de "Excel" a "CSV"; AC-016 (Hoja 2 con gráficos) removida — confirmada como aspiracional y no deseada por el PO, el export real es un stream CSV plano. (3) Executive Summary corregido: fuzzy match es EAGER (no lazy), sin "dashboard interactivo" inexistente. Ver plan.md Design Addendum 2026-07-07 y tasks.md T024-T029.                                                                                     |
 
 ---
 

@@ -2,21 +2,24 @@
 
 **Feature ID:** 001-motor-cruce-ingresantes
 **Created:** 2026-06-25
-**Status:** Completed
+**Status:** Partial — core feature Implemented; 6 gap-remediation tasks (T024–T029) Not Started; T020 integration tests genuinely missing; T022 partial (routes not registered). See Progress Tracking and plan.md Design Addendum (2026-07-07).
 
 ---
 
 ## Summary
 
+> **Corrected 2026-07-07:** the previous version of this table claimed 25 tasks / 56h for Phase 2 and a phantom "Post-Implementation: 2 tasks" row that did not correspond to any actual task section. Recomputed from the real per-task `Estimated` fields below: 23 distinct original task IDs (T001–T023) sum to 132h, and there is no separate "Post-Implementation" phase in the task bodies — that row is removed. Six new remediation tasks (T024–T029, 23h) are added per the Design Addendum.
+
 | Phase | Tasks | Estimated Hours | Status |
 |-------|-------|-----------------|--------|
 | Phase 1: Foundation | 4 | 16h | Completed |
-| Phase 2: Core Implementation | 11 | 56h | Completed |
-| Phase 3: Frontend & Integration | 3 | 16h | Completed |
+| Phase 2: Core Implementation | 11 | 64h | Completed |
+| Phase 3: Frontend & Integration | 3 | 16h | Completed (T016/T017 superseded — see notes) |
 | Phase 4: Phase 2 / Deferred | 2 | 12h | Completed |
-| Post-Implementation | 2 | 10h | Completed |
-| Test Tasks [T] | 3 | 24h | Completed |
-| **Total** | **25** | **134h** | |
+| Test Tasks [T] | 3 | 24h | Partial (T019, T021 Completed; T020 Not Started) |
+| Phase 5: Post-Implementation Gap Remediation (2026-07-07) | 6 | 23h | Not Started |
+| T030 — Unplanned/emergent (production bug found live during QA, 2026-07-07) | 1 | 3h | Completed |
+| **Total** | **30** | **158h** | |
 
 **Legend:**
 - `[P]` = Parallel-safe (can run with other [P] tasks)
@@ -52,7 +55,8 @@ Create Laravel migrations for the 4 new tables in the Vonex analytics DB.
 - [ ] Migration `create_lotes_cruce_table`: BIGSERIAL PK, `fecha_examen DATE NOT NULL UNIQUE`, 7 integer counters, `estado VARCHAR(50) DEFAULT 'processing'`, timestamps `started_at`, `completed_at`, `created_at`, `updated_at`.
 - [ ] Migration `create_ingresantes_table`: BIGSERIAL PK, FK `lote_cruce_id` (CASCADE), nullable `alumno_id`, 12 CSV-derived columns (`codigo`, `apellidos`, `nombres`, `eap`, `puntaje DECIMAL(8,3)`, `merito INT`, `observacion`, `tipo`, `modalidad`, `universidad`, `periodo`, `fecha DATE`), `estado_match VARCHAR(50) DEFAULT 'pendiente'`, nullable `porcentaje_similitud DECIMAL(5,2)`, timestamps. Composite index on `(apellidos, nombres)`.
 - [ ] Migration `create_no_ingresantes_table`: Same 12 CSV columns as `ingresantes` + FK `lote_cruce_id` (CASCADE). **NO `updated_at` column** — this table is append-only per INV-02. Only `created_at`.
-- [ ] Migration `create_ingresante_candidatos_table`: FK `ingresante_id` (CASCADE), `alumno_id BIGINT NOT NULL` (logical ref, no FK), `porcentaje_similitud DECIMAL(5,2) CHECK >= 30.00`, `ranking SMALLINT CHECK 1-5`, `UNIQUE(ingresante_id, ranking)`, only `created_at`.
+- [ ] Migration `create_ingresante_candidatos_table`: FK `ingresante_id` (CASCADE), `alumno_id BIGINT NOT NULL` (logical ref, no FK), `porcentaje_similitud DECIMAL(5,2) CHECK >= 70.00` **[Corrected 2026-07-07 — was `30.00`, contradicted the canonical 70% persistence threshold; see plan.md Threshold Reconciliation]**, `ranking SMALLINT CHECK 1-5`, `UNIQUE(ingresante_id, ranking)`, only `created_at`.
+- [ ] **⚠ Deployed-migration drift (DA-G4):** the migration actually deployed (`2026_07_05_000004_create_ingresante_candidatos_table.php`) does **not** implement either CHECK constraint — only `UNIQUE(ingresante_id, ranking)` exists. A corrective migration adds them; see T027.
 - [ ] All migrations use `BIGSERIAL` (PostgreSQL) and `declare(strict_types=1)`.
 - [ ] Migration `no_ingresantes`: incluir la creación del trigger `trg_no_ingresantes_readonly` que enforce INV-02 a nivel de base de datos.
 - [ ] Verified via `php artisan migrate` on clean DB.
@@ -233,7 +237,7 @@ Laravel Queue Job that orchestrates the full CSV processing pipeline, including 
 **Acceptance Criteria:**
 - [ ] Dispatched to `cruce` queue on Redis (`QUEUE_CONNECTION=redis`).
 - [ ] Pipeline: `ProcesarCargaCsvAction` → `RealizarCruceExactoAction` → `CalcularSimilitudesCabosAction` → persist candidatos.
-- [ ] **Invokes `CalcularSimilitudesCabosAction`** — fuzzy match is EAGER dentro del job per AD-001 (actualizado).
+- [ ] **Invokes `CalcularSimilitudesCabosAction`** — fuzzy match is EAGER dentro del job per AD-001 (actualizado). **[Gap confirmed 2026-07-07 — DA-G2]:** in the deployed code, `ProcessCsvBatchJob::fuzzyMatchAndSave` is actually a full private reimplementation of the algorithm; it does not call `CalcularSimilitudesCabosAction`. This AC bullet was never true as written. Consolidation tracked in T025.
 - [ ] Updates `lotes_cruce.estado` to `completed` on success, `error` on failure.
 - [ ] Records `started_at` and `completed_at` timestamps.
 - [ ] Updates all counter fields in `lotes_cruce` (`total_registros`, `total_ingresantes`, etc.).
@@ -305,6 +309,7 @@ Compute fuzzy match candidates EAGERLY inside `ProcessCsvBatchJob` for all `pend
 - [ ] Ya no se invoca on-demand desde el endpoint — es llamado por `ProcessCsvBatchJob` para todo el lote.
 - [ ] Recibe la colección de alumnos activos ya cargada (ver T023) para evitar N+1 queries.
 - [ ] `declare(strict_types=1)`.
+- [ ] **Note (2026-07-07 — DA-G2/DA-G6):** this Action's compute branch is exercised only by tests and by the `candidatos`/`reprocesar` read paths today — the job's write path does not call it (see T007 note). It also currently contains a `runningUnitTests() ? 55 : 70` threshold branch (anti-pattern, see T019/T029). Both are tracked for remediation, not re-scoped here.
 
 **Traces To:** US-003 AC-009, AC-010, AD-001 (actualizado), EC-005
 
@@ -361,6 +366,7 @@ Save manual match confirmation or mark as `no_ingresado`.
 - [ ] On `no_ingresado`: set `estado_match = 'no_ingresado'`, `alumno_id = null`.
 - [ ] Update `lotes_cruce` counters (`total_pendientes`, `total_no_ingresado`).
 - [ ] `declare(strict_types=1)`.
+- [ ] **Confirmed correct (2026-07-07):** this Action already implements the third `bool $marcarNoIngresado = false` parameter correctly. The defect is downstream in T012 (controller never forwards the flag) — see T012 note and T026.
 
 **Traces To:** US-004 AC-012, AC-013, ERR-006
 
@@ -388,6 +394,7 @@ Endpoint to confirm a manual match or mark as no_ingresado.
 - [ ] Delegate to `GuardarCruceConfirmadoAction`.
 - [ ] Return HTTP 200 with updated ingresante state.
 - [ ] Auth: roles `admin` or `admisiones`.
+- [ ] **Bug confirmed (2026-07-07 — DA-G3):** the deployed controller validates only `alumno_id` and never reads `marcar_no_ingresado` from the request, so it always calls `GuardarCruceConfirmadoAction::execute($id, $request->integer('alumno_id'))` (2-arg form). Since `$request->integer()` returns `0` when the field is absent, "Mark as No Match" clicks persist a corrupt `estado_match='confirmado_manual', alumno_id=0` row instead of `no_ingresado`. Fix wiring tracked in T026 — **do not treat this AC as satisfied.**
 
 **Traces To:** US-004 AC-012, AC-013
 
@@ -401,7 +408,7 @@ _Depends: T007_
 **Priority:** P1
 **Estimated:** 4h
 **Assignee:** Developer
-**Status:** Completed
+**Status:** Completed — **AC violated, superseded by T024 (2026-07-07)**
 
 **Description:**
 CRUD-like endpoints for batch listing, status, and pending ingresantes.
@@ -412,7 +419,7 @@ CRUD-like endpoints for batch listing, status, and pending ingresantes.
 **Acceptance Criteria:**
 - [ ] `GET /api/cruce/lotes` — paginated list of batches with counters.
 - [ ] `GET /api/cruce/lotes/{lote_id}/status` — batch status with all counter fields.
-- [ ] `GET /api/cruce/lotes/{lote_id}/pendientes` — paginated list of `estado_match = 'pendiente'` ingresantes. Los registros deben venir ordenados por: `ingresante_candidatos_count DESC`, `max_similitud DESC`, `apellido_paterno ASC`, `apellido_materno ASC`. Esto asegura que los ingresantes con más candidatos y mayor similitud aparezcan primero, y los que no tienen candidatos queden al final.
+- [ ] ~~`GET /api/cruce/lotes/{lote_id}/pendientes` — paginated list of `estado_match = 'pendiente'` ingresantes. Los registros deben venir ordenados por: `ingresante_candidatos_count DESC`, `max_similitud DESC`, `apellido_paterno ASC`, `apellido_materno ASC`. Esto asegura que los ingresantes con más candidatos y mayor similitud aparezcan primero, y los que no tienen candidatos queden al final.~~ **[Violated — confirmed 2026-07-07]:** the deployed `pendientes()` uses `whereHas('candidatos', >= 80)`, which **excludes** rows instead of sorting them last, and sorts by `max_similitud DESC` first (not `candidatos_count DESC`). This is not a minor deviation — it drops rows the AC requires to be present. Do not mark this bullet as delivered as originally scoped; the corrected behavior is designed in plan.md DA-G1 and implemented by **T024**.
 - [ ] Auth: roles `admin`, `admisiones`, `marketing` (read-only endpoints).
 
 **Traces To:** plan.md §4.1, NFR-005, spec.md US-004 UI/UX Notes
@@ -427,10 +434,12 @@ _Depends: T007, T003_
 **Priority:** P1
 **Estimated:** 6h
 **Assignee:** Developer
-**Status:** In Progress
+**Status:** Partial — controller methods implemented, routes not registered (2026-07-07)
 
 **Description:**
 Implement utility endpoints for health monitoring, academia alumni listing, data cleanup, and batch reprocessing.
+
+**Note (2026-07-07):** `CruceIngresantesController::health()`, `::academiaAlumnos()`, `::limpiar()`, and `::reprocesar()` are all implemented and functionally correct, but none of the 4 routes are registered in `routes/api.php` — the endpoints are unreachable via HTTP. Fix tracked in **T028**.
 
 **Files to Create/Modify:**
 - `app/Http/Controllers/CruceIngresantesController.php` [MODIFY]
@@ -455,7 +464,7 @@ _Depends: T007_
 **Priority:** P2
 **Estimated:** 4h
 **Assignee:** Developer
-**Status:** In Progress
+**Status:** Completed
 
 **Description:**
 Optimize ProcessCsvBatchJob to load academia alumnos once and pass the collection to both exact match and fuzzy match actions, eliminating duplicated DB round-trips.
@@ -477,6 +486,243 @@ Optimize ProcessCsvBatchJob to load academia alumnos once and pass the collectio
 
 ---
 
+## Phase 5: Post-Implementation Gap Remediation (2026-07-07)
+
+> Six tasks tracing to the confirmed gaps in plan.md "Design Addendum — Post-Implementation Gap Remediation (2026-07-07)". These correct genuine deviations between the deployed code and the signed-off specification/design; none are new scope.
+
+### T024 [S] - Fix pendientes() Ordering/Filtering per Design Addendum DA-G1
+
+_Boundary: Controllers_
+_Depends: T013_
+
+**Priority:** P1
+**Estimated:** 4h
+**Assignee:** Developer
+**Status:** Completed
+
+**Description:**
+Correct `CruceIngresantesController::pendientes()` so it no longer excludes `pendiente` ingresantes lacking a ≥80% candidate, and sorts by the contract T013 originally specified (candidates-first, then zero-candidate rows last). Implements the query design in plan.md DA-G1.
+
+**Files to Create/Modify:**
+- `app/Http/Controllers/CruceIngresantesController.php` [MODIFY]
+
+**Acceptance Criteria:**
+- [x] AC-G1.1: Remove the `whereHas('candidatos', >= 80)` row-exclusion predicate; every `estado_match = 'pendiente'` ingresante of the lote is returned.
+- [x] AC-G1.2: Result ordering is exactly `candidatos_count DESC, max_similitud DESC, apellido_paterno ASC, apellido_materno ASC`.
+- [x] AC-G1.3: An ingresante with zero candidates appears in the payload with an empty `candidatos` array and `max_similitud = 0`, sorted after every ingresante with ≥1 candidate.
+- [x] AC-G1.4: Each row's `candidatos` includes all persisted candidates (already ≥70%) ordered by `ranking`; no per-candidate ≥80% filter on the eager-loaded relation. The ≥80% concept may only surface as a non-exclusionary UI badge ("alta confianza ≥80%"), never as a filter that hides rows or candidates.
+- [x] AC-G1.5: Pagination `meta.total` reflects the full pendiente population, not the ≥80% subset.
+- [x] No new index or denormalized column added — the existing `UNIQUE(ingresante_id, ranking)` and `(apellido_paterno, apellido_materno, nombres)` indexes are sufficient at documented volume (data-model.md §7.1).
+
+**Traces To:** T013, NFR-005, spec.md US-004 AC-009/AC-010, plan.md DA-G1
+
+---
+
+### T025 [S] - Consolidate Fuzzy-Match Implementation per Design Addendum DA-G2
+
+_Boundary: Actions, Jobs_
+_Depends: T007, T009_
+
+**Priority:** P1
+**Estimated:** 8h
+**Assignee:** Developer
+**Status:** Not Started
+
+**Description:**
+Make `CalcularSimilitudesCabosAction` the single source of truth for the fuzzy scoring algorithm (Levenshtein × 0.6 + Dice bigramas × 0.4, ≥70% floor, top-5, ranking). Add a batch entry point that accepts the pre-loaded academia index (bigram hashes + by-initial blocking, AD-004) so `ProcessCsvBatchJob` delegates to it instead of carrying its own private reimplementation, while preserving the single academia-load (T023) and bulk insert.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/CalcularSimilitudesCabosAction.php` [MODIFY]
+- `app/Jobs/ProcessCsvBatchJob.php` [MODIFY]
+
+**Acceptance Criteria:**
+- [ ] AC-G2.1: The fuzzy scoring formula exists in exactly one place — `CalcularSimilitudesCabosAction`.
+- [ ] AC-G2.2: `ProcessCsvBatchJob` produces its `ingresante_candidatos` rows by delegating to the Action's new batch entry point (receiving the pre-loaded `alumnosIndex`), preserving the single academia-load and bulk insert.
+- [ ] AC-G2.3: No behavioral change to persisted candidates for a fixed input — golden-set parity before/after the refactor.
+- [ ] AC-G2.4: NFR-001 (≤50 s/lote) still holds after consolidation.
+- [ ] The Action's batch entry point does not re-load academia data or re-normalize per ingresante; the existing single-`ingresanteId` entry point remains as a thin wrapper for the `candidatos`/`reprocesar` read paths and unit tests.
+
+**Traces To:** T007, T009, plan.md DA-G2, AD-004
+
+---
+
+### T026 [S] - Fix marcar_no_ingresado Wiring per Design Addendum DA-G3
+
+_Boundary: Controllers_
+_Depends: T011, T012_
+
+**Priority:** P0
+**Estimated:** 3h
+**Assignee:** Developer
+**Status:** Completed
+
+**Description:**
+`CruceIngresantesController::confirmar` currently never reads `marcar_no_ingresado` from the request, so a "Mark as No Match" action falls through to the positive-match branch and persists a corrupt `alumno_id = 0` row. Wire the controller to read and forward the flag to the already-correct `GuardarCruceConfirmadoAction` (which already has a working `$marcarNoIngresado` parameter — no Action change needed).
+
+**Files to Create/Modify:**
+- `app/Http/Controllers/CruceIngresantesController.php` [MODIFY]
+- `app/Actions/Cruce/GuardarCruceConfirmadoAction.php` [MODIFY]
+
+**Acceptance Criteria:**
+- [x] AC-G3.1: `confirmar` reads `marcar_no_ingresado` (boolean, default false) and forwards it as the third argument to `GuardarCruceConfirmadoAction::execute()`.
+- [x] AC-G3.2: With `marcar_no_ingresado=true`, the ingresante becomes `estado_match='no_ingresado'` with `alumno_id=NULL`; lote `total_pendientes` −1, `total_no_ingresado` +1. Any `alumno_id` present in the payload is ignored.
+- [x] AC-G3.3: With `marcar_no_ingresado` false/absent, `alumno_id` becomes required and must reference an existing **active** academia record (`estado IN (2,3,9,13,14) AND estado_aula=1` — same filter as `CalcularSimilitudesCabosAction`/`RealizarCruceExactoAction`); a missing/invalid/inactive `alumno_id` returns 422 (missing) or 404 (nonexistent or inactive matrícula, ERR-006) and the ingresante state is unchanged — never `alumno_id=0`.
+- [x] AC-G3.4: No code path can persist `estado_match='confirmado_manual'` with `alumno_id` null or 0.
+- [x] **Follow-up fix (2026-07-07, post-review):** the `alumno_id` validation (existence + active-matrícula filter) was moved out of the controller into `GuardarCruceConfirmadoAction::execute()` (private `validarAlumnoId()`), per the "no business logic in controllers" constitution rule — the controller now only forwards the request and reflects the Action's `http_status`. The academia existence check is also wrapped in try/catch: on academia connection failure it returns `{success:false, error:'No se pudo establecer conexión con la base de datos de la academia. Contacte al administrador del sistema.'}` with HTTP 500 (ERR-003 message, consistent with the 500 convention already used by `health()`/`academiaAlumnos()`/`reprocesar()` for academia outages) instead of throwing an uncaught `QueryException`.
+
+**Traces To:** T011, T012, plan.md DA-G3, data-model.md §4, §10, contracts/openapi.yaml `confirmar`
+
+---
+
+### T027 [P] - Add Missing CHECK Constraints via Corrective Migration per DA-G4
+
+_Boundary: Database, Migrations_
+_Depends: T001_
+
+**Priority:** P1
+**Estimated:** 2h
+**Assignee:** Developer
+**Status:** Not Started
+
+**Description:**
+The deployed migration for `ingresante_candidatos` has no CHECK constraints at all. Add a corrective migration enforcing the canonical 70.00% floor and the 1–5 ranking range — both are consistent with runtime behavior today, so they cannot reject any currently-valid row.
+
+**Files to Create/Modify:**
+- `database/migrations/xxxx_add_check_constraints_ingresante_candidatos_table.php` [NEW]
+
+**Acceptance Criteria:**
+- [ ] AC-G4.1: Migration adds `CHECK (porcentaje_similitud >= 70.00)` and `CHECK (ranking BETWEEN 1 AND 5)` to `ingresante_candidatos`.
+- [ ] AC-G4.2: Migration is reversible (`down()` drops both constraints).
+- [ ] AC-G4.3: Applying the migration against existing production data does not fail (no persisted row violates the constraints).
+- [ ] Sequenced after **T029** (DA-G6 remediation) per plan.md's DA-G4 interaction note — do not enforce the 70% floor at the DB level while a test-only 55% threshold branch could still produce sub-70% inserts.
+
+**Traces To:** T001, plan.md DA-G4, data-model.md §2.4, §4, §5.1
+
+---
+
+### T028 [P] - Register T022 Utility Routes in routes/api.php
+
+_Boundary: Routing_
+_Depends: T022_
+
+**Priority:** P2
+**Estimated:** 1h
+**Assignee:** Developer
+**Status:** Not Started
+
+**Description:**
+`CruceIngresantesController` already implements `health()`, `academiaAlumnos()`, `limpiar()`, and `reprocesar()`, but none of the 4 routes are registered in `routes/api.php`, making them unreachable via HTTP.
+
+**Files to Create/Modify:**
+- `routes/api.php` [MODIFY]
+
+**Acceptance Criteria:**
+- [ ] `GET /api/cruce/health` routed, no auth middleware.
+- [ ] `GET /api/cruce/academia/alumnos` routed with auth (`admin`, `admisiones`).
+- [ ] `DELETE /api/cruce/limpiar` routed with auth (`admin` only).
+- [ ] `POST /api/cruce/lotes/{lote_id}/reprocesar` routed with auth (`admin`, `admisiones`).
+- [ ] All 4 endpoints reachable end-to-end and return the responses already implemented per T022's AC.
+
+**Traces To:** T022, plan.md §4.1
+
+---
+
+### T029 [T] - Remediate Test Anti-Patterns in T019 per DA-G6
+
+_Boundary: Tests, Actions_
+_Depends: T019_
+
+**Priority:** P2
+**Estimated:** 5h
+**Assignee:** test-engineer
+**Status:** Not Started
+
+**Description:**
+Remove environment-conditional production logic flagged against `.github/instructions/anti-patterns.instructions.md`: the `runningUnitTests() ? 55 : 70` threshold branch in `CalcularSimilitudesCabosAction.php:155`, and the `debug_backtrace()` test-name sniff in `RealizarCruceExactoAction.php:24-33`. Drive both scenarios from the tests via proper dependency injection / mocking instead.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/CalcularSimilitudesCabosAction.php` [MODIFY]
+- `app/Actions/Cruce/RealizarCruceExactoAction.php` [MODIFY]
+- `tests/Unit/Actions/CalcularSimilitudesCabosActionTest.php` [MODIFY]
+- `tests/Unit/Actions/RealizarCruceExactoActionTest.php` [MODIFY] (or `ConexionAcademiaTest.php`, whichever exercises the connection-failure scenario)
+
+**Acceptance Criteria:**
+- [ ] No production code branches on `app()->runningUnitTests()` or calls `debug_backtrace()`.
+- [ ] The similarity threshold is injected (constructor/config parameter), defaulting to 70.00 in all environments — no environment-conditional override.
+- [ ] The academia connection-failure scenario is exercised by binding a fake/broken DB connection in the test, not by string-matching the test method name.
+- [ ] Existing test coverage (TC-002, TC-003, TC-006, TC-007, TC-008, and the connection-failure test) still passes after the refactor.
+- [ ] Sequenced before **T027** (see T027's note — the DB CHECK constraint must not be added while a sub-70% threshold path can still exist).
+
+**Traces To:** T019, plan.md DA-G6, .github/instructions/anti-patterns.instructions.md
+
+---
+
+> **Note:** T030 below is **not** one of the six DA-G1..DA-G6 Design Addendum tasks (T024–T029). It is a separately-discovered production bug found live during QA/testing of this feature (2026-07-07), unrelated in origin to the Design Addendum gap-remediation effort — it is placed here only because it was completed immediately after T029 in the same working session.
+
+### T030 [S] - Fix loadAcademiaData() Large-IN-List PDO Bug
+
+_Boundary: Actions_
+_Depends: T014_
+
+**Priority:** P0
+**Estimated:** 3h
+**Assignee:** Developer
+**Status:** Completed
+
+**Description:**
+`ExportarExcelCruceAction::loadAcademiaData()` built a manual `?`-per-id `IN (...)` query against `DB::connection('academia')` (PostgreSQL in production). With ~900–1200+ ids it threw `SQLSTATE[HY093]: Invalid parameter number: parameter was not defined` in production (`GET /api/cruce/lotes/3/exportar`). Root cause: the caller builds the id list via `->pluck('alumno_id')->unique()->toArray()`, and Laravel's `Illuminate\Database\Connection::bindValues()` (vendor/laravel/framework/src/Illuminate/Database/Connection.php:750-763) binds non-string array keys at PDO position `$key + 1`; `Collection::unique()` removes duplicate values but preserves the original (now non-contiguous) key of the first occurrence, so once at least one duplicate exists in the plucked ids, the resulting array's keys develop gaps and the max bind position can exceed the number of literal `?` placeholders actually present in the SQL — producing exactly the "parameter was not defined" class of error. Reproduced and confirmed via a standalone PDO script against both sqlite and this project's real local Postgres `academia` database.
+
+Fixed by making `loadAcademiaData()` driver-aware (`DB::connection('academia')->getDriverName()`):
+- **pgsql:** single bound parameter, `WHERE am.id = ANY(?::bigint[])` with the value passed as a Postgres array literal string (`'{id1,id2,...}'`) — exactly one placeholder regardless of list size, so the positional-binding gap can never occur. Both the bare `ANY(?)` form and the explicit `ANY(?::bigint[])` cast were verified to work against a real local Postgres 18.3 instance; the explicit cast was kept for type-inference safety.
+- **any other driver** (e.g. sqlite, used by this project's test suite per `phpunit.xml`'s `DB_ACADEMIA_DRIVER=sqlite`): `array_values()` re-indexes the ids to sequential integer keys first (which alone fixes the positional-binding bug for this driver), then `array_chunk()`s into groups of 900 as a defensive margin against the driver's own bound-parameter ceiling before issuing chunked `IN (...)` queries.
+
+**Files to Create/Modify:**
+- `app/Actions/Cruce/ExportarExcelCruceAction.php` [MODIFY] — `loadAcademiaData()`
+
+**Acceptance Criteria:**
+- [x] `loadAcademiaData()` no longer throws `SQLSTATE[HY093]`/`Invalid parameter number` for large, non-sequential-key id lists at production incident scale (~900–1200+ ids; test covers 1300).
+- [x] Postgres path uses exactly one bound parameter (`= ANY(?::bigint[])`) regardless of list size.
+- [x] Non-Postgres path (sqlite test double) re-indexes ids and chunks queries, preserving existing behavior for the test suite.
+- [x] Small-scale (3-5 ids) behavior is unchanged — identical enriched data returned as before the fix (no regression).
+- [x] Empty id list still short-circuits to `[]` without querying the academia connection.
+- [x] No new regressions in the full suite: pre-fix baseline 53 tests / 47 passed / 6 failed (pre-existing, unrelated `method name/visibility/signature drift` — see T019/T029 area) → post-fix 56 tests / 50 passed / 6 failed (same 6).
+
+**Traces To:** T014 (ExportarExcelCruceAction), production incident `GET /api/cruce/lotes/3/exportar` (2026-07-07, discovered live during QA of 001-motor-cruce-ingresantes — not part of the DA-G1..G6 Design Addendum).
+
+---
+
+### T031 [P] - Unify Drifted Active-Estado Constants
+
+_Boundary: Actions, Controllers_ · _Depends: —_ · **Priority:** P2 · **Status:** Not Started
+
+Three copies of the "active estado" list have drifted apart: `GuardarCruceConfirmadoAction::ESTADOS_ACTIVOS`, `RealizarCruceExactoAction::ESTADOS_ACTIVOS`, and `CruceIngresantesController::health()`'s inline list (missing `14` compared to the other two). Consolidate into one shared source of truth (constant, enum, or config) so a future estado change can't silently diverge across the three call sites again.
+
+---
+
+### T032 [P] - Bind Parameters for `pendientes()` Academia-Names Query
+
+_Boundary: Controllers_ · _Depends: T024, T030_ · **Priority:** P2 · **Status:** Not Started
+
+`CruceIngresantesController::pendientes()`'s academia-names enrichment query (~line 313-319) builds `WHERE am.id IN (...)` via string concatenation of `$allAlumnoIds` instead of bound parameters. Replace it with the same `= ANY(?::bigint[])`-style bound-parameter approach used in T030, since T024 removed a filter that increases how much data flows through this same fragile pattern.
+
+---
+
+### T033 [S] - Concurrency Guard on `confirmar()`
+
+_Boundary: Actions_ · _Depends: T011, T026_ · **Priority:** P2 · **Status:** Not Started
+
+`GuardarCruceConfirmadoAction` has no protection against two simultaneous `confirmar()` calls assigning the same academia `alumno_id` to two different `ingresante` rows. Add a transaction + row lock, or a unique constraint check, so a duplicate assignment is rejected instead of silently persisted.
+
+---
+
+### T034 [P] - Timeout on Academia DB Connection
+
+_Boundary: Config_ · _Depends: T003_ · **Priority:** P3 · **Status:** Not Started
+
+`config/database.php`'s `academia` connection has no connection/query timeout, so a slow or half-open connection can hang a request indefinitely — only hard connection-refused failures are currently caught (see T030, ERR-003 handling). Add a sane timeout to the PDO options for this connection.
+
+---
+
 ## Phase 3: Frontend & Integration
 
 ### T016 [P] - FileUpload Component
@@ -487,20 +733,23 @@ _Depends: T008, T013_
 **Priority:** P1
 **Estimated:** 6h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Superseded — consolidated into T018 (single-file implementation), functionality delivered, no further action
 
 **Description:**
 React component for CSV file upload with progress indicator.
 
 **Files to Create/Modify:**
-- `frontend/src/components/FileUpload.jsx` [NEW]
-- `frontend/src/services/api.js` [NEW]
+- ~~`frontend/src/components/FileUpload.jsx` [NEW]~~
+- ~~`frontend/src/services/api.js` [NEW]~~
+- Actually implemented inline in `resources/js/app.jsx`.
 
 **Acceptance Criteria:**
 - [ ] File input accepting only `.csv` files.
 - [ ] Progress indicator during upload and async processing.
 - [ ] Post-processing summary: total records, filtered by OBSERVACION, loaded into batch, skipped dates.
 - [ ] Error display for ERR-001 through ERR-005.
+
+**Note (2026-07-07):** the PO is satisfied with the current single-file UI; building a separate `FileUpload.jsx` component is explicitly **not** scheduled as future work.
 
 **Traces To:** US-001 UI/UX Notes, US-004
 
@@ -514,13 +763,14 @@ _Depends: T010, T012_
 **Priority:** P1
 **Estimated:** 6h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Superseded — consolidated into T018 (single-file implementation), functionality delivered, no further action
 
 **Description:**
 React component for resolving pending ingresantes.
 
 **Files to Create/Modify:**
-- `frontend/src/components/UnmatchedRow.jsx` [NEW]
+- ~~`frontend/src/components/UnmatchedRow.jsx` [NEW]~~
+- Actually implemented inline in `resources/js/app.jsx`.
 
 **Acceptance Criteria:**
 - [ ] Display ingresante data (apellidos, nombres, fecha de examen).
@@ -530,6 +780,8 @@ React component for resolving pending ingresantes.
 - [ ] "Confirmar Match" button with spinner + success/error feedback, no page reload.
 - [ ] After confirmation: row visually updates to reflect new state.
 
+**Note (2026-07-07):** the PO is satisfied with the current single-file UI; building a separate `UnmatchedRow.jsx` component is explicitly **not** scheduled as future work.
+
 **Traces To:** US-004 AC-011, AC-012, AC-013
 
 ---
@@ -537,23 +789,23 @@ React component for resolving pending ingresantes.
 ### T018 [S] - App.jsx Integration
 
 _Boundary: ReactComponents_
-_Depends: T016, T017_
-_Note: T015 (exportar endpoint) removed from deps — Phase 3 UI does not require export integration to close._
+_Depends: T008, T010, T012, T013_
+_Note (2026-07-07): dependency corrected from T016/T017 — those components were never built separately; T018 was implemented as a single integrated file (`resources/js/app.jsx`) covering upload, polling, pending list, and confirm flow inline, so its real dependencies are the backend endpoints it calls directly._
 
 **Priority:** P2
 **Estimated:** 4h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
 Orchestrate the full frontend flow: upload → status → pending list → resolution.
 
 **Files to Create/Modify:**
-- `frontend/src/App.jsx` [MODIFY]
+- `resources/js/app.jsx` [MODIFY] _(actual path — spec originally said `frontend/src/App.jsx`)_
 
 **Acceptance Criteria:**
-- [ ] Integrates `FileUpload` and `UnmatchedRow` components.
-- [ ] Polling or WebSocket for batch status after upload.
+- [ ] Integrates upload, polling, pending list, and confirm flow (inline in a single file rather than as separate `FileUpload`/`UnmatchedRow` components — see T016/T017 notes; PO-accepted).
+- [ ] Polling for batch status after upload.
 - [ ] Paginated list of pending ingresantes per batch.
 
 **Traces To:** plan.md §2.3
@@ -570,28 +822,28 @@ _Depends: T011_
 **Priority:** P2
 **Estimated:** 10h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
-Generate the consolidated Excel report with 24 columns and analytics charts.
+Generate the consolidated CSV report with 24 columns (class retains its original `ExportarExcelCruceAction` name; the actual output is a plain CSV stream, not `.xlsx` — confirmed acceptable as-is by the PO, 2026-07-07).
 
 **Files to Create/Modify:**
 - `app/Actions/Cruce/ExportarExcelCruceAction.php` [NEW]
 
 **Acceptance Criteria:**
-- [ ] **Sheet 1:** Exactly 24 columns (A–X) in strict order per AC-014:
+- [ ] Exactly 24 columns (A–X) in strict order per AC-014, streamed as a single flat CSV (no sheets):
   - A: CODIGO, B: DNI, C: APELLIDOS, D: NOMBRES, E: EAP, F: PUNTAJE, G: MERITO, H: OBSERVACION, I: TIPO, J: MODALIDAD, K: UNIVERSIDAD, L: PERIODO, M: FECHA, N: ANIO, O: SEDE, P: CICLO, Q: F-MATRICULA, R: CEL-ALUMNO, S: CEL-APODERADO, T: ESTADO, U: LISTA-1, V: LISTA-2, W: LISTA-3, X: AREA.
 - [ ] **LISTA-1 (L1):** `1` if `periodo` ≥ "Verano 2024" cycle; `0` otherwise.
 - [ ] **LISTA-2 (L2):** `1` if enrolled in cycle active as of Feb 2026, or Verano/Repaso 2026, or OCTUBRE 2025 (includes RETIRADO/SUSPENDIDO); `0` otherwise.
 - [ ] **LISTA-3 (L3):** `1` if active (MATRICULADO, PAGADO, FINALIZADO) as of Feb 27, 2026; `0` otherwise.
 - [ ] **AREA:** Map `EAP` to Areas A-E per spec.md keyword rules. Empty if no match.
 - [ ] **ESTADO (T):** Resolved via hierarchy INV-06 for alumni with multiple records.
-- [ ] **Sheet 2:** Pre-built charts (distribution by estado, sede, ciclo) with date slicers (AC-015).
-- [ ] Use streaming writer (PhpSpreadsheet) to prevent memory exhaustion.
+- [ ] ~~**Sheet 2:** Pre-built charts (distribution by estado, sede, ciclo) with date slicers (AC-015).~~ **[Removed 2026-07-07]:** aspirational, never implemented, no PhpSpreadsheet dependency exists. Confirmed acceptable as-is by PO — not scheduled as future work. See spec.md AC-016 (removed).
+- [ ] ~~Use streaming writer (PhpSpreadsheet) to prevent memory exhaustion.~~ **[Corrected 2026-07-07]:** uses plain `fputcsv` streamed via `StreamedResponse`, no PhpSpreadsheet dependency.
 - [ ] Sanitize CSV fields for formula injection (`=`, `+`, `-`, `@`).
 - [ ] `declare(strict_types=1)`.
 
-**Traces To:** US-005 AC-014, AC-015, plan.md §2.4
+**Traces To:** US-005 AC-014, plan.md §2.4
 
 ---
 
@@ -603,17 +855,17 @@ _Depends: T014_
 **Priority:** P2
 **Estimated:** 2h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed
 
 **Description:**
-Endpoint to download the generated Excel file.
+Endpoint to download the generated CSV report.
 
 **Files to Create/Modify:**
 - `app/Http/Controllers/CruceIngresantesController.php` [MODIFY]
 
 **Acceptance Criteria:**
 - [ ] `GET /api/cruce/lotes/{lote_id}/exportar`.
-- [ ] Returns binary Excel download (Content-Type: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).
+- [ ] Returns a CSV stream download (Content-Type: `text/csv; charset=UTF-8`, BOM UTF-8 prefix, `;` delimiter) — **[Corrected 2026-07-07]:** original AC wrongly specified a binary `.xlsx` Content-Type; the deployed endpoint streams plain CSV via `fputcsv`.
 - [ ] Auth: roles `admin`, `admisiones`, `marketing`.
 
 **Traces To:** plan.md §4.1 `GET /api/cruce/lotes/{lote_id}/exportar`
@@ -629,9 +881,11 @@ _Depends: T004, T005, T006, T007, T009_
 **Priority:** P1
 **Estimated:** 8h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed — anti-patterns found in the implementation (2026-07-07, see T029)
 
 **Traces To:** US-001, US-002, US-003 — all unit-testable actions
+
+**Note (2026-07-07 — DA-G6):** the tests exist and pass, but two anti-patterns were confirmed in the production code they exercise: `CalcularSimilitudesCabosAction.php:155` branches the similarity threshold on `app()->runningUnitTests()`, and `RealizarCruceExactoAction.php:24-33` uses `debug_backtrace()` to detect a specific test method name and fake a connection failure. Both violate `.github/instructions/anti-patterns.instructions.md` (environment-conditional production code). Remediation tracked in **T029**.
 
 **Scope:** Unit tests for: NormalizarTextoAction, ProcesarCargaCsvAction, RealizarCruceExactoAction, CalcularSimilitudesCabosAction
 
@@ -650,7 +904,9 @@ _Depends: T008, T011, T013_
 **Priority:** P1
 **Estimated:** 10h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Not Started — **confirmed genuinely missing (2026-07-07)**
+
+**Note (2026-07-07):** `tests/Feature/` contains only Laravel's default `ExampleTest.php`. None of the feature/integration tests listed under Coverage below exist. This status was previously misrepresented as "Completed" in the bottom Progress Tracking table — that was false and is corrected here. Do not fabricate test cases that don't exist; this task remains genuinely open.
 
 **Traces To:** US-001, US-002, US-004, NFR-005, NFR-006
 
@@ -671,7 +927,7 @@ _Depends: T020_
 **Priority:** P1
 **Estimated:** 6h
 **Assignee:** Developer
-**Status:** Not Started
+**Status:** Completed — `tests/Performance/CsvProcessingPerformanceTest.php` and `tests/Performance/FuzzyMatchPerformanceTest.php` exist (2026-07-07 spot-check)
 
 **Traces To:** NFR-001, NFR-002, NFR-003, NFR-004, NFR-006, INV-07, INV-08
 
@@ -708,12 +964,14 @@ graph TD
     T007 --> T013[T013: Lotes Endpoints]
     T011 --> T014[T014: ExportarExcelCruceAction]
     T014 --> T015[T015: Exportar Endpoint]
-    T008 --> T016[T016: FileUpload Component]
+    T008 --> T016[T016: FileUpload Component - Superseded]
     T013 --> T016
-    T010 --> T017[T017: UnmatchedRow Component]
+    T010 --> T017[T017: UnmatchedRow Component - Superseded]
     T012 --> T017
-    T016 --> T018[T018: App.jsx Integration]
-    T017 --> T018
+    T008 --> T018[T018: App.jsx Integration]
+    T010 --> T018
+    T012 --> T018
+    T013 --> T018
     T004 --> T019[T019 Unit Tests]
     T005 --> T019
     T006 --> T019
@@ -726,34 +984,51 @@ graph TD
     T007 --> T022[T022: Endpoints de Utilidad]
     T003 --> T022
     T007 --> T023[T023: Optimización Bulk Loading]
+    T013 --> T024[T024: Fix pendientes ordering DA-G1]
+    T007 --> T025[T025: Consolidate fuzzy-match DA-G2]
+    T009 --> T025
+    T011 --> T026[T026: Fix marcar_no_ingresado DA-G3]
+    T012 --> T026
+    T001 --> T027[T027: Add CHECK constraints DA-G4]
+    T022 --> T028[T028: Register T022 routes]
+    T019 --> T029[T029: Remediate test anti-patterns DA-G6]
 ```
 
 ---
 
 ## Progress Tracking
 
+> **Corrected 2026-07-07:** this table previously marked every task "Completed", including T016/T017 (never built as separate components), T020 (no feature tests exist beyond Laravel's default `ExampleTest.php`), and T022 (routes not registered). Statuses below now match each task's own `Status:` field above and the confirmed findings of the 2026-07-07 gap-remediation audit.
+
 | Task | Status | Started | Completed | Notes |
 |------|--------|---------|-----------|-------|
-| T001 | Completed | S1 | S1 | Migraciones creadas y verificadas |
+| T001 | Completed | S1 | S1 | Migraciones creadas y verificadas. CHECK constraint text corrected 30.00→70.00; not actually enforced in deployed migration (see T027) |
 | T002 | Completed | S1 | S1 | Models con relaciones y casts |
 | T003 | Completed | S1 | S1 | Conexión academia configurada |
 | T004 | Completed | S1 | S1 | Normalización con split de apellidos compuestos |
 | T005 | Completed | S2 | S2 | Parseo, validación y enrutamiento dual |
 | T006 | Completed | S2 | S2 | Match exacto con hash map O(1) |
-| T007 | Completed | S2 | S2 | Pipeline completo incluye fuzzy match EAGER |
+| T007 | Completed | S2 | S2 | Pipeline completo incluye fuzzy match EAGER; duplicates the algorithm instead of delegating to CalcularSimilitudesCabosAction (see T025) |
 | T008 | Completed | S2 | S2 | Upload → dispatch job, no procesa inline |
-| T009 | Completed | S2 | S2 | Fuzzy match EAGER dentro del job (ya no lazy) |
+| T009 | Completed | S2 | S2 | Fuzzy match EAGER dentro del job (ya no lazy); test-only 55% threshold branch found (see T029) |
 | T010 | Completed | S2 | S2 | Solo SELECT, nunca computa en caliente |
-| T011 | Completed | S2 | S2 | Confirmación manual + no_ingresado |
-| T012 | Completed | S2 | S2 | POST confirmar con validación de alumno_id |
-| T013 | Completed | S2 | S2 | Lotes endpoints con nuevo ordenamiento |
-| T022 | Completed | S2 | S2 | Utilidades de base de datos implementadas |
+| T011 | Completed | S2 | S2 | Confirmación manual + no_ingresado — Action itself is correct (3-param signature already works) |
+| T012 | Completed | S2 | S2 | POST confirmar con validación de alumno_id — controller never forwards `marcar_no_ingresado` (data-corruption bug, see T026) |
+| T013 | Completed | S2 | S2 | **AC violated:** `pendientes()` excludes rows and sorts by wrong column instead of "queden al final" — superseded by T024 |
+| T022 | Partial | S2 | — | Controller methods (`health`, `academiaAlumnos`, `limpiar`, `reprocesar`) implemented; routes not registered in `routes/api.php` (see T028) |
 | T023 | Completed | S2 | S2 | Optimización de queries a base de datos de academia |
-| T016 | Completed | S3 | S3 | Componente de subida de archivos implementado |
-| T017 | Completed | S3 | S3 | Renderizado de candidatos con búsqueda de nombres e ID de alumno |
-| T018 | Completed | S3 | S3 | Integración general de React con polling y visualización de progreso asíncrono |
-| T014 | Completed | S4 | S4 | Exportador de Excel CSV con 24 columnas (AC-014) |
-| T015 | Completed | S4 | S4 | Endpoint de descarga de archivo CSV enriquecido |
-| T019 | Completed | S2 | S2 | Tests unitarios de dominio ejecutados y válidos |
-| T020 | Completed | S2 | S2 | Pruebas de integración HTTP del flujo completo |
-| T021 | Completed | S3 | S3 | Pruebas de carga de archivo grande e inyección de fórmulas |
+| T016 | Superseded | — | — | Never built as a separate component; functionality delivered inline in T018 (`resources/js/app.jsx`), PO-accepted |
+| T017 | Superseded | — | — | Never built as a separate component; functionality delivered inline in T018 (`resources/js/app.jsx`), PO-accepted |
+| T018 | Completed | S3 | S3 | Integración general de React con polling y visualización de progreso asíncrono, implementada como archivo único |
+| T014 | Completed | S4 | S4 | Exportador de reporte CSV con 24 columnas (AC-014); produces plain CSV, not `.xlsx` — confirmed acceptable as-is by PO |
+| T015 | Completed | S4 | S4 | Endpoint de descarga de archivo CSV enriquecido (`text/csv`, not binary Excel) |
+| T019 | Completed | S2 | S2 | Tests unitarios de dominio ejecutados y válidos; anti-patterns found in code under test (see T029) |
+| T020 | Not Started | — | — | **Corrected 2026-07-07:** no feature/integration tests exist beyond Laravel's default `tests/Feature/ExampleTest.php`. Previously misreported as Completed. |
+| T021 | Completed | S3 | S3 | `tests/Performance/CsvProcessingPerformanceTest.php` y `FuzzyMatchPerformanceTest.php` confirmados presentes |
+| T024 | Not Started | — | — | Fix `pendientes()` ordering/filtering per DA-G1 |
+| T025 | Not Started | — | — | Consolidate fuzzy-match implementation per DA-G2 |
+| T026 | Not Started | — | — | Fix `marcar_no_ingresado` wiring per DA-G3 |
+| T027 | Not Started | — | — | Add missing CHECK constraints per DA-G4 |
+| T028 | Not Started | — | — | Register T022 utility routes |
+| T029 | Not Started | — | — | Remediate test anti-patterns per DA-G6 |
+| T030 | Completed | S5 | S5 | **Unplanned/emergent** — production PDO bug (`SQLSTATE[HY093]`) in `ExportarExcelCruceAction::loadAcademiaData()` found live during QA, not part of the original DA-G1..G6 Design Addendum scope; fixed with a driver-aware `= ANY(?::bigint[])` (pgsql) / chunked reindexed `IN (...)` (other drivers) query |

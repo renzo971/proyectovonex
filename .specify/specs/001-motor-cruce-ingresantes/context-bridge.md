@@ -9,7 +9,18 @@
 
 ## Feature Goal
 
-Automatizar la validación y emparejamiento de identidades de ingresantes UNMSM contra la base de datos de alumnos de la academia Vonex, procesando ~27,000 registros por lote de forma asíncrona (≤ 50 segundos), con resolución manual asistida de casos ambiguos, trazabilidad completa por fecha de examen y exportación de reportes analíticos en Excel.
+Automatizar la validación y emparejamiento de identidades de ingresantes UNMSM contra la base de datos de alumnos de la academia Vonex, procesando ~27,000 registros por lote de forma asíncrona (≤ 50 segundos), con resolución manual asistida de casos ambiguos, trazabilidad completa por fecha de examen y exportación de reportes CSV enriquecidos (compatibles con Excel).
+
+---
+
+## Post-Implementation Gap Remediation Pass (2026-07-07)
+
+Tras la marca `Implemented`, una auditoría de dos agentes (Architect + Reconciliation) confirmó 6 brechas genuinas entre el código real y los artefactos, ahora resueltas a nivel de diseño en plan.md "Design Addendum" y propagadas a spec.md, tasks.md (T024–T029), test-cases.md y contracts/openapi.yaml. Invariantes clave reafirmados por esta auditoría:
+
+- **Fuzzy match es EAGER**, no lazy: se computa dentro de `ProcessCsvBatchJob` inmediatamente después del match exacto, para todos los `pendiente` del lote. `GET /candidatos` es un SELECT puro. Cualquier referencia restante a cómputo "on-demand"/"primera vez que se abre la UI" es obsoleta (ver data-model.md §7.2, no corregida en este pase por estar fuera del alcance explícito de artefactos a actualizar).
+- **Umbral de similitud canónico: 70.00%** — único valor de aceptación para persistir un candidato en `ingresante_candidatos`. El 80% es (o era) un filtro de *display* en la bandeja interactiva, ahora rediseñado como no-exclusionario (DA-G1); el 30% que aparecía en tasks.md T001 era un error, corregido a 70.00.
+- **Conteo de tareas:** 23 tareas originales (T001–T023, excluyendo IDs no usados) + 6 tareas de remediación nuevas (T024–T029) = **29 tareas**, 155h estimadas totales. El resumen previo de tasks.md tenía una fila fantasma "Post-Implementation: 2 tasks" sin tareas reales asociadas y subestimaba la Fase 2 en 8h; ambos errores fueron corregidos.
+- Dos brechas quedan **sin resolver en código** (solo diseñadas): DA-G3 (bug de corrupción de datos en "Mark as No Match") y DA-G5 (auth completamente ausente, flagged para sign-off humano vía CQ-004). Ver analysis-report.md Run 9.
 
 ---
 
@@ -38,8 +49,8 @@ Automatizar la validación y emparejamiento de identidades de ingresantes UNMSM 
 - Tabla `lotes_cruce` — metadatos del lote y totales de auditoría
 - Tabla `ingresantes` — postulantes que pasaron el filtro `ALCANZO VACANTE`
 - Tabla `no_ingresantes` — postulantes que NO pasaron el filtro (solo auditoría)
-- Toda la lógica de matching (exacto + difuso)
-- Generación de reportes Excel
+- Toda la lógica de matching (exacto + difuso, computado EAGER dentro de `ProcessCsvBatchJob`)
+- Generación de reportes CSV enriquecidos (compatibles con Excel; sin gráficos ni segunda hoja)
 
 **No owns ni modifica:**
 
@@ -189,6 +200,8 @@ Reglas que el diseño técnico DEBE preservar. Cualquier implementación que las
 | INV-06 | La jerarquía de estados de alumno es fija e inmutable. El orden de prioridad es: MATRICULADO (2) > PAGADO (3) > FINALIZADO (14) > SUSPENDIDO (9) > RETIRADO (0) > TRASLADADO (12) > STAND BY (13) > ANULADO (11). | Todo código que resuelva alumni con múltiples registros debe usar este orden exacto |
 | INV-07 | La base `academia` es estrictamente de solo lectura para este sistema | Cero operaciones INSERT, UPDATE o DELETE sobre la conexión `academia` |
 | INV-08 | Las credenciales de `academia` nunca se hardcodean | La configuración de conexión se toma exclusivamente de variables de entorno `DB_ACADEMIA_*` |
+
+> **Invariante añadida (2026-07-07, DA-G3):** `ingresantes.alumno_id` debe ser `NULL` cuando `estado_match ∈ {pendiente, no_ingresado}` y `NOT NULL` (referencia válida) cuando `estado_match ∈ {confirmado_automatico, confirmado_manual}`. El valor `0` nunca es válido. Ver data-model.md §4, §10 y plan.md DA-G3 — esta invariante está **diseñada pero aún no forzada en código**: `CruceIngresantesController::confirmar` no reenvía `marcar_no_ingresado`, por lo que hoy puede persistirse `alumno_id = 0` (bug de corrupción de datos, fix en tasks.md T026).
 
 ---
 

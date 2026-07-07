@@ -405,6 +405,188 @@ See: [data-model.md](./data-model.md)
 
 ---
 
+## Design Addendum — Post-Implementation Gap Remediation (2026-07-07)
+
+**Author:** Architect Agent
+**Context:** Brownfield remediation. The feature is `Implemented` and accepted by the PO **except** for six confirmed gaps surfaced by a two-agent audit and independently re-verified against source (files/lines cited below). This addendum designs the corrective behavior only — conceptual design, no implementation code. A separate agent will reconcile `spec.md`, `tasks.md`, `test-cases.md`, and `contracts/openapi.yaml` against these decisions.
+
+### Threshold Reconciliation (shared root cause for DA-G1 and DA-G4)
+
+Three different similarity numbers recur across artifacts and must be reconciled before the per-gap designs:
+
+| Number | Where it appears | Meaning claimed | Verdict |
+|--------|------------------|-----------------|---------|
+| **70%** | business-context §5.3 / A-03; spec AC-009, AC-010; data-model §2.4 + §5.1 DDL; plan Open Issue #1 (PO-confirmed) | Minimum similarity for a candidate to be **persisted** at all | **CANONICAL** — 5 artifacts + PO sign-off agree |
+| **80%** | spec AC-009 (2nd sentence), AC-010; plan AD-005; controller `pendientes()` `whereHas(>=80)` | Interactive-tray **display** filter | **Disputed** — see DA-G1 |
+| **30%** | tasks.md T001 (line 55) `CHECK >= 30.00` | DB CHECK floor on `porcentaje_similitud` | **Wrong** — contradicts the 70% persistence rule and the data-model DDL |
+
+**Decision (High confidence):** The canonical fuzzy-match acceptance threshold is **70.00%**. `ProcessCsvBatchJob::fuzzyMatchAndSave` already enforces `similarity >= 70.0` before inserting (line 238), so no candidate below 70% ever reaches `ingresante_candidatos`. The 30% in tasks.md T001 is an error; the 80% is a *separate* display concern addressed in DA-G1.
+
+---
+
+### DA-G1 — `pendientes` list: row-exclusion + wrong sort order (T013) — HIGHEST PRIORITY
+
+**Current (wrong) state** — `CruceIngresantesController::pendientes` (lines 280-295):
+- `whereHas('candidatos', >= 80)` **excludes** from the result set every `pendiente` ingresante whose best candidate is `< 80%` or who has zero candidates.
+- Primary sort key is `max_similitud DESC`, not `candidatos_count DESC`.
+- Net effect: rows the T013 AC requires to "queden al final" are instead dropped entirely, and the ordering contract is violated.
+
+**Root cause:** The 80% interactive filter (AD-005 / spec v2.9.0) was implemented as a **row-exclusion predicate on the parent** instead of a **display filter on the candidate relation**, and `max_similitud` was used as the lead sort key.
+
+**Conflict surfaced (Anti-Pattern Rule 1 — Anti-Sycophancy):** This is a genuine **spec-vs-tasks contradiction**, not a simple bug:
+- tasks.md T013 (line 415) requires **no exclusion**: all `pendiente` rows returned, zero-candidate rows sorted last, lead key `candidatos_count DESC`.
+- spec.md AC-009/AC-010 and plan AD-005 explicitly require **excluding** ingresantes without a ≥80% candidate from the interactive tray.
+
+Both were signed off by the same PO. The remediation request (and the "queden al final" AC) sides with T013, so this addendum designs the **non-exclusionary** behavior — **and flags that doing so reverses AD-005 and contradicts AC-009/AC-010.** The spec-reconciliation agent MUST update those, or the PO must re-affirm the 80% exclusion. Signed-off spec content is not silently deleted here.
+
+**Designed fix (conceptual):**
+
+```
+QUERY pendientes(lote_id, q?, per_page):
+  base = ingresantes
+         WHERE lote_cruce_id = :lote_id
+           AND estado_match = 'pendiente'
+           [AND optional text search on codigo / apellidos / nombres / eap]
+
+  # NO whereHas(...) — every pendiente row is returned, none excluded
+  SELECT base.*,
+         candidatos_count = COUNT(ingresante_candidatos WHERE ingresante_id = base.id),
+         max_similitud    = COALESCE(MAX(ingresante_candidatos.porcentaje_similitud
+                                         WHERE ingresante_id = base.id), 0)
+  EAGER LOAD candidatos ORDER BY ranking     # all persisted candidates (already >= 70%)
+  ORDER BY candidatos_count DESC,
+           max_similitud    DESC,
+           apellido_paterno ASC,
+           apellido_materno ASC
+  PAGINATE per_page
+```
+
+Zero-candidate rows sink last naturally: `candidatos_count = 0` and `max_similitud = 0` place them below every row that has candidates.
+
+**Per-candidate display filter decision (Medium confidence):** Show **all persisted candidates** for each row (the persistence invariant already guarantees ≥70%); drop the `>= 80` filter on the eager-loaded relation. If the PO still wants to emphasize high-confidence matches, render it as a **non-exclusionary UI badge** ("alta confianza ≥80%"), never as a filter that hides candidates or rows. This keeps one canonical threshold (70%) and removes the disputed 80% behavior; the final call belongs to the PO via the reconciliation agent.
+
+**Performance / index (High confidence):** No new index or denormalized count column is warranted. Volume is tiny (data-model §7.1: ≤1,750 candidato rows year 1, ~350 pendientes/lote). The correlated `COUNT`/`MAX` subqueries filter on `ingresante_candidatos.ingresante_id`, already the leading column of the existing `UNIQUE(ingresante_id, ranking)` index. The `ORDER BY apellido_paterno, apellido_materno` is served by the existing `(apellido_paterno, apellido_materno, nombres)` index on `ingresantes`. A denormalized `candidatos_count` column would be over-engineering at this scale (Simplification lens).
+
+**NFR implications:** None adverse. NFR-002 (candidatos p95 <300 ms) is unaffected — this is the list endpoint, not the candidatos endpoint — and it stays a single paginated query.
+
+**Acceptance criteria for the follow-up task:**
+- AC-G1.1: `GET /lotes/{id}/pendientes` returns **all** `estado_match='pendiente'` ingresantes of the lote; none excluded for lacking candidates.
+- AC-G1.2: Result ordering is exactly `candidatos_count DESC, max_similitud DESC, apellido_paterno ASC, apellido_materno ASC`.
+- AC-G1.3: An ingresante with zero candidates appears in the payload, sorted after every ingresante with ≥1 candidate, with an empty `candidatos` array and `max_similitud = 0`.
+- AC-G1.4: Each row's `candidatos` contains all persisted candidates (≥70%) ordered by `ranking`; no per-candidate 80% exclusion.
+- AC-G1.5: Pagination `meta.total` reflects the full pendiente population, not the ≥80% subset.
+
+---
+
+### DA-G2 — Duplicate fuzzy-match implementation (T007)
+
+**Current state:** `ProcessCsvBatchJob::fuzzyMatchAndSave` (lines 185-278) is a full private reimplementation of the Levenshtein+Dice algorithm. The standalone `CalcularSimilitudesCabosAction` also computes/reads candidates but is **not** invoked by the job's write path — the job never calls it; the Action's compute branch is exercised only by tests and by the `candidatos` / `reprocesar` read paths. Two copies of one algorithm can silently drift, and they **already have**: the 70% floor is a literal `70.0` in the job (line 238), while the Action carries a `runningUnitTests() ? 55 : 70` branch (line 155).
+
+**Root cause:** The AD-004 performance optimization (blocking + bigram hashing + pruning) was written inline in the job for speed, without refactoring the pre-existing Action to match; T007's AC ("job invokes `CalcularSimilitudesCabosAction`") was never reconciled to reality.
+
+**Recommendation (High confidence): Consolidate the scoring algorithm into `CalcularSimilitudesCabosAction` as the single source of truth; the job delegates to it.** Rationale:
+- The Action is the SOLID/testable seam the plan's own "Pattern of Actions" decision (§1.2) mandates — business logic belongs in Actions, not Jobs.
+- The optimized path needs the pre-built `alumnosIndex` (bigram hashes, by-initial blocking). Add a **batch entry point** on the Action that accepts the already-loaded index, so the job keeps its single academia-load (T023/AD-004) and its bulk `insert`; keep the existing single-`ingresanteId` entry point as a thin wrapper for the `candidatos` / `reprocesar` read paths and unit tests.
+- The Job becomes a thin orchestrator (normalize → exact → **delegate fuzzy** → persist), matching T007's stated AC.
+
+**Alternative considered (rejected):** deprecate the Action and keep logic in the job. Rejected because it inverts the documented architecture, makes the algorithm harder to unit-test in isolation, and leaves `candidatos`/`reprocesar` calling a hollow Action.
+
+**Acceptance criteria for the follow-up task:**
+- AC-G2.1: The fuzzy scoring formula (Levenshtein×0.6 + Dice×0.4, ≥70% floor, top-5, ranking) exists in exactly one place — `CalcularSimilitudesCabosAction`.
+- AC-G2.2: `ProcessCsvBatchJob` produces its `ingresante_candidatos` rows by delegating to that Action's batch entry point (receiving the pre-loaded `alumnosIndex`), preserving the single academia-load and bulk insert.
+- AC-G2.3: No behavioral change to persisted candidates for a fixed input — golden-set parity before/after the refactor.
+- AC-G2.4: NFR-001 (≤50 s/lote) still holds after consolidation.
+
+**NFR implications:** Must preserve AD-004 — the Action's batch entry point must accept the pre-computed index and must NOT re-load academia or re-normalize per ingresante. Consolidation is behavior-preserving only if parity (AC-G2.3) is proven.
+
+---
+
+### DA-G3 — "Mark as No Match" contract (T011/T012)
+
+**Current (wrong) state:** The frontend (`resources/js/app.jsx:146`) POSTs `{ marcar_no_ingresado: true }`. `CruceIngresantesController::confirmar` (lines 203-215) validates only `alumno_id` and calls `GuardarCruceConfirmadoAction::execute($id, $request->integer('alumno_id'))` — it **never reads `marcar_no_ingresado`**. Because `$request->integer('alumno_id')` returns `0` when the field is absent, the Action falls into its positive-match branch and persists `estado_match='confirmado_manual', alumno_id=0` — a corrupt record pointing at a non-existent alumno.
+
+**Key finding (High confidence):** `GuardarCruceConfirmadoAction` **already implements the correct behavior** — it has a third parameter `bool $marcarNoIngresado = false` (lines 14, 23-32) that sets `estado_match='no_ingresado', alumno_id=NULL` and adjusts lote totals. The defect is purely that the **controller never forwards the flag.** This is a wiring gap, not a missing capability.
+
+**Designed contract:**
+- **No new enum value.** `no_ingresado` already exists in `MatchStatus` (data-model §3.2) and matches the glossary definition ("estado final cuando el administrador descarta todos los candidatos sugeridos"). Anti-Eager-Beaver: do not invent `no_match_confirmado`.
+- `alumno_id` stays **NULL** for a no-match — never `0`.
+- The `confirmar` request contract gains an optional boolean `marcar_no_ingresado` (default `false`).
+- Branching:
+  - `marcar_no_ingresado = true` → forward to the Action's no-match branch → `estado_match='no_ingresado'`, `alumno_id=NULL`; any `alumno_id` in the payload is ignored.
+  - `marcar_no_ingresado` false/absent (positive match) → `alumno_id` becomes **required and must exist** (satisfies AC-004b / ERR-006: 404 if the alumno_id does not exist in academia). This closes the `alumno_id=0` corruption path.
+
+**OpenAPI impact (documented, not edited here):** `contracts/openapi.yaml` for `POST /cruce/ingresantes/{id}/confirmar` needs: request-body field `marcar_no_ingresado: boolean` (optional, default false); `alumno_id` required only when `marcar_no_ingresado` is false/absent; response documenting resulting `estado_match ∈ {confirmado_manual, no_ingresado}`. The reconciliation agent applies this.
+
+**Acceptance criteria for the follow-up task:**
+- AC-G3.1: `confirmar` reads `marcar_no_ingresado` (boolean, default false) and forwards it as the third argument to `GuardarCruceConfirmadoAction`.
+- AC-G3.2: With `marcar_no_ingresado=true`, the ingresante becomes `estado_match='no_ingresado'` with `alumno_id=NULL`; lote `total_pendientes` −1, `total_no_ingresado` +1.
+- AC-G3.3: With `marcar_no_ingresado` false/absent and a missing/invalid `alumno_id`, the endpoint returns 422 (missing) or 404 (nonexistent) and the ingresante state is unchanged — never `alumno_id=0`.
+- AC-G3.4: No path can persist `estado_match='confirmado_manual'` with `alumno_id` null or 0.
+
+**Data-model impact:** Add the invariant `no_ingresado ⇒ alumno_id IS NULL` and `confirmado_* ⇒ alumno_id IS NOT NULL` (see data-model.md §4 and §10).
+
+---
+
+### DA-G4 — Missing / incorrect DB CHECK constraints on `ingresante_candidatos`
+
+**Current (wrong) state:** The real migration `2026_07_05_000004_create_ingresante_candidatos_table.php` defines `porcentaje_similitud DECIMAL(5,2)` and `ranking SMALLINT` with **no CHECK constraints at all** (lines 20-21). Artifacts disagree on the intended floor: tasks.md T001 says `CHECK >= 30.00`; data-model §5.1 DDL says `CHECK (porcentaje_similitud >= 70.00)`. Per the Threshold Reconciliation above, **70.00 is canonical.**
+
+**Root cause:** The CHECK constraints in the data-model DDL were never carried into the Laravel migration (the fluent schema builder does not express CHECKs without a raw `DB::statement`), and tasks.md T001 was authored with a stale 30% figure.
+
+**Designed fix (data-integrity migration):** A corrective migration adds:
+- `CHECK (porcentaje_similitud >= 70.00)` on `ingresante_candidatos.porcentaje_similitud`.
+- `CHECK (ranking BETWEEN 1 AND 5)` on `ingresante_candidatos.ranking`.
+
+Both are consistent with runtime behavior (the job inserts only ≥70% and ranking 1..5), so the constraints are a safety net that cannot reject currently-valid rows.
+
+**Interaction with DA-G6 (Medium confidence):** The 70% floor is only safe to enforce at the DB once the test-only 55% threshold (Gap 6, `CalcularSimilitudesCabosAction:155`) is removed. If any insert path can produce sub-70% candidates, the CHECK will reject them. Sequence the CHECK migration **after** the Gap-6 remediation.
+
+**Acceptance criteria for the follow-up task:**
+- AC-G4.1: A migration adds `CHECK (porcentaje_similitud >= 70.00)` and `CHECK (ranking BETWEEN 1 AND 5)` to `ingresante_candidatos`.
+- AC-G4.2: The migration is reversible (`down()` drops both constraints).
+- AC-G4.3: Applying the migration against existing production data does not fail (no persisted row violates the constraints).
+- AC-G4.4: tasks.md T001's `30.00` is reconciled to `70.00` (handled by the reconciliation agent).
+
+---
+
+### DA-G5 — Missing authentication on all `/api/cruce/*` routes — FLAGGED FOR HUMAN SIGN-OFF
+
+**Confirmed state (High confidence):** `routes/api.php` registers every cruce route (`upload`, `lotes`, `status`, `pendientes`, `candidatos`, `confirmar` ×2, `exportar`) with **no middleware**. Only the unrelated `/user` route carries `auth:sanctum`. This directly contradicts the design's own §4.1 ("Auth Required: Yes") and §5.1/§5.2 (Sanctum + role matrix admin/admisiones/marketing).
+
+**Per the Architect "Ask First" boundary, this is NOT designed around silently.** The endpoints expose and mutate PII (data-model §8: names, `codigo`, alumno references restricted to `admisiones`) and allow destructive actions (`limpiar` truncates all cruce data; `reprocesar` re-runs jobs). Unauthenticated exposure is a real security gap, not an accepted risk.
+
+**Open decision (requires explicit human sign-off before it can be marked resolved either way):**
+- **Option A (recommended):** apply `auth:sanctum` + role/ability authorization to the `cruce` route group per the §5.2 matrix (write: admin/admisiones; export: +marketing; destructive `limpiar`/`reprocesar`: admin only). Requires the SPA to authenticate (Sanctum cookie/token) — confirm with the frontend owner.
+- **Option B:** formally accept the risk with a documented, time-boxed reason and compensating controls (e.g., network-level restriction), signed by the PO/security owner.
+
+**Severity: High.** Do not close this gap by implementation OR acceptance without a named human sign-off. No auth middleware is designed in this addendum.
+
+---
+
+### DA-G6 — Test-integrity anti-patterns (T019) — CONFIRMED FINDING
+
+**Confirmed state (High confidence)** — violates `.github/instructions/anti-patterns.instructions.md` (production code must not branch on test state):
+- `CalcularSimilitudesCabosAction.php:155` — `$threshold = app()->runningUnitTests() ? 55.0 : 70.0;` — production logic lowers the canonical 70% threshold to 55% purely because tests are running.
+- `RealizarCruceExactoAction.php:24-33` — production code calls `debug_backtrace()` to sniff for a literal test method name (`tc004_handles_database_connection_failure`) and then fakes an academia connection failure only for that test.
+
+Both make production behavior depend on the test harness — the "environment-conditional production code" anti-pattern — and mask real coverage (the DB-failure path is never exercised through the real failure mechanism).
+
+**Recommendation (one line):** Remove the `runningUnitTests()` / `debug_backtrace()` branches from production code and drive these scenarios from the tests via proper dependency injection / mocking (inject the similarity threshold as a constructor/config parameter; simulate the academia connection failure by binding a fake DB connection in the test, not by branching in the Action).
+
+**Test redesign is out of scope for this addendum** (test-engineer owns it) — this is documented as a confirmed remediation item only.
+
+---
+
+### Addendum Synthesis Assessment
+
+- **Generalization:** The threshold-as-injected-parameter fix (DA-G6) and the single-source-of-truth Action (DA-G2) generalize to any Vonex matching pipeline — the scoring can be extracted as a reusable, config-driven service.
+- **Build-vs-Adopt:** All six are corrections to existing custom code; nothing here warrants adopting a library — the fixes reduce code (remove a duplicate algorithm, remove test branches) rather than add it.
+- **Simplification:** Every gap resolves toward *less* code and *one* canonical rule — 70% everywhere, one algorithm, one no-match enum, no test-conditional branches; the only net additions are two DB CHECK constraints and one request field.
+
+**Cross-cutting confidence:** All six root causes were verified against source (files/lines cited). The only judgment calls left to the PO / reconciliation agent are (a) whether to retire or badge the 80% display threshold (DA-G1) and (b) the auth decision (DA-G5).
+
+---
+
 ## External References
 
 | Source                                          | Access Date | Relevant Section | Notes                                                     |

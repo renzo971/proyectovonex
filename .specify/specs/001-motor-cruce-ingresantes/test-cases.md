@@ -24,7 +24,7 @@
 |---------------|---------|----------------------|
 | Pruebas de Unidad | `NormalizarTextoAction`, `ProcesarCargaCsvAction`, `RealizarCruceExactoAction`, `CalcularSimilitudesCabosAction`, `GuardarCruceConfirmadoAction`, `ExportarExcelCruceAction` | 100% en lógica de negocio (Art. III §3.2 Constitution) |
 | Pruebas de Integración | endpoints de API, BD `academia` y `lotes_cruce`, cola Redis | Flujos clave de carga, cruce, confirmación y exportación |
-| Pruebas E2E | Archivo CSV completo → reporte Excel, interfaz de validación asistida | Flujo feliz + casos de error críticos |
+| Pruebas E2E | Archivo CSV completo → reporte CSV consolidado, interfaz de validación asistida | Flujo feliz + casos de error críticos |
 | Pruebas de Rendimiento | Procesamiento asíncrono de CSV y respuesta de endpoints de candidatos | Validación de NFR-001 y NFR-002 |
 | Pruebas de Contrato | contrato API REST del backend | Endpoints expuestos por el plan |
 
@@ -41,6 +41,17 @@
 - **Fixtures:** `tests/fixtures/` o `.specify/specs/001-motor-cruce-ingresantes/test-data/`
 - **Factories:** `tests/factories/` para `Ingresante`, `LoteCruce`, `Alumno`
 - **Mocks:** En pruebas unitarias se simula la conexión y las respuestas de la base `academia` para aislar la lógica de cruce. En pruebas de integración se simula o se controla el worker Redis para validar el comportamiento de la cola sin depender de un worker en producción.
+
+### 1.4 Estado de Implementación de Pruebas (auditoría 2026-07-07)
+
+> Este documento especifica casos de prueba; no todos tienen un archivo PHPUnit/Pest implementado. Confirmado por lectura directa de `tests/`:
+
+| Categoría | Archivos reales encontrados | Estado |
+|---|---|---|
+| Unidad (`tests/Unit/Actions/`) | `NormalizarTextoActionTest.php`, `ProcesarCargaCsvActionTest.php`, `RealizarCruceExactoActionTest.php`, `CalcularSimilitudesCabosActionTest.php`, `GuardarCruceConfirmadoActionTest.php`, `ExportarExcelCruceActionTest.php`, `ConexionAcademiaTest.php`, `InvariantsTest.php` | Implementadas (T019) |
+| Rendimiento (`tests/Performance/`) | `CsvProcessingPerformanceTest.php`, `FuzzyMatchPerformanceTest.php` | Implementadas (T021) |
+| Contrato (`tests/Contract/`) | `OpenApiContractTest.php`, `AsyncApiContractTest.php` | Implementadas (no mapeadas a un task ID específico) |
+| **Integración / Feature (`tests/Feature/`)** | Solo `ExampleTest.php` (default de Laravel) | **Genuinamente faltante — T020 no iniciado.** Ninguno de los TC de tipo "Integración" listados en este documento (TC-001, TC-004, TC-005, TC-009, TC-010, TC-015, TC-023, TC-025–TC-033, TC-047–TC-051, etc.) tiene un test automatizado real hoy. No se fabrican archivos de test aquí — se documenta el gap honestamente. Ver tasks.md T020. |
 
 ---
 
@@ -200,14 +211,32 @@ VALUES (100, 'ALU001', 14, 1, NOW());
 |----------|-------|
 | **Tipo** | Integración |
 | **Prioridad** | P1 |
-| **Automatizado** | Sí |
-| **Trazas a** | plan.md: `/api/cruce/lotes/{lote_id}/pendientes`, US-004 AC-011 |
+| **Automatizado** | Sí / Planificado (ver §1.4 — T020 no implementado) |
+| **Trazas a** | plan.md: `/api/cruce/lotes/{lote_id}/pendientes`, US-004 AC-011, plan.md DA-G1, tasks.md T024 |
 
 **Dado:** Un lote con ingresantes en estado `pendiente`.
 **Cuando:** Se llama `GET /api/cruce/lotes/{lote_id}/pendientes`.
-**Entonces:** La respuesta devuelve una lista paginada de ingresantes `pendiente` con sus datos CSV normalizados y un total de páginas disponible.
-**Y:** El orden de la lista prioriza a aquellos ingresantes que poseen candidatos sugeridos con similitud >= 70%, dejando al final de la paginación a los ingresantes que no poseen ningún candidato.
+**Entonces:** La respuesta devuelve una lista paginada de **todos** los ingresantes `pendiente` del lote (ninguno excluido por no tener candidatos o por no alcanzar el 80%), con sus datos CSV normalizados y un total de páginas disponible.
+**Y:** El orden de la lista es exactamente `candidatos_count DESC, max_similitud DESC, apellido_paterno ASC, apellido_materno ASC` — los ingresantes con más candidatos y mayor similitud aparecen primero.
 
+**[Corregido 2026-07-07 — DA-G1]:** Esta TC describía el comportamiento deseado, pero el código desplegado (`whereHas('candidatos', >= 80)`) **excluye** filas en vez de ordenarlas al final, y ordena primero por `max_similitud DESC` (no `candidatos_count DESC`). Esta TC hoy **falla** contra el código real; queda como especificación del comportamiento correcto hasta que T024 se implemente. Ver TC-059 para el caso específico de cero candidatos.
+
+---
+
+#### TC-059: Ingresante sin candidatos aparece en pendientes, ordenado al final
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Planificado (bloqueado por T024 y T020) |
+| **Trazas a** | plan.md DA-G1 (AC-G1.1–AC-G1.5), tasks.md T024 |
+
+**Dado:** Un lote con dos ingresantes `pendiente`: uno con 3 candidatos persistidos y otro sin ningún candidato (similitud máxima < 70% frente a toda la academia).
+**Cuando:** Se llama `GET /api/cruce/lotes/{lote_id}/pendientes`.
+**Entonces:** Ambos ingresantes aparecen en la respuesta (ninguno es excluido); el que tiene 0 candidatos aparece **después** del que tiene 3, con `candidatos: []` y `max_similitud: 0`; y `meta.total` cuenta ambos registros.
+
+**Nota:** Este caso es actualmente imposible de pasar contra el código desplegado, porque `whereHas('candidatos', >= 80)` excluye por completo al ingresante sin candidatos del result set. Ver tasks.md T024.
 
 ---
 
@@ -377,6 +406,40 @@ VALUES (100, 'ALU001', 14, 1, NOW());
 **Cuando:** El administrador selecciona la opción "Sin coincidencias encontradas — Marcar como No Ingresado".
 **Entonces:** El estado se actualiza a `no_ingresado` y la UI refleja la confirmación.
 
+**[Corregido 2026-07-07 — DA-G3]:** El código desplegado de `CruceIngresantesController::confirmar` **no** lee `marcar_no_ingresado` del request — valida solo `alumno_id` y siempre invoca `GuardarCruceConfirmadoAction::execute($id, $request->integer('alumno_id'))`. Como `$request->integer('alumno_id')` retorna `0` cuando el campo está ausente, esta acción hoy persiste `estado_match='confirmado_manual', alumno_id=0` (registro corrupto) en vez de `no_ingresado, alumno_id=NULL`. Esta TC **falla contra el código real** hasta que se implemente tasks.md T026. Ver TC-057/TC-058 para casos específicos del contrato corregido.
+
+---
+
+#### TC-057: `marcar_no_ingresado=true` persiste `no_ingresado` con `alumno_id=NULL` (nunca 0)
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P0 |
+| **Automatizado** | Planificado (bloqueado por T026 y T020) |
+| **Trazas a** | plan.md DA-G3 (AC-G3.1, AC-G3.2), data-model.md §4/§10, tasks.md T026 |
+
+**Dado:** Un ingresante en estado `pendiente`.
+**Cuando:** Se envía `POST /api/cruce/ingresantes/{id}/confirmar` con body `{ "marcar_no_ingresado": true }` (sin `alumno_id`, o con un `alumno_id` presente que debe ser ignorado).
+**Entonces:** El ingresante queda con `estado_match='no_ingresado'` y `alumno_id=NULL`; `lotes_cruce.total_pendientes` decrementa en 1 y `total_no_ingresado` incrementa en 1. En ningún caso se persiste `alumno_id=0`.
+
+**Nota:** Contra el código desplegado hoy (2026-07-07), este test **falla** — ver el bug descrito en TC-010 y tasks.md T012/T026.
+
+---
+
+#### TC-058: `marcar_no_ingresado` false/ausente exige `alumno_id` válido existente
+
+| Atributo | Valor |
+|----------|-------|
+| **Tipo** | Integración |
+| **Prioridad** | P1 |
+| **Automatizado** | Planificado (bloqueado por T026 y T020) |
+| **Trazas a** | plan.md DA-G3 (AC-G3.3, AC-G3.4), ERR-006, tasks.md T026 |
+
+**Dado:** Un ingresante en estado `pendiente`.
+**Cuando:** Se envía `POST /api/cruce/ingresantes/{id}/confirmar` con `marcar_no_ingresado` false o ausente y (a) sin `alumno_id`, o (b) con un `alumno_id` que no existe en `academia`.
+**Entonces:** El endpoint retorna HTTP 422 (caso a, campo requerido faltante) o HTTP 404 (caso b, ERR-006); el estado del ingresante no cambia; en ningún caso se persiste `estado_match='confirmado_manual'` con `alumno_id` nulo o `0`.
+
 ---
 
 #### TC-052: CSV con BOM UTF-8 es procesado correctamente
@@ -398,9 +461,9 @@ VALUES (100, 'ALU001', 14, 1, NOW());
 
 ---
 
-### 2.5 Historia de Usuario: US-005 - Exportación de Reporte Consolidado en Excel
+### 2.5 Historia de Usuario: US-005 - Exportación de Reporte Consolidado en CSV
 
-#### TC-011: Generar Excel con datos crudos y enriquecidos en Hoja 1
+#### TC-011: Generar CSV consolidado con datos crudos y enriquecidos
 
 | Atributo | Valor |
 |----------|-------|
@@ -411,22 +474,20 @@ VALUES (100, 'ALU001', 14, 1, NOW());
 
 **Dado:** Un lote procesado con matches confirmados.
 **Cuando:** Se solicita `GET /api/cruce/lotes/{lote_id}/exportar`.
-**Entonces:** El Excel contiene Hoja 1 con columnas A–M del CSV original y columnas N+ con Sede, Ciclo, Año académico y Estado.
+**Entonces:** Se descarga un único archivo CSV (delimitador `;`, BOM UTF-8, `Content-Type: text/csv`) con columnas A–M del CSV original y columnas N+ con Sede, Ciclo, Año académico y Estado — **no** un archivo `.xlsx` ni una "Hoja 1" (no existen múltiples hojas).
 
 ---
 
-#### TC-012: Generar Excel con gráficos analíticos en Hoja 2
+#### TC-012: ~~Generar Excel con gráficos analíticos en Hoja 2~~ — REMOVIDO
 
 | Atributo | Valor |
 |----------|-------|
-| **Tipo** | Integración |
-| **Prioridad** | P3 |
-| **Automatizado** | Planificado |
-| **Trazas a** | US-005, AC-015 |
+| **Tipo** | N/A |
+| **Prioridad** | N/A |
+| **Automatizado** | N/A |
+| **Trazas a** | ~~US-005, AC-015~~ AC-016 (removida) |
 
-**Dado:** Un reporte Excel generado.
-**Cuando:** Se abre Hoja 2.
-**Entonces:** Contiene gráficos pre-construidos de distribución por estado, sede y ciclo, y segmentadores dinámicos por fecha de examen.
+**[Removido 2026-07-07]:** Este caso de prueba apuntaba a AC-016 (Hoja 2 con gráficos analíticos en un archivo `.xlsx` nativo), que era aspiracional y nunca se implementó — el export real es un stream CSV plano vía `fputcsv`, sin dependencia de PhpSpreadsheet. El PO confirmó que esto es aceptable tal cual (2026-07-07); no se programa como trabajo futuro. Se conserva este ID como registro histórico de trazabilidad, no como un caso de prueba activo.
 
 ---
 
@@ -845,7 +906,7 @@ VALUES (100, 'ALU001', 14, 1, NOW());
 | **Trazas a** | US-005, AC-014 |
 
 **Dado:** Un lote de cruce finalizado con alumnos coincidentes.
-**Cuando:** Se genera y descarga el Excel consolidado.
+**Cuando:** Se genera y descarga el CSV consolidado.
 **Entonces:** El archivo contiene exactamente 24 columnas en el orden A-X especificado en `AC-014` y los campos de la base de datos se corresponden correctamente.
 
 ---
@@ -860,7 +921,7 @@ VALUES (100, 'ALU001', 14, 1, NOW());
 | **Trazas a** | US-005, AC-014 |
 
 **Dado:** Alumnos matriculados en diferentes ciclos históricos de Vonex.
-**Cuando:** Se realiza la exportación del Excel.
+**Cuando:** Se realiza la exportación del CSV.
 **Entonces:** La columna `LISTA - 1` se marca con `1` si el ciclo es igual o posterior a "Verano 2024", y con `0` si es anterior.
 
 **Datos de Prueba:**
@@ -880,7 +941,7 @@ VALUES (100, 'ALU001', 14, 1, NOW());
 | **Trazas a** | US-005, AC-014 |
 
 **Dado:** Alumnos matriculados en ciclos del verano 2026, octubre 2025 o activos a febrero 2026.
-**Cuando:** Se realiza la exportación del Excel.
+**Cuando:** Se realiza la exportación del CSV.
 **Entonces:** La columna `LISTA - 2` se marca con `1` si se cumple la condición de temporada (incluyendo retirados/suspendidos), y con `0` si no.
 
 **Datos de Prueba:**
@@ -900,7 +961,7 @@ VALUES (100, 'ALU001', 14, 1, NOW());
 | **Trazas a** | US-005, AC-014 |
 
 **Dado:** Alumnos matriculados en la academia.
-**Cuando:** Se realiza la exportación del Excel.
+**Cuando:** Se realiza la exportación del CSV.
 **Entonces:** La columna `LISTA - 3` se marca con `1` si el alumno es activo (MATRICULADO, PAGADO, FINALIZADO) al 27 de febrero de 2026, y con `0` en cualquier otro caso.
 
 **Datos de Prueba:**
@@ -1092,12 +1153,14 @@ VALUES (100, 'ALU001', 14, 1, NOW());
 | US-003/AC-010 |  | TC-008, TC-015 |  |  |
 | US-004/AC-011 |  |  | TC-009, TC-048 |  |
 | US-004/AC-012 |  |  | TC-009 |  |
-| US-004/AC-013 |  |  | TC-010 |  |
+| US-004/AC-013 |  |  | TC-010, TC-057 |  |
 | US-004/AC-004a |  |  |  | TC-029 |
-| US-004/AC-004b |  | TC-026 |  |  |
+| US-004/AC-004b |  | TC-026, TC-058 |  |  |
 | US-005/AC-014 | TC-034, TC-036, TC-037, TC-038 | TC-011, TC-035 |  |  |
-| US-005/AC-015 |  | TC-012 |  |  |
-| US-005/AC-016 |  | TC-012 |  |  |
+| US-005/AC-015 |  | **GAP — no dedicated TC** (TC-012 previously mismapped here; TC-012 covered AC-016, now removed) |  |  |
+| ~~US-005/AC-016~~ | — | — | — | — **[Removed 2026-07-07 — AC-016 removed from spec.md, see TC-012]** |
+| DA-G1 (2026-07-07, pendientes ordering) |  | TC-048, TC-059 |  |  |
+| DA-G3 (2026-07-07, marcar_no_ingresado) |  | TC-057, TC-058 |  |  |
 | EC-001 |  | TC-013 |  |  |
 | EC-002 |  | TC-014 |  |  |
 | EC-003 |  | TC-015 |  |  |
