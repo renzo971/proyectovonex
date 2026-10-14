@@ -3,20 +3,55 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CruceIngresantesController;
 
-Route::get('/user', function (Request $request) {
-    return $request->user();
-})->middleware('auth:sanctum');
+/*
+|--------------------------------------------------------------------------
+| Public auth endpoint (SPA session login)
+|--------------------------------------------------------------------------
+| The SPA calls GET /sanctum/csrf-cookie first (registered by Sanctum),
+| then POST /login. Uses the `web` middleware so the session store is
+| available to establish the login cookie that authenticates the
+| /cruce/* group below.
+*/
+Route::middleware('web')->group(function (): void {
+    Route::post('/login', [AuthController::class, 'login']);
+});
 
-Route::post('/cruce/upload', [CruceIngresantesController::class, 'upload']);
-Route::get('/cruce/lotes', [CruceIngresantesController::class, 'lotes']);
-Route::get('/cruce/lotes/{lote_id}/status', [CruceIngresantesController::class, 'loteStatus']);
-Route::get('/cruce/lotes/{lote_id}/pendientes', [CruceIngresantesController::class, 'pendientes']);
-Route::get('/cruce/ingresantes/{id}/candidatos', [CruceIngresantesController::class, 'candidatos']);
+/*
+|--------------------------------------------------------------------------
+| Authenticated endpoints
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:sanctum')->group(function (): void {
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/user', [AuthController::class, 'me']);
+});
 
-// Register both confirm path options to support tests and frontend
-Route::post('/cruce/ingresantes/{id}/confirmar', [CruceIngresantesController::class, 'confirmar']);
-Route::post('/cruce/{id}/confirmar', [CruceIngresantesController::class, 'confirmar']);
+/*
+|--------------------------------------------------------------------------
+| Cruce endpoints (unprotected for development / frontend testing)
+|--------------------------------------------------------------------------
+*/
+Route::prefix('cruce')->group(function (): void {
+    // Read
+    Route::get('/lotes', [CruceIngresantesController::class, 'lotes']);
+    Route::get('/lotes/{lote_id}/status', [CruceIngresantesController::class, 'loteStatus']);
+    Route::get('/lotes/{lote_id}/pendientes', [CruceIngresantesController::class, 'pendientes']);
+    Route::get('/ingresantes/{id}/candidatos', [CruceIngresantesController::class, 'candidatos']);
+    Route::get('/lotes/{lote_id}/exportar', [CruceIngresantesController::class, 'exportar']);
 
-Route::get('/cruce/lotes/{lote_id}/exportar', [CruceIngresantesController::class, 'exportar']);
+    // Write
+    Route::post('/upload', [CruceIngresantesController::class, 'upload']);
+    Route::post('/ingresantes/{id}/confirmar', [CruceIngresantesController::class, 'confirmar']);
+    Route::post('/{id}/confirmar', [CruceIngresantesController::class, 'confirmar']);
+
+    // Utility
+    Route::get('/health', [CruceIngresantesController::class, 'health']);
+    Route::get('/academia/alumnos', [CruceIngresantesController::class, 'academiaAlumnos']);
+
+    // Destructive
+    Route::delete('/limpiar', [CruceIngresantesController::class, 'limpiar']);
+    Route::post('/lotes/{lote_id}/reprocesar', [CruceIngresantesController::class, 'reprocesar']);
+});

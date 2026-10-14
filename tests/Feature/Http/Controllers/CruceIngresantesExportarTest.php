@@ -6,6 +6,7 @@ namespace Tests\Feature\Http\Controllers;
 
 use App\Models\Ingresante;
 use App\Models\LoteCruce;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -28,6 +29,15 @@ use Tests\TestCase;
  */
 class CruceIngresantesExportarTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // exportar is an export endpoint (role: admin|admisiones|marketing).
+        // These tests exercise the stream/error behavior, not the auth gate.
+        $this->actingAs(User::factory()->role(User::ROLE_ADMIN)->create());
+    }
+
     /**
      * The academia data load must be eager and catchable BEFORE
      * streamDownload() is invoked, so a broken academia connection

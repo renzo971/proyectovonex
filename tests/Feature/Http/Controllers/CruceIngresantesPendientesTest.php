@@ -7,6 +7,7 @@ namespace Tests\Feature\Http\Controllers;
 use App\Models\Ingresante;
 use App\Models\IngresanteCandidato;
 use App\Models\LoteCruce;
+use App\Models\User;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -17,6 +18,15 @@ use Tests\TestCase;
  */
 class CruceIngresantesPendientesTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // pendientes is a read endpoint (role: admin|admisiones|marketing).
+        // These tests exercise ordering/AC behavior, not the auth gate.
+        $this->actingAs(User::factory()->role(User::ROLE_ADMIN)->create());
+    }
+
     /**
      * Builds the shared fixture for the ordering/AC scenarios:
      * - Ingresante A: apellido_paterno 'AAA', 2 candidatos (75% rank2, 82% rank1) -> count=2, max=82

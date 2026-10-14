@@ -1,58 +1,197 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Motor de Cruce Automático de Ingresantes UNMSM (Vonex Crossing Engine)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+[![Laravel](https://img.shields.io/badge/Laravel-11.x-FF2D20?style=flat&logo=laravel)](https://laravel.com)
+[![React](https://img.shields.io/badge/React-18.x-61DAFB?style=flat&logo=react)](https://react.dev)
+[![Vite](https://img.shields.io/badge/Vite-6.x-646CFF?style=flat&logo=vite)](https://vitejs.dev)
+[![PHP](https://img.shields.io/badge/PHP-8.2+-777BB4?style=flat&logo=php)](https://php.net)
 
-## About Laravel
+An enterprise data consolidation engine built for **Academia Vonex** to cross-reference and validate official UNMSM (*Universidad Nacional Mayor de San Marcos*) admission exam results (~27,000 records × 12 columns) against the academy's student enrollment database.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## 1. Architectural Overview
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+The system follows the **Service Actions pattern** in Laravel, combined with an asynchronous background pipeline driven by queues and an interactive React SPA for unresolved cases (*cabos sueltos*).
 
-## Learning Laravel
+```mermaid
+graph TB
+    subgraph Client Layer (React SPA)
+        UI[App.jsx]
+        Upload[CSV File Upload]
+        Unmatched[Pending Resolution Panel]
+    end
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+    subgraph API & Controllers
+        CTRL[CruceIngresantesController]
+    end
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+    subgraph Queue & Asynchronous Processing
+        Q[Queue: cruce]
+        Job[ProcessCsvBatchJob]
+    end
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+    subgraph Application Service Actions
+        ACT_NORM[NormalizarTextoAction]
+        ACT_CSV[ProcesarCargaCsvAction]
+        ACT_EXACT[RealizarCruceExactoAction]
+        ACT_FUZZY[CalcularSimilitudesCabosAction]
+        ACT_CONFIRM[GuardarCruceConfirmadoAction]
+        ACT_EXCEL[ExportarExcelCruceAction]
+    end
 
-## Agentic Development
+    subgraph Dual Database Layer
+        DB_VONEX[(Vonex Analytics DB)]
+        DB_ACADEMIA[(Academia DB - Read-Only)]
+    end
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+    UI --> CTRL
+    CTRL --> Q
+    Q --> Job
 
-```bash
-composer require laravel/boost --dev
+    Job --> ACT_CSV
+    Job --> ACT_NORM
+    Job --> ACT_EXACT
+    Job --> ACT_FUZZY
 
-php artisan boost:install
+    CTRL --> ACT_CONFIRM
+    CTRL --> ACT_EXCEL
+
+    ACT_EXACT --> DB_ACADEMIA
+    ACT_FUZZY --> DB_ACADEMIA
+
+    Job --> DB_VONEX
+    ACT_CONFIRM --> DB_VONEX
+    ACT_EXCEL --> DB_VONEX
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+### Core Architecture Highlights
 
-## Contributing
+- **Dual-Table Analytics Schema:**
+  - `ingresantes`: Persists records who attained a vacancy (*alcanzó vacante*), tracking match statuses (`exacto`, `confirmado_manual`, `no_ingresado`, `pendiente`).
+  - `no_ingresantes`: Audit table persisting all applicants who did not achieve a vacancy, ensuring 100% traceability without bloating the match queries.
+- **Two-Phase Matching Engine:**
+  1. **Strict Exact Match:** Compares normalized full names and DNI against active academy student enrollments.
+  2. **Eager Fuzzy Match (Levenshtein):** Identifies ambiguous matches (*cabos sueltos* with similarity $\ge 70\%$) inside the background batch job and persists top 5 candidates in `ingresante_candidatos`.
+- **Zero HTTP Timeouts:** CSV ingestion and heavy computations are offloaded to asynchronous background jobs via Laravel Queues.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
+## 2. Prerequisites & Requirements
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+- **PHP:** `^8.2` with extensions `pdo`, `mbstring`, `openssl`, `curl`
+- **Composer:** `^2.x`
+- **Node.js:** `^18.x` or `^20.x` & **npm**
+- **Database:** PostgreSQL or MySQL (plus read-only connection to Academia DB)
+- **Queue Backend:** Redis (recommended for production) or Database queue driver
 
-## Security Vulnerabilities
+---
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## 3. Environment Setup & Configuration
 
-## License
+Copy the example environment file and set the required variables:
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```bash
+cp .env.example .env
+php artisan key:generate
+```
+
+### Key Environment Variables (`.env`)
+
+```ini
+# Primary Application Database (Vonex Analytics)
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=proyectovonex
+DB_USERNAME=postgres
+DB_PASSWORD=secret
+
+# Academia Database (Read-Only Replica for Student Verification)
+DB_ACADEMIA_HOST=127.0.0.1
+DB_ACADEMIA_PORT=5432
+DB_ACADEMIA_DATABASE=academia
+DB_ACADEMIA_USERNAME=postgres
+DB_ACADEMIA_PASSWORD=secret
+
+# Queue Configuration
+QUEUE_CONNECTION=database # or redis for high throughput
+```
+
+Run database migrations:
+
+```bash
+php artisan migrate
+```
+
+---
+
+## 4. Execution Commands
+
+To run the application locally, start the following three services:
+
+### 1. Web Application Server
+Using Laravel built-in server or Laravel Herd / Valet:
+```bash
+php artisan serve
+```
+
+### 2. Frontend Build & Asset Watcher (Vite)
+Compiles React JSX components:
+```bash
+npm run dev
+```
+
+### 3. Queue Worker (CRITICAL)
+Processes the CSV batches and fuzzy match calculations dispatched to the `cruce` queue:
+```bash
+php artisan queue:work --queue=cruce
+```
+
+> [!IMPORTANT]
+> The background worker must be running with `--queue=cruce`. Uploaded files are enqueued via `ProcessCsvBatchJob` and will remain in pending state if this worker is not active.
+
+---
+
+## 5. API Reference (`/api/cruce/*`)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/cruce/upload` | Upload official CSV file (max 20 MB) and dispatch batch job |
+| `GET` | `/api/cruce/lotes` | List all processed admission exam batches |
+| `GET` | `/api/cruce/lotes/{lote_id}/status` | Check the real-time processing status of a batch |
+| `GET` | `/api/cruce/lotes/{lote_id}/pendientes` | Paginated list of unresolved records (*cabos sueltos*) |
+| `GET` | `/api/cruce/ingresantes/{id}/candidatos` | Pre-calculated fuzzy match candidates for a pending record |
+| `POST` | `/api/cruce/ingresantes/{id}/confirmar` | Confirm candidate match (`alumno_id`) or mark as not admitted (`marcar_no_ingresado: true`) |
+| `GET` | `/api/cruce/lotes/{lote_id}/exportar` | Export final consolidated report in Excel / CSV format |
+| `GET` | `/api/cruce/health` | Diagnostic check of database connectivity and queues |
+| `GET` | `/api/cruce/academia/alumnos` | Diagnostic fetch of active academy student roster |
+| `POST` | `/api/cruce/lotes/{lote_id}/reprocesar` | Reprocess an existing batch from scratch |
+| `DELETE`| `/api/cruce/limpiar` | Purge lotes and associated records (administrative action) |
+
+---
+
+## 6. Testing & Quality Assurance
+
+Unit and feature test suites are written using **Pest / PHPUnit**:
+
+```bash
+# Run all tests
+php artisan test
+
+# Run feature tests for the cruce module
+php artisan test --filter=CruceIngresantesPendientesTest
+php artisan test --filter=CruceIngresantesExportarTest
+
+# Run authentication and authorization suite
+php artisan test --filter=CruceAuthTest
+```
+
+---
+
+## 7. SDD Enterprise Specifications
+
+Detailed design, data contracts, and quality checklists can be found in the SDD artifacts:
+- Solution Architecture & Decisions: [.specify/specs/001-motor-cruce-ingresantes/plan.md](file:///.specify/specs/001-motor-cruce-ingresantes/plan.md)
+- Data Model & Schema: [.specify/specs/001-motor-cruce-ingresantes/data-model.md](file:///.specify/specs/001-motor-cruce-ingresantes/data-model.md)
+- Acceptance Criteria & Specs: [.specify/specs/001-motor-cruce-ingresantes/spec.md](file:///.specify/specs/001-motor-cruce-ingresantes/spec.md)
+- Task Breakdown: [.specify/specs/001-motor-cruce-ingresantes/tasks.md](file:///.specify/specs/001-motor-cruce-ingresantes/tasks.md)

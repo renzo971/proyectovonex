@@ -103,7 +103,7 @@ class CruceIngresantesController extends Controller
             ];
         }
 
-        $allOk = collect($checks)->every(fn ($c) => ($c['status'] ?? '') === 'ok');
+        $allOk = collect($checks)->every(fn($c) => ($c['status'] ?? '') === 'ok');
 
         return response()->json([
             'success' => $allOk,
@@ -135,7 +135,7 @@ class CruceIngresantesController extends Controller
                 JOIN alumnos a ON am.alumno_codigo = a.codigo
                 JOIN personas p ON a.persona_dni = p.dni
                 WHERE am.estado IN (0, 2, 3, 9, 13, 14)
-                  AND am.estado_aula = 1
+                   AND am.estado_aula = 1
                 ORDER BY p.apellido_paterno, p.apellido_materno, p.nombres
                 LIMIT 50
             ");
@@ -309,7 +309,7 @@ class CruceIngresantesController extends Controller
         // Batch-load academia names for all candidate alumno_ids (avoid N+1)
         $items = $pendientes->items();
         $allAlumnoIds = collect($items)
-            ->flatMap(fn ($ing) => $ing->candidatos->pluck('alumno_id'))
+            ->flatMap(fn($ing) => $ing->candidatos->pluck('alumno_id'))
             ->unique()
             ->values()
             ->toArray();

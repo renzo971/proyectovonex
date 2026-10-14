@@ -13,7 +13,20 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Sanctum SPA auth: treat first-party stateful frontend requests
+        // (same-origin fetch from the React SPA) as session-authenticated,
+        // so the /api/cruce/* routes can rely on session cookies + CSRF.
+        $middleware->statefulApi();
+
+        // Prevent redirecting unauthenticated API requests to a non-existent login route
+        $middleware->redirectGuestsTo(fn (Request $request) =>
+            $request->is('api/*') ? null : '/'
+        );
+
+        // Role gate for the cruce endpoints (see routes/api.php).
+        $middleware->alias([
+            'role' => \App\Http\Middleware\EnsureRole::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
