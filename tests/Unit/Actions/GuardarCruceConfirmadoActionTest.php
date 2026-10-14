@@ -8,6 +8,7 @@ use App\Actions\Cruce\AcademiaDbHelper;
 use App\Actions\Cruce\GuardarCruceConfirmadoAction;
 use App\Models\Ingresante;
 use App\Models\LoteCruce;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -25,6 +26,11 @@ class GuardarCruceConfirmadoActionTest extends TestCase
     {
         parent::setUp();
         $this->action = new GuardarCruceConfirmadoAction();
+
+        // Confirmar is a write endpoint (role: admin|admisiones). These tests
+        // exercise the endpoint behavior, not the auth gate, so authenticate
+        // as an admisiones user for every request.
+        $this->actingAs(User::factory()->role(User::ROLE_ADMISIONES)->create());
     }
 
     /**
@@ -77,7 +83,7 @@ class GuardarCruceConfirmadoActionTest extends TestCase
             'estado_match' => 'pendiente',
         ]);
 
-        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+        $response = $this->postJson("/api/cruce/ingresantes/{$ingresante->id}/confirmar", [
             'alumno_id' => $alumnoId,
         ]);
 
@@ -108,7 +114,7 @@ class GuardarCruceConfirmadoActionTest extends TestCase
             'estado_match' => 'pendiente',
         ]);
 
-        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+        $response = $this->postJson("/api/cruce/ingresantes/{$ingresante->id}/confirmar", [
             'marcar_no_ingresado' => true,
         ]);
 
@@ -139,7 +145,7 @@ class GuardarCruceConfirmadoActionTest extends TestCase
             'estado_match' => 'pendiente',
         ]);
 
-        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+        $response = $this->postJson("/api/cruce/ingresantes/{$ingresante->id}/confirmar", [
             'marcar_no_ingresado' => true,
             'alumno_id' => 12345,
         ]);
@@ -165,7 +171,7 @@ class GuardarCruceConfirmadoActionTest extends TestCase
             'estado_match' => 'pendiente',
         ]);
 
-        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", []);
+        $response = $this->postJson("/api/cruce/ingresantes/{$ingresante->id}/confirmar", []);
 
         $response->assertStatus(422);
 
@@ -189,7 +195,7 @@ class GuardarCruceConfirmadoActionTest extends TestCase
             'estado_match' => 'pendiente',
         ]);
 
-        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+        $response = $this->postJson("/api/cruce/ingresantes/{$ingresante->id}/confirmar", [
             'alumno_id' => 99999999,
         ]);
 
@@ -218,7 +224,7 @@ class GuardarCruceConfirmadoActionTest extends TestCase
             'estado_match' => 'pendiente',
         ]);
 
-        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+        $response = $this->postJson("/api/cruce/ingresantes/{$ingresante->id}/confirmar", [
             'alumno_id' => 0,
         ]);
 
@@ -248,7 +254,7 @@ class GuardarCruceConfirmadoActionTest extends TestCase
             'estado_match' => 'pendiente',
         ]);
 
-        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+        $response = $this->postJson("/api/cruce/ingresantes/{$ingresante->id}/confirmar", [
             'alumno_id' => $realAlumnoId,
         ]);
 
@@ -277,7 +283,7 @@ class GuardarCruceConfirmadoActionTest extends TestCase
         config(['database.connections.academia.database' => '/nonexistent-dir-xyz/does-not-exist.sqlite']);
         DB::purge('academia');
 
-        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+        $response = $this->postJson("/api/cruce/ingresantes/{$ingresante->id}/confirmar", [
             'alumno_id' => 1,
         ]);
 
@@ -314,7 +320,7 @@ class GuardarCruceConfirmadoActionTest extends TestCase
             'estado_match' => 'pendiente',
         ]);
 
-        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+        $response = $this->postJson("/api/cruce/ingresantes/{$ingresante->id}/confirmar", [
             'alumno_id' => $retiredId,
         ]);
 
@@ -353,7 +359,7 @@ class GuardarCruceConfirmadoActionTest extends TestCase
             'estado_match' => 'pendiente',
         ]);
 
-        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+        $response = $this->postJson("/api/cruce/ingresantes/{$ingresante->id}/confirmar", [
             'alumno_id' => $inactiveAulaId,
         ]);
 
@@ -399,7 +405,7 @@ class GuardarCruceConfirmadoActionTest extends TestCase
             'estado_match' => 'pendiente',
         ]);
 
-        $response = $this->postJson("/api/cruce/{$ingresante->id}/confirmar", [
+        $response = $this->postJson("/api/cruce/ingresantes/{$ingresante->id}/confirmar", [
             'alumno_id' => $retiradoId,
         ]);
 
